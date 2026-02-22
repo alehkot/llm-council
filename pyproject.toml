@@ -1,0 +1,14 @@
+[project]
+name = "llm-council"
+version = "0.1.0"
+description = "Your LLM Council"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.40.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.12.5",
+    "langgraph==1.0.6",
+]

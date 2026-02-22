@@ -1,0 +1,961 @@
+import { useEffect, useCallback } from 'react';
+import { produce } from 'immer';
+import Sidebar from './components/Sidebar';
+import ChatInterface from './components/ChatInterface';
+import ApiKeyModal from './components/ApiKeyModal';
+import { Sheet, SheetContent } from './components/ui/sheet';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './components/ui/alert-dialog';
+import { api } from './api';
+import { apiKeyStorage } from './utils/apiKeyStorage';
+import { useNotifications } from './hooks/useNotifications';
+import { mergeConversation, ensureLoadingState } from './utils/conversationMerge';
+import { useAppStore } from './store/useAppStore';
+
+function App() {
+  const DEFAULT_STREAM_TIMEOUT_MS = 10 * 60 * 1000;
+  const {
+    conversations,
+    setConversations,
+    currentConversationId,
+    setCurrentConversationId,
+    setConversationsById,
+    setIsLoading,
+    setError,
+    setConfig,
+    isSidebarOpen,
+    setIsSidebarOpen,
+    deleteTarget,
+    setDeleteTarget,
+    isClearConfirmOpen,
+    setIsClearConfirmOpen,
+    consultationStatus,
+    setConsultationStatus,
+    setMessageQueue,
+    setBackendConsultations,
+    setStreamingConsultations,
+    interactiveSessionId,
+    setInteractiveSessionId,
+    currentInteractivePrompt,
+    setCurrentInteractivePrompt,
+    isCancelling,
+    setIsCancelling,
+    hasApiKey,
+    setHasApiKey,
+    showApiKeyModal,
+    setShowApiKeyModal,
+    apiKeyError,
+    setApiKeyError,
+  } = useAppStore();
+
+  // Notifications
+  const { requestPermission, notifyInputNeeded } = useNotifications();
+
+  // Handle API errors that require re-authentication
+  const handleApiError = useCallback((err) => {
+    if (err.message === 'NO_API_KEY' || err.message === 'INVALID_API_KEY') {
+      setApiKeyError(
+        err.message === 'INVALID_API_KEY'
+          ? 'Your API key was invalid or has expired. Please enter a new one.'
+          : null
+      );
+      setShowApiKeyModal(true);
+      setHasApiKey(false);
+      return true; // Error was handled
+    }
+    if (err.message === 'INSECURE_CONTEXT') {
+      setError({
+        message: 'Secure connection required',
+        details: 'API requests require HTTPS in production. Please use a secure connection.',
+      });
+      return true;
+    }
+    if (err.message === 'API_KEY_RATE_LIMITED') {
+      const retryAfterSeconds = Number.isFinite(err.retryAfterSeconds)
+        ? Math.ceil(err.retryAfterSeconds)
+        : null;
+      setError({
+        message: 'API key temporarily locked',
+        details: retryAfterSeconds
+          ? `Too many invalid API key attempts. Try again in ${retryAfterSeconds} seconds.`
+          : 'Too many invalid API key attempts. Try again later.',
+      });
+      return true;
+    }
+    return false; // Error not handled
+  }, [setApiKeyError, setShowApiKeyModal, setHasApiKey, setError]);
+
+  const getConversationIdFromUrl = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('conversation');
+  }, []);
+
+  const updateConversationUrl = useCallback((conversationId, replace = false) => {
+    const url = new URL(window.location.href);
+    if (conversationId) {
+      url.searchParams.set('conversation', conversationId);
+    } else {
+      url.searchParams.delete('conversation');
+    }
+    const method = replace ? 'replaceState' : 'pushState';
+    window.history[method]({ conversationId }, '', url.toString());
+  }, []);
+
+  const selectConversation = useCallback((conversationId, { updateUrl = true, replace = false } = {}) => {
+    if (currentConversationId === conversationId) {
+      if (updateUrl) {
+        updateConversationUrl(conversationId, replace);
+      }
+      return;
+    }
+    setCurrentConversationId(conversationId);
+    if (updateUrl) {
+      updateConversationUrl(conversationId, replace);
+    }
+  }, [currentConversationId, updateConversationUrl]);
+
+  const updateConversationById = useCallback((conversationId, updater) => {
+    if (!conversationId) return;
+    setConversationsById(prev => {
+      let base = prev[conversationId];
+      if (!base) {
+        const meta = useAppStore.getState().conversations.find((conv) => conv.id === conversationId);
+        base = {
+          id: conversationId,
+          created_at: meta?.created_at || new Date().toISOString(),
+          title: meta?.title || 'New Conversation',
+          messages: [],
+        };
+      }
+      const next = produce(base, updater);
+      return {
+        ...prev,
+        [conversationId]: next,
+      };
+    });
+  }, [setConversationsById]);
+
+  const applyConversationSnapshot = useCallback((conv) => {
+    if (!conv?.id) return { status: null };
+
+    let statusToReturn = null;
+    let interactivePromptToReturn = null;
+    const isCurrentConv = useAppStore.getState().currentConversationId === conv.id;
+
+    setConversationsById(prev => {
+      let merged = mergeConversation(prev[conv.id], conv);
+      const lastMsgSnapshot = merged?.messages?.[merged.messages.length - 1];
+      const status = lastMsgSnapshot?.metadata?.status || (lastMsgSnapshot?.stage3 ? 'complete' : null);
+
+      merged = produce(merged, (draft) => {
+        const lastMsg = draft?.messages?.[draft.messages.length - 1];
+        if (!lastMsg || lastMsg.role !== 'assistant' || !status) return;
+        const loading = ensureLoadingState(lastMsg);
+        loading.stage1 = status === 'stage1';
+        loading.negative = status === 'negative';
+        loading.stage2 = status === 'stage2';
+        loading.deliberation = status === 'deliberation';
+        loading.stage3 = status === 'stage3';
+      });
+
+      const lastMsg = merged?.messages?.[merged.messages.length - 1];
+      const interactivePrompt = status === 'interactive'
+        ? lastMsg?.metadata?.interactive_prompt || null
+        : null;
+
+      if (isCurrentConv) {
+        statusToReturn = status;
+        interactivePromptToReturn = interactivePrompt;
+      }
+
+      return {
+        ...prev,
+        [conv.id]: merged,
+      };
+    });
+
+    if (!isCurrentConv) {
+      return { status: null };
+    }
+
+    if (statusToReturn === 'interactive' && interactivePromptToReturn) {
+      setCurrentInteractivePrompt(interactivePromptToReturn);
+      if (interactivePromptToReturn.session_id) {
+        setInteractiveSessionId(interactivePromptToReturn.session_id);
+      }
+    } else {
+      setCurrentInteractivePrompt(null);
+      setInteractiveSessionId(null);
+    }
+
+    if (statusToReturn && statusToReturn !== 'complete' && statusToReturn !== 'failed') {
+      setIsLoading(true);
+      setStreamingConsultations(prev => ({ ...prev, [conv.id]: statusToReturn }));
+    } else if (statusToReturn === 'complete' || statusToReturn === 'failed') {
+      setStreamingConsultations(prev => {
+        if (!prev[conv.id]) return prev;
+        const next = { ...prev };
+        delete next[conv.id];
+        return next;
+      });
+    }
+
+    return { status: statusToReturn, interactivePrompt: interactivePromptToReturn };
+  }, [setCurrentInteractivePrompt, setInteractiveSessionId, setIsLoading, setStreamingConsultations, setConversationsById]);
+
+  // Load conversations on mount (only if API key exists)
+  useEffect(() => {
+    if (hasApiKey) {
+      loadConversations();
+      loadConfig();
+    }
+  }, [hasApiKey]);
+
+  useEffect(() => {
+    if (!hasApiKey) return;
+    const conversationId = getConversationIdFromUrl();
+    if (conversationId) {
+      selectConversation(conversationId, { updateUrl: false, replace: true });
+    }
+  }, [getConversationIdFromUrl, hasApiKey, selectConversation]);
+
+  useEffect(() => {
+    if (!hasApiKey) return;
+    const handlePopState = () => {
+      const conversationId = getConversationIdFromUrl();
+      selectConversation(conversationId, { updateUrl: false, replace: true });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [getConversationIdFromUrl, hasApiKey, selectConversation]);
+
+  // Load conversation details when selected
+  useEffect(() => {
+    if (currentConversationId) {
+      loadConversation(currentConversationId);
+    }
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    setCurrentInteractivePrompt(null);
+    setInteractiveSessionId(null);
+  }, [currentConversationId]);
+
+  // Poll for consultation status
+  useEffect(() => {
+    if (!currentConversationId || !consultationStatus) {
+      return;
+    }
+
+    // Don't poll if consultation is done
+    if (consultationStatus.status === 'complete' || consultationStatus.status === 'failed' || consultationStatus.status === 'none') {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const status = await api.getConsultationStatus(currentConversationId);
+        if (status.status === 'none') {
+          setIsLoading(false);
+          setConsultationStatus(null);
+        } else {
+          setConsultationStatus(status);
+
+          // Update conversation with partial results
+          updateConversationById(currentConversationId, (draft) => {
+            if (!draft || !draft.messages || draft.messages.length === 0) return;
+            const lastMsg = draft.messages[draft.messages.length - 1];
+            if (!lastMsg || lastMsg.role !== 'assistant') return;
+
+            if (status.stage1) lastMsg.stage1 = status.stage1;
+            if (status.negative) lastMsg.negative = status.negative;
+            if (status.stage2) {
+              lastMsg.stage2 = status.stage2;
+            }
+            if (status.stage3) lastMsg.stage3 = status.stage3;
+            if (status.metadata) {
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                ...status.metadata,
+              };
+
+              const interactivePrompt = status.metadata.interactive_prompt;
+              if (interactivePrompt) {
+                if (interactivePrompt.session_id) {
+                  setInteractiveSessionId(interactivePrompt.session_id);
+                }
+                setCurrentInteractivePrompt(interactivePrompt);
+              } else if (interactivePrompt === null) {
+                setCurrentInteractivePrompt(null);
+                setInteractiveSessionId(null);
+              }
+            }
+
+            const loading = ensureLoadingState(lastMsg);
+            loading.stage1 = status.status === 'stage1';
+            loading.negative = status.status === 'negative';
+            loading.stage2 = status.status === 'stage2';
+            loading.deliberation = status.status === 'deliberation';
+            loading.stage3 = status.status === 'stage3';
+          });
+
+          // Handle completion
+          if (status.status === 'complete') {
+            setIsLoading(false);
+            loadConversations(); // Refresh list for title update
+            setConsultationStatus(null);
+          } else if (status.status === 'failed') {
+            setIsLoading(false);
+            if (status.error === 'Cancelled') {
+              setConsultationStatus(null);
+            } else {
+              setError({ message: 'Consultation failed', details: status.error });
+              setConsultationStatus(null);
+            }
+          }
+        }
+
+        // Update queue
+        const queueData = await api.getConversationQueue(currentConversationId);
+        setMessageQueue(queueData.queue);
+      } catch (err) {
+        console.error('Failed to poll consultation status:', err);
+        handleApiError(err);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [currentConversationId, consultationStatus?.status, updateConversationById, handleApiError]);
+
+  // Check for active consultation when switching conversations
+  useEffect(() => {
+    if (!currentConversationId) {
+      setConsultationStatus(null);
+      setMessageQueue([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const checkConsultation = async () => {
+      try {
+        const status = await api.getConsultationStatus(currentConversationId);
+        if (status.status === 'none') {
+          setConsultationStatus(null);
+          setIsLoading(false);
+        } else if (status.status === 'complete' || status.status === 'failed') {
+          setConsultationStatus(null);
+          setIsLoading(false);
+        } else {
+          setConsultationStatus(status);
+          setIsLoading(true);
+        }
+
+        const queueData = await api.getConversationQueue(currentConversationId);
+        setMessageQueue(queueData.queue);
+      } catch (err) {
+        console.error('Failed to check consultation status:', err);
+        handleApiError(err);
+      }
+    };
+
+    checkConsultation();
+  }, [currentConversationId, handleApiError]);
+
+  // Poll for global consultation status (for sidebar indicators)
+  useEffect(() => {
+    if (!hasApiKey) return;
+
+    const fetchGlobalStatus = async () => {
+      try {
+        const status = await api.getGlobalConsultationStatus();
+        const consultations = {};
+        for (const active of status.active) {
+          consultations[active.conversation_id] = active.status;
+        }
+        setBackendConsultations(consultations);
+      } catch (err) {
+        console.error('Failed to fetch global consultation status:', err);
+        handleApiError(err);
+      }
+    };
+
+    fetchGlobalStatus();
+    const interval = setInterval(fetchGlobalStatus, 5000);
+    return () => clearInterval(interval);
+  }, [hasApiKey, handleApiError]);
+
+  // Notify when interactive prompt arrives
+  useEffect(() => {
+    if (currentInteractivePrompt) {
+      notifyInputNeeded();
+    }
+  }, [currentInteractivePrompt, notifyInputNeeded]);
+
+
+
+  const loadConversations = async () => {
+    try {
+      const convs = await api.listConversations();
+      setConversations(convs);
+      if (convs.length > 0) {
+        const prev = useAppStore.getState().conversationsById;
+        let updated = null;
+        convs.forEach((meta) => {
+          if (prev[meta.id]) {
+            const existing = prev[meta.id];
+            if (existing.title !== meta.title || existing.created_at !== meta.created_at) {
+              updated = updated || { ...prev };
+              updated[meta.id] = {
+                ...existing,
+                title: meta.title,
+                created_at: meta.created_at,
+              };
+            }
+          }
+        });
+        if (updated) {
+          setConversationsById(prev => ({ ...prev, ...updated }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to load conversations. Please refresh the page.', details: err.message });
+      }
+    }
+  };
+
+  const loadConversation = async (id) => {
+    try {
+      const conv = await api.getConversation(id);
+      applyConversationSnapshot(conv);
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to load conversation.', details: err.message });
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!hasApiKey) return;
+    const syncCurrentConversation = async () => {
+      const conversationId = useAppStore.getState().currentConversationId;
+      if (!conversationId) return;
+      try {
+        const conv = await api.getConversation(conversationId);
+        applyConversationSnapshot(conv);
+      } catch (err) {
+        console.error('Failed to sync conversation state:', err);
+        handleApiError(err);
+      }
+    };
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        syncCurrentConversation();
+      }
+    };
+
+    window.addEventListener('focus', syncCurrentConversation);
+    window.addEventListener('online', syncCurrentConversation);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('focus', syncCurrentConversation);
+      window.removeEventListener('online', syncCurrentConversation);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [applyConversationSnapshot, hasApiKey, handleApiError]);
+
+  const loadConfig = async () => {
+    try {
+      const cfg = await api.getConfig();
+      setConfig(cfg);
+    } catch (err) {
+      console.error('Failed to load config:', err);
+      if (!handleApiError(err)) {
+        setConfig({
+          negative_mode_enabled: false,
+          deliberation_enabled: false,
+          interactive_mode_enabled: false,
+          prompt_max_chars: null,
+          negative_prompt_max_chars: null,
+          council_models: [],
+          chairman_model: null,
+          title_model: null,
+        });
+      }
+    }
+  };
+
+  const handleInteractiveSubmit = async (responses) => {
+    if (!interactiveSessionId || !currentInteractivePrompt) return;
+
+    try {
+      await api.submitInteractiveResponse(
+        interactiveSessionId,
+        currentInteractivePrompt.prompt_id,
+        responses,
+        false
+      );
+      setCurrentInteractivePrompt(null);
+    } catch (err) {
+      console.error('Failed to submit interactive response:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to submit response.', details: err.message });
+      }
+    }
+  };
+
+  const handleInteractiveSkip = async () => {
+    if (!interactiveSessionId || !currentInteractivePrompt) return;
+
+    try {
+      await api.submitInteractiveResponse(
+        interactiveSessionId,
+        currentInteractivePrompt.prompt_id,
+        {},
+        true
+      );
+      setCurrentInteractivePrompt(null);
+    } catch (err) {
+      console.error('Failed to skip interactive prompt:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to skip prompt.', details: err.message });
+      }
+    }
+  };
+
+  const handleVersionAdded = useCallback((messageIndex, version) => {
+    if (!currentConversationId) return;
+    // Append a new synthesis version to the stage3 versions array
+    updateConversationById(currentConversationId, (draft) => {
+      if (!draft?.messages?.[messageIndex]) return;
+      const msg = draft.messages[messageIndex];
+      if (!msg.stage3) return;
+
+      // Ensure stage3 is in new format
+      if (!msg.stage3.versions) {
+        // Migrate old format
+        const oldVersion = {
+          model: msg.stage3.model,
+          response: msg.stage3.response,
+          mode: msg.stage3.mode || 'best_of_breed',
+          timestamp: new Date().toISOString(),
+        };
+        msg.stage3 = {
+          current: oldVersion,
+          versions: [oldVersion],
+        };
+      }
+
+      // Append new version
+      msg.stage3.versions.push(version);
+      // New version becomes current
+      msg.stage3.current = version;
+
+      // Update synthesis mode in metadata
+      if (version.mode) {
+        if (!msg.metadata) {
+          msg.metadata = {};
+        }
+        msg.metadata.synthesis_mode = version.mode;
+      }
+    });
+  }, [currentConversationId, updateConversationById]);
+
+  const handleCurrentChanged = useCallback((messageIndex, versionIndex) => {
+    if (!currentConversationId) return;
+    // Set a different version as the current one
+    updateConversationById(currentConversationId, (draft) => {
+      if (!draft?.messages?.[messageIndex]) return;
+      const msg = draft.messages[messageIndex];
+      if (!msg.stage3?.versions?.[versionIndex]) return;
+
+      msg.stage3.current = msg.stage3.versions[versionIndex];
+
+      // Update synthesis mode in metadata
+      const mode = msg.stage3.current.mode;
+      if (mode) {
+        if (!msg.metadata) {
+          msg.metadata = {};
+        }
+        msg.metadata.synthesis_mode = mode;
+      }
+    });
+  }, [currentConversationId, updateConversationById]);
+
+  const handleNewConversation = async () => {
+    setError(null);
+
+    // Check if current conversation is empty and should be auto-deleted
+    let conversationToDelete = null;
+    if (currentConversationId) {
+      const currentConv = conversations.find((c) => c.id === currentConversationId);
+      if (currentConv && currentConv.message_count === 0) {
+        conversationToDelete = currentConversationId;
+      }
+    }
+
+    try {
+      // Delete empty conversation if needed
+      if (conversationToDelete) {
+        await api.deleteConversation(conversationToDelete);
+        if (useAppStore.getState().conversationsById[conversationToDelete]) {
+          setConversationsById(prev => {
+            const next = { ...prev };
+            delete next[conversationToDelete];
+            return next;
+          });
+        }
+      }
+
+      const newConv = await api.createConversation();
+      setConversations((prev) => [
+        { id: newConv.id, created_at: newConv.created_at, title: newConv.title, message_count: 0 },
+        ...prev.filter((c) => c.id !== conversationToDelete),
+      ]);
+      setConversationsById(prev => ({
+        ...prev,
+        [newConv.id]: {
+          id: newConv.id,
+          created_at: newConv.created_at,
+          title: newConv.title,
+          messages: [],
+        },
+      }));
+      selectConversation(newConv.id);
+    } catch (err) {
+      console.error('Failed to create conversation:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to create new conversation.', details: err.message });
+      }
+    }
+  };
+
+  const handleDeleteConversation = (conversationId) => {
+    const conversationTitle =
+      conversations.find((conv) => conv.id === conversationId)?.title || 'New Consultation';
+    setDeleteTarget({ id: conversationId, title: conversationTitle });
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!deleteTarget) return;
+
+    setError(null);
+    try {
+      await api.deleteConversation(deleteTarget.id);
+      const remaining = conversations.filter((conv) => conv.id !== deleteTarget.id);
+      setConversations(remaining);
+      if (useAppStore.getState().conversationsById[deleteTarget.id]) {
+        setConversationsById(prev => {
+          const next = { ...prev };
+          delete next[deleteTarget.id];
+          return next;
+        });
+      }
+      if (currentConversationId === deleteTarget.id) {
+        selectConversation(null, { replace: true });
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to delete conversation.', details: err.message });
+      }
+    }
+  };
+
+  const handleClearConversations = () => {
+    if (conversations.length === 0) return;
+
+    setIsClearConfirmOpen(true);
+  };
+
+  const confirmClearConversations = async () => {
+    setError(null);
+    try {
+      await api.clearConversations();
+      setConversations([]);
+      selectConversation(null, { replace: true });
+      setConversationsById({});
+      setIsClearConfirmOpen(false);
+    } catch (err) {
+      console.error('Failed to delete conversations:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to delete conversations.', details: err.message });
+      }
+    }
+  };
+
+  // API key handlers
+  const handleApiKeySubmit = (key) => {
+    apiKeyStorage.set(key);
+    setHasApiKey(true);
+    setShowApiKeyModal(false);
+    setApiKeyError(null);
+  };
+
+  const handleApiKeyClear = useCallback(() => {
+    apiKeyStorage.clear();
+    setHasApiKey(false);
+    setShowApiKeyModal(true);
+    setConversations([]);
+    selectConversation(null, { replace: true });
+    setConversationsById({});
+    setConfig(null);
+  }, [selectConversation]);
+
+
+
+  const handleCancelConsultation = useCallback(async () => {
+    if (!currentConversationId) return;
+    if (isCancelling) return;
+
+    const conversationId = currentConversationId;
+    setIsCancelling(true);
+    setError(null);
+
+    try {
+      await api.cancelConsultation(conversationId);
+      setIsLoading(false);
+      setConsultationStatus(null);
+      setCurrentInteractivePrompt(null);
+      setInteractiveSessionId(null);
+      setMessageQueue([]);
+      await loadConversation(conversationId);
+      await loadConversations();
+    } catch (err) {
+      console.error('Failed to cancel consultation:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to cancel consultation.', details: err.message });
+      }
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [
+    currentConversationId,
+    handleApiError,
+    isCancelling,
+    loadConversations,
+    loadConversation,
+    setConsultationStatus,
+    setCurrentInteractivePrompt,
+    setError,
+    setInteractiveSessionId,
+    setIsCancelling,
+    setIsLoading,
+    setMessageQueue,
+  ]);
+
+  const handleSelectConversation = (id) => {
+    selectConversation(id);
+  };
+
+  const handleSendMessage = async (content, negativePrompt) => {
+    if (!currentConversationId) return;
+
+    // Request notification permission on first message
+    requestPermission();
+
+    setError(null);
+    setCurrentInteractivePrompt(null);
+    setInteractiveSessionId(null);
+
+    try {
+      const conversationId = currentConversationId;
+      const userMessage = { role: 'user', content };
+      const assistantMessage = {
+        role: 'assistant',
+        stage1: null,
+        negative: null,
+        stage2: null,
+        stage3: null,
+        metadata: null,
+        loading: {
+          stage1: false,
+          negative: false,
+          stage2: false,
+          deliberation: false,
+          stage3: false,
+        },
+      };
+
+      const removeAssistantPlaceholder = () => {
+        updateConversationById(conversationId, (draft) => {
+          if (!draft || !draft.messages || draft.messages.length === 0) return;
+          const lastMsg = draft.messages[draft.messages.length - 1];
+          if (!lastMsg || lastMsg.role !== 'assistant') return;
+          const isEmpty =
+            !lastMsg.stage1 &&
+            !lastMsg.negative &&
+            !lastMsg.stage2 &&
+            !lastMsg.stage3 &&
+            !lastMsg.metadata;
+          if (isEmpty) {
+            draft.messages.pop();
+          }
+        });
+      };
+
+      updateConversationById(conversationId, (draft) => {
+        if (!draft.messages) {
+          draft.messages = [];
+        }
+        draft.messages.push(userMessage);
+        draft.messages.push(assistantMessage);
+      });
+
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === conversationId
+            ? { ...c, message_count: c.message_count + 1 }
+            : c
+        )
+      );
+
+      setIsLoading(true);
+      setConsultationStatus(null);
+
+      try {
+        const result = await api.sendMessage(conversationId, content, negativePrompt);
+
+        if (result.status === 'queued') {
+          setIsLoading(false);
+          removeAssistantPlaceholder();
+          setMessageQueue(prev => [
+            ...prev,
+            { id: result.consultation_id, content, created_at: new Date().toISOString() },
+          ]);
+          return;
+        }
+
+        setIsLoading(true);
+        setConsultationStatus({ status: 'pending', consultation_id: result.consultation_id });
+      } catch (err) {
+        setIsLoading(false);
+        removeAssistantPlaceholder();
+        if (!handleApiError(err)) {
+          setError({ message: 'Failed to send message.', details: err.message });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to prepare message send:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to prepare message.', details: err.message });
+      }
+    }
+  };
+
+  return (
+    <>
+      <a href="#main-content" className="skip-link">Skip to content</a>
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onSubmit={handleApiKeySubmit}
+        error={apiKeyError}
+      />
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete consultation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete "{deleteTarget?.title || 'New Consultation'}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteConversation}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={isClearConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) setIsClearConfirmOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all consultations?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove every saved consultation and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmClearConversations}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
+        <SheetContent side="left" className="p-0">
+          <Sidebar
+            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onClearConversations={handleClearConversations}
+            onClose={() => setIsSidebarOpen(false)}
+            className="h-full rounded-none border-0 shadow-none"
+          />
+        </SheetContent>
+      </Sheet>
+      <div className="flex min-h-[100dvh] w-full">
+        <aside className="app-sidebar hidden w-[320px] shrink-0 p-4 lg:block" aria-label="Consultations sidebar">
+          <Sidebar
+            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onClearConversations={handleClearConversations}
+            className="h-full"
+          />
+        </aside>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="app-main flex min-w-0 flex-1 flex-col lg:p-4"
+          aria-label="Consultation content"
+        >
+          <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0 lg:rounded-xl lg:glass">
+            <ChatInterface
+              onSendMessage={handleSendMessage}
+              onInteractiveSubmit={handleInteractiveSubmit}
+              onInteractiveSkip={handleInteractiveSkip}
+              onApiKeyClear={handleApiKeyClear}
+              onOpenSidebar={() => setIsSidebarOpen(true)}
+              onCancelConsultation={handleCancelConsultation}
+              onVersionAdded={handleVersionAdded}
+              onCurrentChanged={handleCurrentChanged}
+            />
+          </div>
+        </main>
+      </div>
+    </>
+  );
+}
+
+export default App;

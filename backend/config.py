@@ -1,0 +1,159 @@
+"""Configuration for the LLM Council."""
+
+import os
+from typing import List, Optional
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _parse_csv(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _get_csv_env(name: str, default: List[str]) -> List[str]:
+    parsed = _parse_csv(os.getenv(name))
+    return parsed or list(default)
+
+
+def _get_bool_env(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() == "true"
+
+
+def _get_float_env(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number (got {value!r})") from exc
+
+
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer (got {value!r})") from exc
+
+
+# OpenRouter API key
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    raise ValueError(
+        "OPENROUTER_API_KEY environment variable not set. "
+        "Please add it to your .env file."
+    )
+
+# API auth key for local requests
+API_AUTH_KEY = os.getenv("API_AUTH_KEY")
+if not API_AUTH_KEY:
+    raise ValueError(
+        "API_AUTH_KEY environment variable not set. "
+        "Please add it to your .env file."
+    )
+
+# Basic brute-force protection for API auth key
+API_KEY_BRUTEFORCE_MAX_ATTEMPTS = _get_int_env("API_KEY_BRUTEFORCE_MAX_ATTEMPTS", 8)
+API_KEY_BRUTEFORCE_WINDOW_SECONDS = _get_int_env("API_KEY_BRUTEFORCE_WINDOW_SECONDS", 300)
+API_KEY_BRUTEFORCE_LOCKOUT_SECONDS = _get_int_env("API_KEY_BRUTEFORCE_LOCKOUT_SECONDS", 300)
+if API_KEY_BRUTEFORCE_MAX_ATTEMPTS < 0:
+    raise ValueError("API_KEY_BRUTEFORCE_MAX_ATTEMPTS must be >= 0")
+if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
+    if API_KEY_BRUTEFORCE_WINDOW_SECONDS <= 0:
+        raise ValueError("API_KEY_BRUTEFORCE_WINDOW_SECONDS must be > 0")
+    if API_KEY_BRUTEFORCE_LOCKOUT_SECONDS <= 0:
+        raise ValueError("API_KEY_BRUTEFORCE_LOCKOUT_SECONDS must be > 0")
+
+# Council members - list of OpenRouter model identifiers
+DEFAULT_COUNCIL_MODELS = [
+    "openai/gpt-5.2",
+    "google/gemini-3-pro-preview",
+    "anthropic/claude-opus-4.5",
+    "x-ai/grok-4.1-fast",
+    "moonshotai/kimi-k2.5",
+    "deepseek/deepseek-v3.2",
+]
+COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", DEFAULT_COUNCIL_MODELS)
+
+# Chairman model - synthesizes final response
+CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "google/gemini-3-pro-preview"
+
+# Model for prompt refinement (defaults to chairman)
+PROMPT_REFINEMENT_MODEL = os.getenv("PROMPT_REFINEMENT_MODEL") or CHAIRMAN_MODEL
+
+# Model for conversation title generation
+TITLE_MODEL = os.getenv("TITLE_MODEL") or "google/gemini-2.5-flash"
+
+# Feature flags (set to "true" in .env to enable)
+NEGATIVE_MODE_ENABLED = _get_bool_env("NEGATIVE_MODE_ENABLED")
+DELIBERATION_ENABLED = _get_bool_env("DELIBERATION_ENABLED")
+INTERACTIVE_MODE_ENABLED = _get_bool_env("INTERACTIVE_MODE_ENABLED")
+PROMPT_REFINEMENT_ENABLED = _get_bool_env("PROMPT_REFINEMENT_ENABLED")
+PAIRWISE_RANKING_ENABLED = _get_bool_env("PAIRWISE_RANKING_ENABLED")
+
+# OpenRouter API endpoint
+OPENROUTER_API_URL = (
+    os.getenv("OPENROUTER_API_URL")
+    or "https://openrouter.ai/api/v1/chat/completions"
+)
+
+# OpenRouter response length limit
+OPENROUTER_MAX_TOKENS = _get_int_env("OPENROUTER_MAX_TOKENS", 10000)
+if OPENROUTER_MAX_TOKENS <= 0:
+    raise ValueError("OPENROUTER_MAX_TOKENS must be > 0")
+
+# OpenRouter retry configuration
+OPENROUTER_MAX_RETRIES = _get_int_env("OPENROUTER_MAX_RETRIES", 2)
+OPENROUTER_RETRY_BASE_SECONDS = _get_float_env("OPENROUTER_RETRY_BASE_SECONDS", 0.5)
+OPENROUTER_RETRY_MAX_SECONDS = _get_float_env("OPENROUTER_RETRY_MAX_SECONDS", 8.0)
+OPENROUTER_RETRY_JITTER = _get_float_env("OPENROUTER_RETRY_JITTER", 0.2)
+if OPENROUTER_MAX_RETRIES < 0:
+    raise ValueError("OPENROUTER_MAX_RETRIES must be >= 0")
+if OPENROUTER_RETRY_BASE_SECONDS <= 0:
+    raise ValueError("OPENROUTER_RETRY_BASE_SECONDS must be > 0")
+if OPENROUTER_RETRY_MAX_SECONDS <= 0:
+    raise ValueError("OPENROUTER_RETRY_MAX_SECONDS must be > 0")
+if OPENROUTER_RETRY_MAX_SECONDS < OPENROUTER_RETRY_BASE_SECONDS:
+    raise ValueError("OPENROUTER_RETRY_MAX_SECONDS must be >= OPENROUTER_RETRY_BASE_SECONDS")
+if OPENROUTER_RETRY_JITTER < 0:
+    raise ValueError("OPENROUTER_RETRY_JITTER must be >= 0")
+
+# Data directory for conversation storage
+DATA_DIR = os.getenv("DATA_DIR") or "data/conversations"
+
+# CORS allowlist for the backend API
+DEFAULT_CORS_ALLOW_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+CORS_ALLOW_ORIGINS = _get_csv_env("CORS_ALLOW_ORIGINS", DEFAULT_CORS_ALLOW_ORIGINS)
+
+# Timeout for interactive queue operations (seconds)
+# This is the max time to wait for a single user response to an interactive prompt
+INTERACTIVE_TIMEOUT_SECONDS = _get_float_env("INTERACTIVE_TIMEOUT_SECONDS", 1200.0)
+
+# Client-side streaming timeout (seconds)
+# Resets on activity - only triggers if truly idle
+STREAM_TIMEOUT_SECONDS = _get_float_env("STREAM_TIMEOUT_SECONDS", 1200.0)
+if STREAM_TIMEOUT_SECONDS <= 0:
+    raise ValueError("STREAM_TIMEOUT_SECONDS must be > 0")
+
+# Prompt length limits (characters)
+MAX_PROMPT_CHARS = _get_int_env("MAX_PROMPT_CHARS", 15000)
+MAX_NEGATIVE_PROMPT_CHARS = _get_int_env("MAX_NEGATIVE_PROMPT_CHARS", 15000)
+if MAX_PROMPT_CHARS <= 0:
+    raise ValueError("MAX_PROMPT_CHARS must be > 0")
+if MAX_NEGATIVE_PROMPT_CHARS <= 0:
+    raise ValueError("MAX_NEGATIVE_PROMPT_CHARS must be > 0")
+
+# Consultation thread pool size
+CONSULTATION_POOL_SIZE = _get_int_env("CONSULTATION_POOL_SIZE", 4)
+if CONSULTATION_POOL_SIZE < 1:
+    raise ValueError("CONSULTATION_POOL_SIZE must be >= 1")
