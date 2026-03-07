@@ -143,6 +143,43 @@ function App() {
     });
   }, [setConversationsById]);
 
+  const applyConsultationStatusSnapshot = useCallback((conversationId, status) => {
+    if (!conversationId || !status || status.status === 'none') return;
+
+    updateConversationById(conversationId, (draft) => {
+      if (!draft?.messages?.length) return;
+      const lastMsg = draft.messages[draft.messages.length - 1];
+      if (!lastMsg || lastMsg.role !== 'assistant') return;
+
+      if (status.stage1 !== undefined) lastMsg.stage1 = status.stage1;
+      if (status.negative !== undefined) lastMsg.negative = status.negative;
+      if (status.stage2 !== undefined) lastMsg.stage2 = status.stage2;
+      if (status.stage3 !== undefined) lastMsg.stage3 = status.stage3;
+
+      lastMsg.metadata = {
+        ...(lastMsg.metadata || {}),
+        ...(status.metadata || {}),
+      };
+      if (status.status === 'failed') {
+        lastMsg.metadata.status = 'failed';
+        if (status.error) {
+          lastMsg.metadata.error = status.error;
+        }
+      } else if (status.status === 'complete') {
+        lastMsg.metadata.status = 'complete';
+      } else {
+        lastMsg.metadata.status = status.status;
+      }
+
+      const loading = ensureLoadingState(lastMsg);
+      loading.stage1 = status.status === 'stage1';
+      loading.negative = status.status === 'negative';
+      loading.stage2 = status.status === 'stage2';
+      loading.deliberation = status.status === 'deliberation';
+      loading.stage3 = status.status === 'stage3';
+    });
+  }, [updateConversationById]);
+
   const applyConversationSnapshot = useCallback((conv) => {
     if (!conv?.id) return { status: null };
 
@@ -153,7 +190,9 @@ function App() {
     setConversationsById(prev => {
       let merged = mergeConversation(prev[conv.id], conv);
       const lastMsgSnapshot = merged?.messages?.[merged.messages.length - 1];
-      const status = lastMsgSnapshot?.metadata?.status || (lastMsgSnapshot?.stage3 ? 'complete' : null);
+      const status = lastMsgSnapshot?.stage3
+        ? 'complete'
+        : (lastMsgSnapshot?.metadata?.status || null);
 
       merged = produce(merged, (draft) => {
         const lastMsg = draft?.messages?.[draft.messages.length - 1];
@@ -199,13 +238,16 @@ function App() {
     if (statusToReturn && statusToReturn !== 'complete' && statusToReturn !== 'failed') {
       setIsLoading(true);
       setStreamingConsultations(prev => ({ ...prev, [conv.id]: statusToReturn }));
-    } else if (statusToReturn === 'complete' || statusToReturn === 'failed') {
-      setStreamingConsultations(prev => {
-        if (!prev[conv.id]) return prev;
-        const next = { ...prev };
-        delete next[conv.id];
-        return next;
-      });
+    } else {
+      setIsLoading(false);
+      if (statusToReturn === 'complete' || statusToReturn === 'failed') {
+        setStreamingConsultations(prev => {
+          if (!prev[conv.id]) return prev;
+          const next = { ...prev };
+          delete next[conv.id];
+          return next;
+        });
+      }
     }
 
     return { status: statusToReturn, interactivePrompt: interactivePromptToReturn };
@@ -268,6 +310,7 @@ function App() {
           setConsultationStatus(null);
         } else {
           setConsultationStatus(status);
+          applyConsultationStatusSnapshot(currentConversationId, status);
 
           // Update conversation with partial results
           updateConversationById(currentConversationId, (draft) => {
@@ -333,7 +376,7 @@ function App() {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [currentConversationId, consultationStatus?.status, updateConversationById, handleApiError]);
+  }, [currentConversationId, consultationStatus?.status, updateConversationById, applyConsultationStatusSnapshot, handleApiError]);
 
   // Check for active consultation when switching conversations
   useEffect(() => {
@@ -351,9 +394,14 @@ function App() {
           setConsultationStatus(null);
           setIsLoading(false);
         } else if (status.status === 'complete' || status.status === 'failed') {
+          applyConsultationStatusSnapshot(currentConversationId, status);
           setConsultationStatus(null);
           setIsLoading(false);
+          if (status.status === 'failed' && status.error !== 'Cancelled') {
+            setError({ message: 'Consultation failed', details: status.error });
+          }
         } else {
+          applyConsultationStatusSnapshot(currentConversationId, status);
           setConsultationStatus(status);
           setIsLoading(true);
         }
@@ -367,7 +415,7 @@ function App() {
     };
 
     checkConsultation();
-  }, [currentConversationId, handleApiError]);
+  }, [currentConversationId, applyConsultationStatusSnapshot, handleApiError, setError]);
 
   // Poll for global consultation status (for sidebar indicators)
   useEffect(() => {

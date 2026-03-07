@@ -984,6 +984,9 @@ def parse_ranking_from_text(ranking_text: str, expected_labels: Optional[List[st
     """
     import re
 
+    if not isinstance(ranking_text, str) or not ranking_text:
+        return []
+
     # Look for "FINAL RANKING:" section
     if "FINAL RANKING:" in ranking_text:
         # Extract everything after "FINAL RANKING:"

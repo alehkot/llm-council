@@ -37,6 +37,27 @@ def _backoff_seconds(retry_index: int) -> float:
     return backoff
 
 
+def _extract_message_content(message: Dict[str, Any]) -> Optional[str]:
+    """Normalize provider message payloads to plain text content."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+        normalized = "".join(parts).strip()
+        return normalized or None
+    return None
+
+
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
@@ -127,8 +148,16 @@ async def query_model(
                     print(error_message)
                     return None
 
+                content = _extract_message_content(message)
+                if content is None:
+                    error_message = f"No text content in API response from {model}: {data}"
+                    if attempt + 1 < total_attempts:
+                        continue
+                    print(error_message)
+                    return None
+
                 return {
-                    'content': message.get('content'),
+                    'content': content,
                     'reasoning_details': message.get('reasoning_details')
                 }
 

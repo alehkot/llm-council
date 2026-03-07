@@ -273,13 +273,51 @@ class ConsultationManager:
         from . import storage
         from .trace import TraceCollector
 
+        conversation_id = state.conversation_id
+        assistant_index: Optional[int] = None
+        trace: Optional[TraceCollector] = None
+
+        def persist_failure(error_message: str) -> None:
+            if assistant_index is None:
+                return
+
+            metadata = {
+                **(state.metadata or {}),
+                "status": ConsultationStatus.FAILED.value,
+                "error": error_message,
+            }
+            updates: Dict[str, Any] = {
+                "metadata": metadata,
+            }
+
+            if state.stage1_results is not None:
+                updates["stage1"] = state.stage1_results
+            if state.negative_context is not None:
+                updates["negative"] = state.negative_context
+            if state.stage2_results is not None:
+                updates["stage2"] = state.stage2_results
+            if state.stage3_result is not None:
+                updates["stage3"] = state.stage3_result
+            if trace is not None:
+                trace.add_event("flow_failed", error=error_message)
+                trace.finish()
+                updates["trace"] = trace.to_dict()
+
+            try:
+                storage.update_assistant_message(
+                    conversation_id,
+                    assistant_index,
+                    updates,
+                )
+            except Exception as exc:
+                print(f"Warning: Failed to persist consultation failure: {exc}")
+
         try:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
             try:
-                conversation_id = state.conversation_id
                 content = state.message_content
                 negative_prompt = state.negative_prompt
 
@@ -392,13 +430,24 @@ class ConsultationManager:
                     with self._lock:
                         state.error = error_message
                         state.status = ConsultationStatus.FAILED
+                        state.metadata = {
+                            **(state.metadata or {}),
+                            "status": ConsultationStatus.FAILED.value,
+                            "error": error_message,
+                        }
                         state.updated_at = datetime.utcnow()
+                    persist_failure(error_message)
                     return
 
                 stage1_results = final_state.get("stage1") or []
                 negative_context = final_state.get("negative")
                 stage2_results = final_state.get("stage2") or []
                 stage3_result = stage3_result or {}
+                final_metadata = {
+                    **(state.metadata or {}),
+                    **(final_state.get("metadata") or {}),
+                    "status": ConsultationStatus.COMPLETE.value,
+                }
 
                 trace.add_event("flow_complete", stage3_model=stage3_result.get("model"))
                 trace.finish()
@@ -413,10 +462,12 @@ class ConsultationManager:
                         "negative": negative_context,
                         "stage2": stage2_results,
                         "stage3": stage3_result,
-                        "metadata": final_state.get("metadata") or state.metadata,
+                        "metadata": final_metadata,
                         "trace": trace_payload,
                     }
                 )
+                with self._lock:
+                    state.metadata = final_metadata
 
                 self._update_status(state, ConsultationStatus.COMPLETE)
                 
@@ -433,9 +484,15 @@ class ConsultationManager:
             with self._lock:
                 state.error = str(e)
                 state.status = ConsultationStatus.FAILED
+                state.metadata = {
+                    **(state.metadata or {}),
+                    "status": ConsultationStatus.FAILED.value,
+                    "error": str(e),
+                }
                 state.updated_at = datetime.utcnow()
                 if state.session_id:
                     self._interactive_sessions.pop(state.session_id, None)
+            persist_failure(str(e))
 
         finally:
             self._on_consultation_complete(state.conversation_id)
