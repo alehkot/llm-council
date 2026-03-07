@@ -89,6 +89,56 @@ class PromptResponse:
     responses: Dict[str, Any]
     skipped: bool = False
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "prompt_id": self.prompt_id,
+            "responses": self.responses,
+            "skipped": self.skipped,
+        }
+
+
+def deserialize_prompt_response(payload: Optional[Dict[str, Any]]) -> Optional[PromptResponse]:
+    """Restore a prompt response from persisted JSON data."""
+    if not payload:
+        return None
+    prompt_id = payload.get("prompt_id")
+    if not prompt_id:
+        return None
+    responses = payload.get("responses")
+    return PromptResponse(
+        prompt_id=str(prompt_id),
+        responses=responses if isinstance(responses, dict) else {},
+        skipped=bool(payload.get("skipped", False)),
+    )
+
+
+def serialize_prompt_responses(
+    responses: Dict[str, PromptResponse],
+) -> Dict[str, Dict[str, Any]]:
+    """Convert collected prompt responses into JSON-serializable form."""
+    return {
+        key: response.to_dict()
+        for key, response in responses.items()
+    }
+
+
+def deserialize_prompt_responses(
+    payload: Optional[Dict[str, Any]],
+) -> Dict[str, PromptResponse]:
+    """Restore collected prompt responses from persisted JSON data."""
+    if not isinstance(payload, dict):
+        return {}
+
+    restored: Dict[str, PromptResponse] = {}
+    for key, value in payload.items():
+        if not isinstance(value, dict):
+            continue
+        response = deserialize_prompt_response(value)
+        if response is not None:
+            restored[key] = response
+    return restored
+
 
 # Pre-defined prompts
 

@@ -1,5 +1,6 @@
 """FastAPI backend for LLM Council."""
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -45,7 +46,17 @@ from .export_markdown import build_markdown_export, build_export_filename
 
 # Removed streaming and interactive locks as consultation_manager now handles them
 
-app = FastAPI(title="LLM Council API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    consultation_manager.restore_incomplete_consultations()
+    try:
+        yield
+    finally:
+        consultation_manager.shutdown(wait=False)
+
+
+app = FastAPI(title="LLM Council API", lifespan=lifespan)
 API_KEY_HEADER = "X-API-Key"
 
 

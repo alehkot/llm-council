@@ -40,6 +40,7 @@ from .interactive import (
     get_synthesis_prefs_prompt,
     InteractiveConfig,
     PromptResponse,
+    serialize_prompt_responses,
 )
 from .trace import TraceCollector
 
@@ -119,10 +120,13 @@ class FlowContext:
     collected_responses: Dict[str, PromptResponse] = field(default_factory=dict)
     interactive_config: Optional[InteractiveConfig] = None
     conversation_id: Optional[str] = None
+    conversation_title: Optional[str] = None
     is_first_message: bool = False
+    is_resume: bool = False
     cancel_event: Optional[asyncio.Event] = None
     cancel_requested: Optional[Callable[[], bool]] = None
     stage_progress: Dict[str, Any] = field(default_factory=dict)
+    resume_metadata: Dict[str, Any] = field(default_factory=dict)
 
     async def emit_event(self, payload: Dict[str, Any]) -> None:
         await self.callbacks.emit(payload)
@@ -148,6 +152,14 @@ class FlowContext:
 
     def refresh_interactive_config(self) -> None:
         self.interactive_config = InteractiveConfig.from_responses(self.collected_responses)
+
+    async def persist_resume(self, updates: Dict[str, Any]) -> None:
+        self.resume_metadata = {
+            **(self.resume_metadata or {}),
+            **updates,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        await self.update_message({"metadata": {"resume": dict(self.resume_metadata)}})
 
     def is_cancelled(self) -> bool:
         if self.cancel_event and self.cancel_event.is_set():
@@ -323,6 +335,28 @@ def _normalize_refinement_action(action: Optional[str]) -> str:
     return "use_refined"
 
 
+def _has_stage1(state: CouncilState) -> bool:
+    return state.get("stage1") is not None
+
+
+def _has_negative_results(state: CouncilState) -> bool:
+    negative = state.get("negative") or {}
+    return bool(negative.get("enabled")) and negative.get("evaluations") is not None
+
+
+def _has_deliberation_results(state: CouncilState) -> bool:
+    deliberation = (state.get("metadata") or {}).get("deliberation") or {}
+    return deliberation.get("results") is not None
+
+
+def _has_stage2(state: CouncilState) -> bool:
+    return state.get("stage2") is not None
+
+
+def _has_stage3(state: CouncilState) -> bool:
+    return state.get("stage3") is not None
+
+
 def _collect_clarifying_answers(
     response: PromptResponse,
     questions: List[str],
@@ -347,6 +381,19 @@ def build_council_graph(context: FlowContext):
 
     def _cancel_state() -> Dict[str, Any]:
         return {"error": _CANCELLED_MESSAGE}
+
+    def _title_already_generated() -> bool:
+        if not context.is_first_message:
+            return True
+        return bool(context.conversation_title and context.conversation_title != "New Conversation")
+
+    async def _persist_collected_responses(user_query: Optional[str] = None) -> None:
+        updates: Dict[str, Any] = {
+            "collected_responses": serialize_prompt_responses(context.collected_responses),
+        }
+        if user_query is not None:
+            updates["user_query"] = user_query
+        await context.persist_resume(updates)
 
     async def _await_interactive_response(
         timeout_seconds: Optional[float] = None,
@@ -528,7 +575,9 @@ def build_council_graph(context: FlowContext):
                 )
 
                 try:
-                    response = await _request_interactive_response(refinement_prompt)
+                    response = context.collected_responses.get(f"prompt_refinement_{iteration}")
+                    if response is None:
+                        response = await _request_interactive_response(refinement_prompt)
                 except FlowCancelled:
                     context.trace.end_stage("prompt_refinement", cancelled=True)
                     return _cancel_state()
@@ -545,6 +594,7 @@ def build_council_graph(context: FlowContext):
                     return {"error": "Interactive session not available"}
 
                 context.collected_responses[f"prompt_refinement_{iteration}"] = response
+                await _persist_collected_responses()
                 if response.skipped:
                     context.trace.add_event(
                         "prompt_refinement_skipped",
@@ -629,6 +679,7 @@ def build_council_graph(context: FlowContext):
             }
 
             await context.update_message({"metadata": prompt_refinement_metadata})
+            await _persist_collected_responses(refined_prompt or original_query)
 
             return {
                 "user_query": refined_prompt or original_query,
@@ -651,7 +702,9 @@ def build_council_graph(context: FlowContext):
 
         pre_query_prompt = get_pre_query_prompt()
         try:
-            response = await _request_interactive_response(pre_query_prompt)
+            response = context.collected_responses.get("pre_query_config")
+            if response is None:
+                response = await _request_interactive_response(pre_query_prompt)
         except FlowCancelled:
             return _cancel_state()
         except asyncio.TimeoutError:
@@ -660,6 +713,7 @@ def build_council_graph(context: FlowContext):
             return {"error": "Interactive session not available"}
 
         context.collected_responses["pre_query_config"] = response
+        await _persist_collected_responses(updated_state.get("user_query") or state["user_query"])
         context.refresh_interactive_config()
         return updated_state
 
@@ -736,7 +790,9 @@ def build_council_graph(context: FlowContext):
         )
 
         try:
-            response = await _request_interactive_response(review_prompt)
+            response = context.collected_responses.get("response_review")
+            if response is None:
+                response = await _request_interactive_response(review_prompt)
         except FlowCancelled:
             return _cancel_state()
         except asyncio.TimeoutError:
@@ -745,6 +801,7 @@ def build_council_graph(context: FlowContext):
             return {"error": "Interactive session not available"}
 
         context.collected_responses["response_review"] = response
+        await _persist_collected_responses(state["user_query"])
         context.refresh_interactive_config()
         return {}
 
@@ -764,6 +821,7 @@ def build_council_graph(context: FlowContext):
             or gap_concerns
             or await generate_negative_prompt(state["user_query"], trace=context.trace)
         )
+        await context.persist_resume({"negative_prompt": resolved_negative_prompt})
 
         if context.is_cancelled():
             context.trace.end_stage("negative", cancelled=True)
@@ -946,7 +1004,9 @@ def build_council_graph(context: FlowContext):
         synth_prompt = get_synthesis_prefs_prompt()
 
         try:
-            response = await _request_interactive_response(synth_prompt)
+            response = context.collected_responses.get("synthesis_prefs")
+            if response is None:
+                response = await _request_interactive_response(synth_prompt)
         except FlowCancelled:
             return _cancel_state()
         except asyncio.TimeoutError:
@@ -955,6 +1015,7 @@ def build_council_graph(context: FlowContext):
             return {"error": "Interactive session not available"}
 
         context.collected_responses["synthesis_prefs"] = response
+        await _persist_collected_responses(state["user_query"])
         context.refresh_interactive_config()
         return {}
 
@@ -1020,6 +1081,32 @@ def build_council_graph(context: FlowContext):
         return {"stage3": stage3_with_versions, "metadata": stage3_metadata}
 
     def _route_from_start(state: CouncilState) -> str:
+        if context.is_resume:
+            if _has_stage3(state):
+                return "end"
+            if _has_stage2(state):
+                if context.interactive_enabled and "synthesis_prefs" not in context.collected_responses:
+                    return "synthesis_prefs"
+                return "stage3"
+            if _has_deliberation_results(state):
+                return "stage2"
+            if _has_negative_results(state):
+                if context.deliberation_enabled:
+                    return "deliberation"
+                return "stage2"
+            if _has_stage1(state):
+                if context.interactive_enabled and "response_review" not in context.collected_responses:
+                    return "response_review"
+                if context.negative_enabled:
+                    return "negative"
+                if context.deliberation_enabled:
+                    return "deliberation"
+                return "stage2"
+            if context.is_first_message and not _title_already_generated():
+                return "title"
+            if context.interactive_enabled and "pre_query_config" not in context.collected_responses:
+                return "pre_query"
+            return "stage1"
         return "title"
 
     def _route_after_title(state: CouncilState) -> str:
@@ -1184,19 +1271,21 @@ async def run_council_graph(
     user_query: str,
     negative_prompt: Optional[str],
     context: FlowContext,
+    initial_state: Optional[CouncilState] = None,
 ) -> CouncilState:
     """Run the LangGraph council flow and return the final state."""
 
-    initial_state: CouncilState = {
-        "user_query": user_query,
-        "negative_prompt": negative_prompt,
-        "negative": {
-            "enabled": False,
-            "prompt": negative_prompt,
-            "evaluations": [],
-        },
-        "metadata": {},
-    }
+    if initial_state is None:
+        initial_state = {
+            "user_query": user_query,
+            "negative_prompt": negative_prompt,
+            "negative": {
+                "enabled": False,
+                "prompt": negative_prompt,
+                "evaluations": [],
+            },
+            "metadata": {},
+        }
 
     graph = build_council_graph(context)
     return await graph.ainvoke(initial_state)

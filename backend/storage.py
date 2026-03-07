@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import tempfile
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -46,6 +47,28 @@ def ensure_data_dir():
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
 
 
+def _write_json_file(path: str, payload: Dict[str, Any]) -> None:
+    """Atomically persist JSON to avoid torn writes during crashes."""
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=directory,
+        prefix=f".{os.path.basename(path)}.",
+        suffix=".tmp",
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
 def get_conversation_path(conversation_id: str) -> str:
     """Get the file path for a conversation."""
     return os.path.join(DATA_DIR, f"{conversation_id}.json")
@@ -72,8 +95,7 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
 
     # Save to file
     path = get_conversation_path(conversation_id)
-    with open(path, 'w') as f:
-        json.dump(conversation, f, indent=2)
+    _write_json_file(path, conversation)
 
     return conversation
 
@@ -93,7 +115,7 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     path = get_conversation_path(conversation_id)
 
     try:
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             conversation = json.load(f)
 
         # Migrate stage3 format for all assistant messages
@@ -131,8 +153,7 @@ def save_conversation(conversation: Dict[str, Any]):
     ensure_data_dir()
 
     path = get_conversation_path(conversation['id'])
-    with open(path, 'w') as f:
-        json.dump(conversation, f, indent=2)
+    _write_json_file(path, conversation)
 
 
 def list_conversations() -> List[Dict[str, Any]]:
@@ -149,7 +170,7 @@ def list_conversations() -> List[Dict[str, Any]]:
         if filename.endswith('.json'):
             path = os.path.join(DATA_DIR, filename)
             try:
-                with open(path, 'r') as f:
+                with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     # Return metadata only
                     conversations.append({
@@ -472,3 +493,65 @@ def delete_conversation(conversation_id: str) -> bool:
     except OSError as e:
         print(f"Error: Could not delete conversation {conversation_id}: {e}")
         return False
+
+
+def list_incomplete_assistant_messages() -> List[Dict[str, Any]]:
+    """
+    Return resumable assistant messages for legacy recoveries.
+
+    Each result includes conversation metadata, assistant message index, and the
+    user message content immediately preceding the assistant placeholder.
+    """
+    ensure_data_dir()
+
+    resumable_statuses = {
+        "pending",
+        "interactive",
+        "stage1",
+        "negative",
+        "stage2",
+        "deliberation",
+        "stage3",
+    }
+    candidates: List[Dict[str, Any]] = []
+
+    for conversation_meta in list_conversations():
+        conversation = get_conversation(conversation_meta["id"])
+        if conversation is None:
+            continue
+
+        messages = conversation.get("messages", [])
+        for index, message in enumerate(messages):
+            if message.get("role") != "assistant":
+                continue
+
+            metadata = message.get("metadata") or {}
+            status = metadata.get("status")
+            if status not in resumable_statuses:
+                continue
+
+            if message.get("stage3"):
+                continue
+
+            user_message = None
+            for cursor in range(index - 1, -1, -1):
+                previous = messages[cursor]
+                if previous.get("role") == "user":
+                    user_message = previous.get("content")
+                    break
+
+            if not user_message:
+                continue
+
+            candidates.append({
+                "conversation_id": conversation["id"],
+                "conversation_title": conversation.get("title", "New Conversation"),
+                "assistant_index": index,
+                "assistant_message": message,
+                "content": user_message,
+                "negative_prompt": ((metadata.get("resume") or {}).get("negative_prompt")),
+                "consultation_id": metadata.get("consultation_id"),
+                "status": status,
+            })
+
+    return candidates
