@@ -1183,6 +1183,15 @@ def build_council_graph(context: FlowContext):
         _route_from_start,
         {
             "title": "title",
+            "pre_query": "pre_query",
+            "stage1": "stage1",
+            "response_review": "response_review",
+            "negative": "negative",
+            "deliberation": "deliberation",
+            "stage2": "stage2",
+            "synthesis_prefs": "synthesis_prefs",
+            "stage3": "stage3",
+            "end": END,
         },
     )
     builder.add_conditional_edges(
