@@ -95,9 +95,13 @@ export default function ChatInterface({
     && config.negative_prompt_max_chars > 0
     ? config.negative_prompt_max_chars
     : DEFAULT_NEGATIVE_PROMPT_MAX_CHARS;
+  const interactivePromptKey = currentInteractivePrompt
+    ? `${currentInteractivePrompt.session_id ?? 'no-session'}:${currentInteractivePrompt.prompt_id ?? 'no-prompt'}`
+    : null;
 
   // Compute current loading stage for announcements
   const lastMessage = conversation?.messages?.[conversation.messages.length - 1];
+  const hasFinalStage3 = Boolean(lastMessage?.role === 'assistant' && lastMessage?.stage3);
   const currentLoadingStage = lastMessage?.role === 'assistant' && lastMessage?.loading
     ? Object.entries(lastMessage.loading).find(([, v]) => v)?.[0]
     : null;
@@ -144,7 +148,7 @@ export default function ChatInterface({
   useEffect(() => {
     const timer = setTimeout(scrollToBottom, 100);
     return () => clearTimeout(timer);
-  }, [conversation?.messages?.length, currentInteractivePrompt]);
+  }, [conversation?.messages?.length, interactivePromptKey]);
 
   useEffect(() => {
     if (conversation && conversation.messages.length === 0) {
@@ -581,7 +585,7 @@ export default function ChatInterface({
 
                               {(msg.loading?.stage3 || msg.stage3) && (
                                 <div className="stage-block stage-block-stage3">
-                                  {msg.loading?.stage3 && (
+                                  {msg.loading?.stage3 && !msg.stage3 && (
                                     <Card className="stage-loading stage-loading-stage3 border-dashed bg-muted/50">
                                       <CardContent className="stage-loading-content flex flex-col gap-2 p-4 text-sm text-muted-foreground">
                                         <div className="flex items-center gap-3">
@@ -628,7 +632,7 @@ export default function ChatInterface({
             })()
           )}
 
-          {isLoading && !currentInteractivePrompt && (
+          {isLoading && !currentInteractivePrompt && !hasFinalStage3 && (
             <Card className="council-loading border-dashed bg-muted/50">
               <CardContent className="council-loading-content flex items-center gap-3 p-4 text-sm text-muted-foreground">
                 <span className="spinner" aria-hidden="true" />
