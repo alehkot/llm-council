@@ -10,6 +10,19 @@ from typing import Any, Dict, List, Optional
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _markdown_code_fence(content: Optional[str]) -> str:
+    text = content or ""
+    matches = re.findall(r"`+", text)
+    longest_match = max((len(match) for match in matches), default=0)
+    return "`" * max(3, longest_match + 1)
+
+
 def _response_label(index: int) -> str:
     if 0 <= index < 26:
         return f"Response {chr(ord('A') + index)}"
@@ -34,9 +47,85 @@ def _normalize_stage3(stage3: Optional[Dict[str, Any]]) -> Optional[Dict[str, An
 def _append_markdown_section(lines: List[str], title: str, content: Optional[str]) -> None:
     lines.append(f"### {title}")
     lines.append("")
-    text = (content or "").strip()
+    text = _normalize_text(content)
     lines.append(text if text else "_No content captured._")
     lines.append("")
+
+
+def _append_fenced_markdown_section(
+    lines: List[str],
+    title: str,
+    content: Optional[str],
+    empty_state: str = "_No content captured._",
+) -> None:
+    lines.append(f"### {title}")
+    lines.append("")
+    text = _normalize_text(content)
+    if not text:
+        lines.append(empty_state)
+        lines.append("")
+        return
+
+    fence = _markdown_code_fence(text)
+    lines.append(fence)
+    lines.append(text)
+    lines.append(fence)
+    lines.append("")
+
+
+def _append_export_prompt_section(
+    lines: List[str],
+    prompt_refinement: Optional[Dict[str, Any]],
+    fallback_user_query: Optional[str],
+) -> None:
+    refinement = prompt_refinement or {}
+
+    original_prompt = _normalize_text(refinement.get("original_prompt"))
+    refined_prompt = _normalize_text(refinement.get("refined_prompt"))
+    decision = _normalize_text(refinement.get("decision"))
+    clarifying_answers = refinement.get("clarifying_answers") or []
+
+    used_prompt = original_prompt or _normalize_text(fallback_user_query)
+    if decision == "use_refined":
+        used_prompt = refined_prompt or used_prompt
+    elif not used_prompt:
+        used_prompt = refined_prompt
+
+    lines.extend(["## Export Prompt", ""])
+    text = _normalize_text(used_prompt)
+    if text:
+        fence = _markdown_code_fence(text)
+        lines.append(fence)
+        lines.append(text)
+        lines.append(fence)
+        lines.append("")
+    else:
+        lines.extend(["_Used prompt not available._", ""])
+
+    valid_clarifications = [
+        item
+        for item in clarifying_answers
+        if isinstance(item, dict)
+        if _normalize_text(item.get("question")) or _normalize_text(item.get("answer"))
+    ]
+    if decision != "use_refined" or not valid_clarifications:
+        return
+
+    lines.extend(["### Clarifications Provided", ""])
+    for index, item in enumerate(valid_clarifications, start=1):
+        question = _normalize_text(item.get("question")) or f"Question {index}"
+        answer = _normalize_text(item.get("answer"))
+        lines.append(f"{index}. **{question}**")
+        lines.append("")
+        if answer:
+            fence = _markdown_code_fence(answer)
+            lines.append(f"   {fence}")
+            for line in answer.splitlines():
+                lines.append(f"   {line}" if line else "   ")
+            lines.append(f"   {fence}")
+        else:
+            lines.append("   _No answer captured._")
+        lines.append("")
 
 
 def build_export_filename(title: Optional[str], request_number: Optional[int]) -> str:
@@ -67,6 +156,7 @@ def build_markdown_export(
     aggregate_rankings = metadata.get("aggregate_rankings") or []
     aggregate_gap_scores = metadata.get("aggregate_gap_scores") or []
     deliberation = metadata.get("deliberation") or {}
+    prompt_refinement = metadata.get("prompt_refinement") or {}
 
     label_by_model: Dict[str, str] = {}
     for label, model in label_to_model.items():
@@ -84,9 +174,9 @@ def build_markdown_export(
     ]
     if request_number is not None:
         lines.append(f"- Request Number: {request_number}")
-    lines.extend(["", "## User Query", ""])
-    lines.append((user_query or "").strip() or "_User query not available._")
     lines.append("")
+
+    _append_export_prompt_section(lines, prompt_refinement, user_query)
 
     if label_to_model:
         lines.extend(
