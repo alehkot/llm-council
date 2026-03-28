@@ -181,6 +181,48 @@ export const api = {
     return response.json();
   },
 
+  /**
+   * Open, resume, or create a side-chat thread for a specific council artifact.
+   */
+  async openSideChat(conversationId, payload) {
+    const response = await apiFetch(`/api/conversations/${conversationId}/side-chats/open`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to open side chat' }));
+      throw new Error(error.detail || 'Failed to open side chat');
+    }
+    return response.json();
+  },
+
+  /**
+   * Send a follow-up message in a persisted side-chat thread.
+   */
+  async sendSideChatMessage(conversationId, threadId, messageIndex, content) {
+    const response = await apiFetch(
+      `/api/conversations/${conversationId}/side-chats/${threadId}/message`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message_index: messageIndex,
+          content,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to send side-chat message' }));
+      throw new Error(error.detail || 'Failed to send side-chat message');
+    }
+    return response.json();
+  },
+
 
   /**
    * Submit a response to an interactive prompt.

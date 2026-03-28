@@ -8,6 +8,7 @@ import DeliberationStage from './DeliberationStage';
 import Stage3 from './Stage3';
 import DebugTrace from './DebugTrace';
 import InteractivePrompt from './InteractivePrompt';
+import ModelSideChatModal from './ModelSideChatModal';
 import PromptRefinementSummary from './PromptRefinementSummary';
 import StageProgress from './StageProgress';
 import StatusModal from './StatusModal';
@@ -84,6 +85,7 @@ export default function ChatInterface({
   const [inputError, setInputError] = useState(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [isStopConfirmOpen, setIsStopConfirmOpen] = useState(false);
+  const [sideChatSource, setSideChatSource] = useState(null);
   const [statusAnnouncement, setStatusAnnouncement] = useState('');
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [visibleMessageCount, setVisibleMessageCount] = useState(DEFAULT_VISIBLE_MESSAGES);
@@ -160,7 +162,21 @@ export default function ChatInterface({
   useEffect(() => {
     if (!conversation) return;
     setVisibleMessageCount(DEFAULT_VISIBLE_MESSAGES);
+    setSideChatSource(null);
   }, [conversation?.id]);
+
+  const getEffectivePromptForAssistantMessage = (assistantMessage, fallbackUserPrompt) => {
+    const refinement = assistantMessage?.metadata?.prompt_refinement;
+    if (!refinement) {
+      return fallbackUserPrompt || '';
+    }
+
+    if (refinement.decision === 'use_refined' && refinement.refined_prompt) {
+      return refinement.refined_prompt;
+    }
+
+    return refinement.original_prompt || fallbackUserPrompt || refinement.refined_prompt || '';
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -456,6 +472,13 @@ export default function ChatInterface({
                     const absoluteIndex = index + startIndex;
                     const hasDeliberationResults = msg.metadata?.deliberation?.results != null;
                     const assistantMessageIndex = assistantIndices.get(absoluteIndex);
+                    const previousUserMessage = conversation.messages[absoluteIndex - 1];
+                    const effectivePrompt = msg.role === 'assistant'
+                      ? getEffectivePromptForAssistantMessage(
+                        msg,
+                        previousUserMessage?.role === 'user' ? previousUserMessage.content : '',
+                      )
+                      : '';
                     const requestNumber = requestNumbers.get(absoluteIndex);
                     const requestLabel = requestNumber ? `Request ${requestNumber}` : 'Request';
                     const responseLabel = requestNumber
@@ -510,7 +533,17 @@ export default function ChatInterface({
                                       </CardContent>
                                     </Card>
                                   )}
-                                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
+                                  {msg.stage1 && (
+                                    <Stage1
+                                      responses={msg.stage1}
+                                      onStartSideChat={(payload) => setSideChatSource({
+                                        ...payload,
+                                        effectivePrompt,
+                                        assistantAbsoluteIndex: absoluteIndex,
+                                        assistantMessageIndex,
+                                      })}
+                                    />
+                                  )}
                                 </div>
                               )}
 
@@ -553,7 +586,15 @@ export default function ChatInterface({
                                       </Card>
                                     )}
                                     {msg.metadata?.deliberation && (
-                                      <DeliberationStage deliberation={msg.metadata.deliberation} />
+                                      <DeliberationStage
+                                        deliberation={msg.metadata.deliberation}
+                                        onStartSideChat={(payload) => setSideChatSource({
+                                          ...payload,
+                                          effectivePrompt,
+                                          assistantAbsoluteIndex: absoluteIndex,
+                                          assistantMessageIndex,
+                                        })}
+                                      />
                                     )}
                                   </div>
                                 )}
@@ -601,6 +642,12 @@ export default function ChatInterface({
                                       finalResponse={msg.stage3}
                                       conversationId={conversation.id}
                                       messageIndex={assistantMessageIndex}
+                                      onStartSideChat={(payload) => setSideChatSource({
+                                        ...payload,
+                                        effectivePrompt,
+                                        assistantAbsoluteIndex: absoluteIndex,
+                                        assistantMessageIndex,
+                                      })}
                                       onVersionAdded={(version) => {
                                         if (onVersionAdded) {
                                           onVersionAdded(absoluteIndex, version);
@@ -648,6 +695,23 @@ export default function ChatInterface({
               onSkip={onInteractiveSkip}
             />
           )}
+
+          <ModelSideChatModal
+            isOpen={Boolean(sideChatSource)}
+            onOpenChange={(open) => {
+              if (!open) {
+                setSideChatSource(null);
+              }
+            }}
+            conversationId={conversation.id}
+            assistantAbsoluteIndex={sideChatSource?.assistantAbsoluteIndex}
+            assistantMessageIndex={sideChatSource?.assistantMessageIndex}
+            assistantMessage={
+              sideChatSource ? conversation.messages[sideChatSource.assistantAbsoluteIndex] : null
+            }
+            source={sideChatSource}
+            availableModels={config?.council_models || []}
+          />
 
           <div ref={messagesEndRef} />
         </div>

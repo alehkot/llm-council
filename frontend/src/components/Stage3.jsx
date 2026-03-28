@@ -87,6 +87,7 @@ export default function Stage3({
   messageIndex,
   onVersionAdded,
   onCurrentChanged,
+  onStartSideChat,
 }) {
   const [copied, setCopied] = useState(false);
   const [selectedMode, setSelectedMode] = useState('best_of_breed');
@@ -240,6 +241,23 @@ export default function Stage3({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {onStartSideChat && activeVersion?.response && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onStartSideChat({
+                  sourceType: 'stage3',
+                  sourceModel: activeVersion.model,
+                  versionIndex: activeVersionIndex,
+                  sourceTitle: `Synthesis · ${currentModeInfo.label}`,
+                  sourcePreview: activeVersion.response,
+                })}
+                className="stage3-action gap-1.5"
+              >
+                Side Chat
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

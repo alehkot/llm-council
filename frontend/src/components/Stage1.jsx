@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import Markdown from './Markdown';
+import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { cn } from '../lib/utils';
 
-export default function Stage1({ responses }) {
+function formatModelName(model) {
+  if (!model) return 'unknown';
+  return model.split('/')[1] || model;
+}
+
+export default function Stage1({ responses, onStartSideChat }) {
   const [activeTab, setActiveTab] = useState('0');
 
   if (!responses || responses.length === 0) {
@@ -56,6 +62,22 @@ export default function Stage1({ responses }) {
                   <Badge variant="warning" className="text-[10px]">
                     Failed
                   </Badge>
+                )}
+                {onStartSideChat && !activeResponse.failed && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => onStartSideChat({
+                      sourceType: 'stage1',
+                      sourceModel: activeResponse.model,
+                      sourceTitle: `Stage 1 · ${formatModelName(activeResponse.model)}`,
+                      sourcePreview: activeResponse.response,
+                    })}
+                  >
+                    Side Chat
+                  </Button>
                 )}
               </div>
               <Markdown className={cn(activeResponse.failed && 'text-muted-foreground italic')}>

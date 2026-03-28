@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Deque
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from time import monotonic
 import uuid
 import json
@@ -43,6 +44,12 @@ from .interactive import (
     PromptResponse,
 )
 from .export_markdown import build_markdown_export, build_export_filename
+from .openrouter import query_model
+from .side_chat import (
+    build_side_chat_messages,
+    build_side_chat_thread,
+    resolve_side_chat_source,
+)
 
 # Removed streaming and interactive locks as consultation_manager now handles them
 
@@ -195,6 +202,23 @@ class SendMessageRequest(BaseModel):
     negative_prompt: Optional[str] = None
 
 
+class OpenSideChatRequest(BaseModel):
+    """Open, resume, or create a persisted side-chat thread."""
+    message_index: int
+    source_type: str
+    source_model: Optional[str] = None
+    version_index: Optional[int] = None
+    target_model: Optional[str] = None
+    thread_id: Optional[str] = None
+    start_new: bool = False
+
+
+class SendSideChatMessageRequest(BaseModel):
+    """Send a direct follow-up to a persisted side-chat thread."""
+    message_index: int
+    content: str
+
+
 class ResynthesizeRequest(BaseModel):
     """Request to rerun synthesis with different settings."""
     message_index: int
@@ -332,50 +356,10 @@ SYNTHESIS_MODE_DESCRIPTIONS = {
 ALL_SYNTHESIS_MODES = list(SYNTHESIS_MODE_DESCRIPTIONS.keys())
 
 
-def _get_assistant_message_context(conversation_id: str, message_index: int):
+def _get_assistant_message_base_context(conversation_id: str, message_index: int):
     """
-    Helper to get assistant message and related context for resynthesis.
-    Returns tuple of (conversation, original_idx, target_msg, user_query).
-    """
-    conversation = storage.get_conversation(conversation_id)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    Resolve an assistant message by ordinal index within a conversation.
 
-    messages = conversation.get("messages", [])
-    assistant_messages = [
-        (i, m) for i, m in enumerate(messages) if m.get("role") == "assistant"
-    ]
-
-    if message_index < 0 or message_index >= len(assistant_messages):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid message_index. Found {len(assistant_messages)} assistant messages."
-        )
-
-    original_idx, target_msg = assistant_messages[message_index]
-
-    # Find the user query from the message before this assistant message
-    user_query = None
-    for i in range(original_idx - 1, -1, -1):
-        if messages[i].get("role") == "user":
-            user_query = messages[i].get("content")
-            break
-
-    if not user_query:
-        raise HTTPException(status_code=400, detail="Could not find user query for this message")
-
-    stage1 = target_msg.get("stage1", [])
-    stage2 = target_msg.get("stage2", [])
-
-    if not stage1 or not stage2:
-        raise HTTPException(status_code=400, detail="Missing stage1 or stage2 data for resynthesis")
-
-    return conversation, original_idx, target_msg, user_query
-
-
-def _get_assistant_message_export_context(conversation_id: str, message_index: int):
-    """
-    Helper to get assistant message and related context for markdown export.
     Returns tuple of (conversation, original_idx, target_msg, user_query, request_number).
     """
     conversation = storage.get_conversation(conversation_id)
@@ -409,6 +393,36 @@ def _get_assistant_message_export_context(conversation_id: str, message_index: i
             break
 
     return conversation, original_idx, target_msg, user_query, request_number or None
+
+
+def _get_assistant_message_context(conversation_id: str, message_index: int):
+    """
+    Helper to get assistant message and related context for resynthesis.
+    Returns tuple of (conversation, original_idx, target_msg, user_query).
+    """
+    conversation, original_idx, target_msg, user_query, _ = _get_assistant_message_base_context(
+        conversation_id,
+        message_index,
+    )
+
+    if not user_query:
+        raise HTTPException(status_code=400, detail="Could not find user query for this message")
+
+    stage1 = target_msg.get("stage1", [])
+    stage2 = target_msg.get("stage2", [])
+
+    if not stage1 or not stage2:
+        raise HTTPException(status_code=400, detail="Missing stage1 or stage2 data for resynthesis")
+
+    return conversation, original_idx, target_msg, user_query
+
+
+def _get_assistant_message_export_context(conversation_id: str, message_index: int):
+    """
+    Helper to get assistant message and related context for markdown export.
+    Returns tuple of (conversation, original_idx, target_msg, user_query, request_number).
+    """
+    return _get_assistant_message_base_context(conversation_id, message_index)
 
 
 @app.get("/api/conversations/{conversation_id}/export-markdown")
@@ -634,6 +648,135 @@ async def set_current_version(conversation_id: str, request: SetCurrentVersionRe
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"status": "ok"}
+
+
+@app.post("/api/conversations/{conversation_id}/side-chats/open")
+async def open_side_chat(conversation_id: str, request: OpenSideChatRequest):
+    """Open, resume, or create a persisted side-chat thread."""
+    _, original_idx, assistant_message, user_query, _ = _get_assistant_message_base_context(
+        conversation_id,
+        request.message_index,
+    )
+
+    try:
+        source = resolve_side_chat_source(
+            assistant_message,
+            user_query,
+            request.source_type,
+            source_model=request.source_model,
+            version_index=request.version_index,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    target_model = request.target_model or source.get("default_target_model") or ""
+    if target_model not in COUNCIL_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail="target_model must be one of the configured council_models",
+        )
+
+    try:
+        threads = storage.list_side_chat_threads(conversation_id, original_idx)
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if request.thread_id:
+        thread = next((item for item in threads if item.get("id") == request.thread_id), None)
+        if thread is None:
+            raise HTTPException(status_code=404, detail="Side chat thread not found")
+        if thread.get("source_key") != source["source_key"]:
+            raise HTTPException(status_code=400, detail="Requested thread does not match the source")
+        if thread.get("target_model") != target_model:
+            raise HTTPException(status_code=400, detail="Requested thread does not match the model")
+        return {"status": "ok", "created": False, "thread": thread}
+
+    if not request.start_new:
+        matching = [
+            item for item in threads
+            if item.get("source_key") == source["source_key"]
+            and item.get("target_model") == target_model
+        ]
+        if matching:
+            matching.sort(
+                key=lambda item: item.get("updated_at") or item.get("created_at") or "",
+                reverse=True,
+            )
+            return {"status": "ok", "created": False, "thread": matching[0]}
+
+    thread = build_side_chat_thread(source, target_model)
+    try:
+        storage.save_side_chat_thread(conversation_id, original_idx, thread)
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "ok", "created": True, "thread": thread}
+
+
+@app.post("/api/conversations/{conversation_id}/side-chats/{thread_id}/message")
+async def send_side_chat_message(
+    conversation_id: str,
+    thread_id: str,
+    request: SendSideChatMessageRequest,
+):
+    """Send a direct follow-up message inside a persisted side-chat thread."""
+    _, original_idx, _, _, _ = _get_assistant_message_base_context(
+        conversation_id,
+        request.message_index,
+    )
+    _validate_message_lengths(request.content, None)
+
+    try:
+        thread = storage.get_side_chat_thread(conversation_id, original_idx, thread_id)
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Side chat thread not found")
+
+    target_model = str(thread.get("target_model") or "").strip()
+    if target_model not in COUNCIL_MODELS:
+        raise HTTPException(status_code=400, detail="Side chat target model is no longer available")
+
+    response = await query_model(
+        target_model,
+        build_side_chat_messages(thread, request.content),
+        trace_stage="side_chat",
+        trace_context={
+            "conversation_id": conversation_id,
+            "thread_id": thread_id,
+            "source_type": thread.get("source_type"),
+            "source_key": thread.get("source_key"),
+        },
+    )
+    if response is None or not response.get("content"):
+        raise HTTPException(status_code=502, detail=f"{target_model} failed to respond")
+
+    timestamp = datetime.utcnow().isoformat()
+    user_message = {
+        "id": str(uuid.uuid4()),
+        "role": "user",
+        "content": request.content.strip(),
+        "created_at": timestamp,
+    }
+    assistant_message = {
+        "id": str(uuid.uuid4()),
+        "role": "assistant",
+        "content": str(response.get("content") or "").strip(),
+        "created_at": timestamp,
+    }
+
+    thread_messages = list(thread.get("messages") or [])
+    thread_messages.append(user_message)
+    thread_messages.append(assistant_message)
+    thread["messages"] = thread_messages
+    thread["updated_at"] = timestamp
+
+    try:
+        storage.save_side_chat_thread(conversation_id, original_idx, thread)
+    except (IndexError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"status": "ok", "thread": thread}
 
 
 @app.post("/api/conversations/{conversation_id}/message")

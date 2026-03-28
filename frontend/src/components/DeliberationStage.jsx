@@ -10,7 +10,7 @@ function formatModelName(model) {
   return model.split('/')[1] || model;
 }
 
-export default function DeliberationStage({ deliberation }) {
+export default function DeliberationStage({ deliberation, onStartSideChat }) {
   const [expandedItems, setExpandedItems] = useState([]);
 
   if (!deliberation || !deliberation.enabled) {
@@ -101,6 +101,23 @@ export default function DeliberationStage({ deliberation }) {
                   </div>
                 </AccordionTrigger>
                 <AccordionContent>
+                  {onStartSideChat && (
+                    <div className="mb-4 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onStartSideChat({
+                          sourceType: 'deliberation',
+                          sourceModel: revision.model,
+                          sourceTitle: `Deliberation · ${formatModelName(revision.model)}`,
+                          sourcePreview: revision.revised,
+                        })}
+                      >
+                        Side Chat
+                      </Button>
+                    </div>
+                  )}
                   {hasChanges ? (
                     <div className="grid gap-4 md:grid-cols-2">
                       <Card className="border-border/60 bg-background/80">

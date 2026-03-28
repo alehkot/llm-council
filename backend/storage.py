@@ -413,6 +413,96 @@ def set_stage3_current_version(
     save_conversation(conversation)
 
 
+def _ensure_side_chats(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Ensure assistant messages always expose side chats as a list."""
+    side_chats = message.get("side_chats")
+    if isinstance(side_chats, list):
+        return side_chats
+    message["side_chats"] = []
+    return message["side_chats"]
+
+
+def list_side_chat_threads(
+    conversation_id: str,
+    message_index: int,
+) -> List[Dict[str, Any]]:
+    """
+    Return all persisted side-chat threads for an assistant message.
+
+    Args:
+        conversation_id: Conversation identifier
+        message_index: Absolute assistant message index in the messages array
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    if message_index < 0 or message_index >= len(conversation["messages"]):
+        raise IndexError("Message index out of range")
+
+    message = conversation["messages"][message_index]
+    if message.get("role") != "assistant":
+        raise ValueError("Target message is not an assistant message")
+
+    return list(_ensure_side_chats(message))
+
+
+def get_side_chat_thread(
+    conversation_id: str,
+    message_index: int,
+    thread_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Load a single side-chat thread for an assistant message.
+
+    Args:
+        conversation_id: Conversation identifier
+        message_index: Absolute assistant message index in the messages array
+        thread_id: Persisted side-chat identifier
+    """
+    threads = list_side_chat_threads(conversation_id, message_index)
+    for thread in threads:
+        if thread.get("id") == thread_id:
+            return thread
+    return None
+
+
+def save_side_chat_thread(
+    conversation_id: str,
+    message_index: int,
+    thread: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Insert or replace a persisted side-chat thread on an assistant message.
+
+    Args:
+        conversation_id: Conversation identifier
+        message_index: Absolute assistant message index in the messages array
+        thread: Fully materialized thread payload
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    if message_index < 0 or message_index >= len(conversation["messages"]):
+        raise IndexError("Message index out of range")
+
+    message = conversation["messages"][message_index]
+    if message.get("role") != "assistant":
+        raise ValueError("Target message is not an assistant message")
+
+    side_chats = _ensure_side_chats(message)
+    for index, existing in enumerate(side_chats):
+        if existing.get("id") == thread.get("id"):
+            side_chats[index] = thread
+            save_conversation(conversation)
+            return thread
+
+    side_chats.append(thread)
+    save_conversation(conversation)
+    return thread
+
+
 _TITLE_SUFFIX_PATTERN = re.compile(r"^(.*?)(?:\s\((\d+)\))?$")
 
 
