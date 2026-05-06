@@ -73,23 +73,23 @@ if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
 
 # Council members - list of OpenRouter model identifiers
 DEFAULT_COUNCIL_MODELS = [
-    "openai/gpt-5.2",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-opus-4.5",
-    "x-ai/grok-4.1-fast",
-    "moonshotai/kimi-k2.5",
-    "deepseek/deepseek-v3.2",
+    "openai/gpt-5.5",
+    "google/gemini-3.1-pro-preview",
+    "anthropic/claude-opus-4.7",
+    "x-ai/grok-4.3",
+    "moonshotai/kimi-k2.6",
+    "deepseek/deepseek-v4-pro",
 ]
 COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", DEFAULT_COUNCIL_MODELS)
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "google/gemini-3-pro-preview"
+CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "google/gemini-3.1-pro-preview"
 
 # Model for prompt refinement (defaults to chairman)
 PROMPT_REFINEMENT_MODEL = os.getenv("PROMPT_REFINEMENT_MODEL") or CHAIRMAN_MODEL
 
 # Model for conversation title generation
-TITLE_MODEL = os.getenv("TITLE_MODEL") or "google/gemini-2.5-flash"
+TITLE_MODEL = os.getenv("TITLE_MODEL") or "google/gemini-3.1-pro-preview"
 
 # Feature flags (set to "true" in .env to enable)
 NEGATIVE_MODE_ENABLED = _get_bool_env("NEGATIVE_MODE_ENABLED")
