@@ -20,6 +20,55 @@ import { useNotifications } from './hooks/useNotifications';
 import { mergeConversation, ensureLoadingState } from './utils/conversationMerge';
 import { useAppStore } from './store/useAppStore';
 
+function findAssistantMessageIndexForStatus(messages, status) {
+  if (!Array.isArray(messages) || messages.length === 0 || !status) {
+    return -1;
+  }
+
+  if (
+    Number.isInteger(status.assistant_index) &&
+    messages[status.assistant_index]?.role === 'assistant'
+  ) {
+    return status.assistant_index;
+  }
+
+  const consultationId = status.consultation_id || status.metadata?.consultation_id;
+  if (consultationId) {
+    const matchingIndex = messages.findIndex(
+      (msg) => msg.role === 'assistant' && msg.metadata?.consultation_id === consultationId
+    );
+    if (matchingIndex >= 0) {
+      return matchingIndex;
+    }
+  }
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index]?.role === 'assistant') {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function findLatestAssistantStatusIndex(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return -1;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role !== 'assistant') {
+      continue;
+    }
+    if (message.stage3 || message.metadata?.status) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function App() {
   const DEFAULT_STREAM_TIMEOUT_MS = 10 * 60 * 1000;
   const {
@@ -120,7 +169,7 @@ function App() {
     if (updateUrl) {
       updateConversationUrl(conversationId, replace);
     }
-  }, [currentConversationId, updateConversationUrl]);
+  }, [currentConversationId, setCurrentConversationId, updateConversationUrl]);
 
   const updateConversationById = useCallback((conversationId, updater) => {
     if (!conversationId) return;
@@ -143,12 +192,23 @@ function App() {
     });
   }, [setConversationsById]);
 
+  const clearStreamingConsultation = useCallback((conversationId) => {
+    if (!conversationId) return;
+    setStreamingConsultations(prev => {
+      if (!prev[conversationId]) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      return next;
+    });
+  }, [setStreamingConsultations]);
+
   const applyConsultationStatusSnapshot = useCallback((conversationId, status) => {
     if (!conversationId || !status || status.status === 'none') return;
 
     updateConversationById(conversationId, (draft) => {
       if (!draft?.messages?.length) return;
-      const lastMsg = draft.messages[draft.messages.length - 1];
+      const targetIndex = findAssistantMessageIndexForStatus(draft.messages, status);
+      const lastMsg = targetIndex >= 0 ? draft.messages[targetIndex] : null;
       if (!lastMsg || lastMsg.role !== 'assistant') return;
 
       if (status.stage1 !== undefined) lastMsg.stage1 = status.stage1;
@@ -189,15 +249,17 @@ function App() {
 
     setConversationsById(prev => {
       let merged = mergeConversation(prev[conv.id], conv);
-      const lastMsgSnapshot = merged?.messages?.[merged.messages.length - 1];
-      const status = lastMsgSnapshot?.stage3
-        ? 'complete'
-        : (lastMsgSnapshot?.metadata?.status || null);
+      const statusIndex = findLatestAssistantStatusIndex(merged?.messages);
+      const statusMsgSnapshot = statusIndex >= 0 ? merged.messages[statusIndex] : null;
+      const metadataStatus = statusMsgSnapshot?.metadata?.status || null;
+      const status = metadataStatus === 'failed'
+        ? 'failed'
+        : (statusMsgSnapshot?.stage3 ? 'complete' : metadataStatus);
 
       merged = produce(merged, (draft) => {
-        const lastMsg = draft?.messages?.[draft.messages.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || !status) return;
-        const loading = ensureLoadingState(lastMsg);
+        const targetMsg = statusIndex >= 0 ? draft?.messages?.[statusIndex] : null;
+        if (!targetMsg || targetMsg.role !== 'assistant' || !status) return;
+        const loading = ensureLoadingState(targetMsg);
         loading.stage1 = status === 'stage1';
         loading.negative = status === 'negative';
         loading.stage2 = status === 'stage2';
@@ -205,9 +267,8 @@ function App() {
         loading.stage3 = status === 'stage3';
       });
 
-      const lastMsg = merged?.messages?.[merged.messages.length - 1];
       const interactivePrompt = status === 'interactive'
-        ? lastMsg?.metadata?.interactive_prompt || null
+        ? statusMsgSnapshot?.metadata?.interactive_prompt || null
         : null;
 
       if (isCurrentConv) {
@@ -241,17 +302,80 @@ function App() {
     } else {
       setIsLoading(false);
       if (statusToReturn === 'complete' || statusToReturn === 'failed') {
-        setStreamingConsultations(prev => {
-          if (!prev[conv.id]) return prev;
-          const next = { ...prev };
-          delete next[conv.id];
-          return next;
-        });
+        clearStreamingConsultation(conv.id);
       }
     }
 
     return { status: statusToReturn, interactivePrompt: interactivePromptToReturn };
-  }, [setCurrentInteractivePrompt, setInteractiveSessionId, setIsLoading, setStreamingConsultations, setConversationsById]);
+  }, [clearStreamingConsultation, setCurrentInteractivePrompt, setInteractiveSessionId, setIsLoading, setStreamingConsultations, setConversationsById]);
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const convs = await api.listConversations();
+      setConversations(convs);
+      if (convs.length > 0) {
+        const prev = useAppStore.getState().conversationsById;
+        let updated = null;
+        convs.forEach((meta) => {
+          if (prev[meta.id]) {
+            const existing = prev[meta.id];
+            if (existing.title !== meta.title || existing.created_at !== meta.created_at) {
+              updated = updated || { ...prev };
+              updated[meta.id] = {
+                ...existing,
+                title: meta.title,
+                created_at: meta.created_at,
+              };
+            }
+          }
+        });
+        if (updated) {
+          setConversationsById(prev => ({ ...prev, ...updated }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+      if (!handleApiError(err)) {
+        setError({
+          message: 'Failed to load conversations. Please refresh the page.',
+          details: err.message,
+        });
+      }
+    }
+  }, [handleApiError, setConversations, setConversationsById, setError]);
+
+  const loadConversation = useCallback(async (id) => {
+    try {
+      const conv = await api.getConversation(id);
+      applyConversationSnapshot(conv);
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+      if (!handleApiError(err)) {
+        setError({ message: 'Failed to load conversation.', details: err.message });
+      }
+    }
+  }, [applyConversationSnapshot, handleApiError, setError]);
+
+  const loadConfig = useCallback(async () => {
+    try {
+      const cfg = await api.getConfig();
+      setConfig(cfg);
+    } catch (err) {
+      console.error('Failed to load config:', err);
+      if (!handleApiError(err)) {
+        setConfig({
+          negative_mode_enabled: false,
+          deliberation_enabled: false,
+          interactive_mode_enabled: false,
+          prompt_max_chars: null,
+          negative_prompt_max_chars: null,
+          council_models: [],
+          chairman_model: null,
+          title_model: null,
+        });
+      }
+    }
+  }, [handleApiError, setConfig]);
 
   // Load conversations on mount (only if API key exists)
   useEffect(() => {
@@ -259,7 +383,7 @@ function App() {
       loadConversations();
       loadConfig();
     }
-  }, [hasApiKey]);
+  }, [hasApiKey, loadConfig, loadConversations]);
 
   useEffect(() => {
     if (!hasApiKey) return;
@@ -284,12 +408,12 @@ function App() {
     if (currentConversationId) {
       loadConversation(currentConversationId);
     }
-  }, [currentConversationId]);
+  }, [currentConversationId, loadConversation]);
 
   useEffect(() => {
     setCurrentInteractivePrompt(null);
     setInteractiveSessionId(null);
-  }, [currentConversationId]);
+  }, [currentConversationId, setCurrentInteractivePrompt, setInteractiveSessionId]);
 
   // Poll for consultation status
   useEffect(() => {
@@ -308,6 +432,7 @@ function App() {
         if (status.status === 'none') {
           setIsLoading(false);
           setConsultationStatus(null);
+          clearStreamingConsultation(currentConversationId);
         } else {
           setConsultationStatus(status);
           applyConsultationStatusSnapshot(currentConversationId, status);
@@ -315,7 +440,8 @@ function App() {
           // Update conversation with partial results
           updateConversationById(currentConversationId, (draft) => {
             if (!draft || !draft.messages || draft.messages.length === 0) return;
-            const lastMsg = draft.messages[draft.messages.length - 1];
+            const targetIndex = findAssistantMessageIndexForStatus(draft.messages, status);
+            const lastMsg = targetIndex >= 0 ? draft.messages[targetIndex] : null;
             if (!lastMsg || lastMsg.role !== 'assistant') return;
 
             if (status.stage1) lastMsg.stage1 = status.stage1;
@@ -353,10 +479,12 @@ function App() {
           // Handle completion
           if (status.status === 'complete') {
             setIsLoading(false);
+            clearStreamingConsultation(currentConversationId);
             loadConversations(); // Refresh list for title update
             setConsultationStatus(null);
           } else if (status.status === 'failed') {
             setIsLoading(false);
+            clearStreamingConsultation(currentConversationId);
             if (status.error === 'Cancelled') {
               setConsultationStatus(null);
             } else {
@@ -376,7 +504,21 @@ function App() {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [currentConversationId, consultationStatus?.status, updateConversationById, applyConsultationStatusSnapshot, handleApiError]);
+  }, [
+    applyConsultationStatusSnapshot,
+    clearStreamingConsultation,
+    consultationStatus,
+    currentConversationId,
+    handleApiError,
+    loadConversations,
+    setConsultationStatus,
+    setCurrentInteractivePrompt,
+    setError,
+    setInteractiveSessionId,
+    setIsLoading,
+    setMessageQueue,
+    updateConversationById,
+  ]);
 
   // Check for active consultation when switching conversations
   useEffect(() => {
@@ -384,6 +526,7 @@ function App() {
       setConsultationStatus(null);
       setMessageQueue([]);
       setIsLoading(false);
+      setStreamingConsultations({});
       return;
     }
 
@@ -393,10 +536,12 @@ function App() {
         if (status.status === 'none') {
           setConsultationStatus(null);
           setIsLoading(false);
+          clearStreamingConsultation(currentConversationId);
         } else if (status.status === 'complete' || status.status === 'failed') {
           applyConsultationStatusSnapshot(currentConversationId, status);
           setConsultationStatus(null);
           setIsLoading(false);
+          clearStreamingConsultation(currentConversationId);
           if (status.status === 'failed' && status.error !== 'Cancelled') {
             setError({ message: 'Consultation failed', details: status.error });
           }
@@ -415,7 +560,17 @@ function App() {
     };
 
     checkConsultation();
-  }, [currentConversationId, applyConsultationStatusSnapshot, handleApiError, setError]);
+  }, [
+    applyConsultationStatusSnapshot,
+    clearStreamingConsultation,
+    currentConversationId,
+    handleApiError,
+    setConsultationStatus,
+    setError,
+    setIsLoading,
+    setMessageQueue,
+    setStreamingConsultations,
+  ]);
 
   // Poll for global consultation status (for sidebar indicators)
   useEffect(() => {
@@ -438,7 +593,7 @@ function App() {
     fetchGlobalStatus();
     const interval = setInterval(fetchGlobalStatus, 5000);
     return () => clearInterval(interval);
-  }, [hasApiKey, handleApiError]);
+  }, [handleApiError, hasApiKey, setBackendConsultations]);
 
   // Notify when interactive prompt arrives
   useEffect(() => {
@@ -446,52 +601,6 @@ function App() {
       notifyInputNeeded();
     }
   }, [currentInteractivePrompt, notifyInputNeeded]);
-
-
-
-  const loadConversations = async () => {
-    try {
-      const convs = await api.listConversations();
-      setConversations(convs);
-      if (convs.length > 0) {
-        const prev = useAppStore.getState().conversationsById;
-        let updated = null;
-        convs.forEach((meta) => {
-          if (prev[meta.id]) {
-            const existing = prev[meta.id];
-            if (existing.title !== meta.title || existing.created_at !== meta.created_at) {
-              updated = updated || { ...prev };
-              updated[meta.id] = {
-                ...existing,
-                title: meta.title,
-                created_at: meta.created_at,
-              };
-            }
-          }
-        });
-        if (updated) {
-          setConversationsById(prev => ({ ...prev, ...updated }));
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load conversations:', err);
-      if (!handleApiError(err)) {
-        setError({ message: 'Failed to load conversations. Please refresh the page.', details: err.message });
-      }
-    }
-  };
-
-  const loadConversation = async (id) => {
-    try {
-      const conv = await api.getConversation(id);
-      applyConversationSnapshot(conv);
-    } catch (err) {
-      console.error('Failed to load conversation:', err);
-      if (!handleApiError(err)) {
-        setError({ message: 'Failed to load conversation.', details: err.message });
-      }
-    }
-  };
 
   useEffect(() => {
     if (!hasApiKey) return;
@@ -524,27 +633,6 @@ function App() {
     };
   }, [applyConversationSnapshot, hasApiKey, handleApiError]);
 
-  const loadConfig = async () => {
-    try {
-      const cfg = await api.getConfig();
-      setConfig(cfg);
-    } catch (err) {
-      console.error('Failed to load config:', err);
-      if (!handleApiError(err)) {
-        setConfig({
-          negative_mode_enabled: false,
-          deliberation_enabled: false,
-          interactive_mode_enabled: false,
-          prompt_max_chars: null,
-          negative_prompt_max_chars: null,
-          council_models: [],
-          chairman_model: null,
-          title_model: null,
-        });
-      }
-    }
-  };
-
   const handleInteractiveSubmit = async (responses) => {
     if (!interactiveSessionId || !currentInteractivePrompt) return;
 
@@ -556,6 +644,7 @@ function App() {
         false
       );
       setCurrentInteractivePrompt(null);
+      setInteractiveSessionId(null);
     } catch (err) {
       console.error('Failed to submit interactive response:', err);
       if (!handleApiError(err)) {
@@ -575,6 +664,7 @@ function App() {
         true
       );
       setCurrentInteractivePrompt(null);
+      setInteractiveSessionId(null);
     } catch (err) {
       console.error('Failed to skip interactive prompt:', err);
       if (!handleApiError(err)) {
@@ -583,8 +673,9 @@ function App() {
     }
   };
 
-  const handleVersionAdded = useCallback((messageIndex, version) => {
+  const handleVersionAdded = useCallback((messageIndex, version, options = {}) => {
     if (!currentConversationId) return;
+    const { setAsCurrent = true } = options;
     // Append a new synthesis version to the stage3 versions array
     updateConversationById(currentConversationId, (draft) => {
       if (!draft?.messages?.[messageIndex]) return;
@@ -608,15 +699,16 @@ function App() {
 
       // Append new version
       msg.stage3.versions.push(version);
-      // New version becomes current
-      msg.stage3.current = version;
+      if (setAsCurrent) {
+        msg.stage3.current = version;
 
-      // Update synthesis mode in metadata
-      if (version.mode) {
-        if (!msg.metadata) {
-          msg.metadata = {};
+        // Update synthesis mode in metadata
+        if (version.mode) {
+          if (!msg.metadata) {
+            msg.metadata = {};
+          }
+          msg.metadata.synthesis_mode = version.mode;
         }
-        msg.metadata.synthesis_mode = version.mode;
       }
     });
   }, [currentConversationId, updateConversationById]);
@@ -736,6 +828,7 @@ function App() {
       setConversations([]);
       selectConversation(null, { replace: true });
       setConversationsById({});
+      setStreamingConsultations({});
       setIsClearConfirmOpen(false);
     } catch (err) {
       console.error('Failed to delete conversations:', err);
@@ -760,8 +853,17 @@ function App() {
     setConversations([]);
     selectConversation(null, { replace: true });
     setConversationsById({});
+    setStreamingConsultations({});
     setConfig(null);
-  }, [selectConversation]);
+  }, [
+    selectConversation,
+    setConfig,
+    setConversations,
+    setConversationsById,
+    setHasApiKey,
+    setShowApiKeyModal,
+    setStreamingConsultations,
+  ]);
 
 
 
@@ -777,6 +879,7 @@ function App() {
       await api.cancelConsultation(conversationId);
       setIsLoading(false);
       setConsultationStatus(null);
+      clearStreamingConsultation(conversationId);
       setCurrentInteractivePrompt(null);
       setInteractiveSessionId(null);
       setMessageQueue([]);
@@ -792,6 +895,7 @@ function App() {
     }
   }, [
     currentConversationId,
+    clearStreamingConsultation,
     handleApiError,
     isCancelling,
     loadConversations,
@@ -838,7 +942,7 @@ function App() {
         },
       };
 
-      const removeAssistantPlaceholder = () => {
+      const rollbackOptimisticMessagePair = () => {
         updateConversationById(conversationId, (draft) => {
           if (!draft || !draft.messages || draft.messages.length === 0) return;
           const lastMsg = draft.messages[draft.messages.length - 1];
@@ -852,7 +956,18 @@ function App() {
           if (isEmpty) {
             draft.messages.pop();
           }
+          const previousMsg = draft.messages[draft.messages.length - 1];
+          if (previousMsg?.role === 'user' && previousMsg.content === content) {
+            draft.messages.pop();
+          }
         });
+        setConversations(prev =>
+          prev.map(c =>
+            c.id === conversationId
+              ? { ...c, message_count: Math.max(0, (c.message_count || 0) - 2) }
+              : c
+          )
+        );
       };
 
       updateConversationById(conversationId, (draft) => {
@@ -866,7 +981,7 @@ function App() {
       setConversations(prev =>
         prev.map(c =>
           c.id === conversationId
-            ? { ...c, message_count: c.message_count + 1 }
+            ? { ...c, message_count: (c.message_count || 0) + 2 }
             : c
         )
       );
@@ -879,7 +994,7 @@ function App() {
 
         if (result.status === 'queued') {
           setIsLoading(false);
-          removeAssistantPlaceholder();
+          rollbackOptimisticMessagePair();
           setMessageQueue(prev => [
             ...prev,
             { id: result.consultation_id, content, created_at: new Date().toISOString() },
@@ -888,10 +1003,19 @@ function App() {
         }
 
         setIsLoading(true);
+        updateConversationById(conversationId, (draft) => {
+          const lastMsg = draft?.messages?.[draft.messages.length - 1];
+          if (!lastMsg || lastMsg.role !== 'assistant') return;
+          lastMsg.metadata = {
+            ...(lastMsg.metadata || {}),
+            consultation_id: result.consultation_id,
+            status: 'pending',
+          };
+        });
         setConsultationStatus({ status: 'pending', consultation_id: result.consultation_id });
       } catch (err) {
         setIsLoading(false);
-        removeAssistantPlaceholder();
+        rollbackOptimisticMessagePair();
         if (!handleApiError(err)) {
           setError({ message: 'Failed to send message.', details: err.message });
         }

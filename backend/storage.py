@@ -4,10 +4,23 @@ import json
 import os
 import re
 import tempfile
+import threading
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from .config import DATA_DIR
+
+SAFE_STORAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_storage_lock = threading.RLock()
+
+
+def validate_storage_id(identifier: str, label: str = "identifier") -> str:
+    """Validate ids before using them as JSON filenames."""
+    if not isinstance(identifier, str) or not SAFE_STORAGE_ID_PATTERN.fullmatch(identifier):
+        raise ValueError(
+            f"{label} must be 1-128 characters using only letters, numbers, '_' or '-'"
+        )
+    return identifier
 
 
 def _migrate_stage3(stage3: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -71,7 +84,8 @@ def _write_json_file(path: str, payload: Dict[str, Any]) -> None:
 
 def get_conversation_path(conversation_id: str) -> str:
     """Get the file path for a conversation."""
-    return os.path.join(DATA_DIR, f"{conversation_id}.json")
+    safe_id = validate_storage_id(conversation_id, "conversation_id")
+    return os.path.join(DATA_DIR, f"{safe_id}.json")
 
 
 def create_conversation(conversation_id: str) -> Dict[str, Any]:
@@ -84,20 +98,21 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
     Returns:
         New conversation dict
     """
-    ensure_data_dir()
+    with _storage_lock:
+        ensure_data_dir()
 
-    conversation = {
-        "id": conversation_id,
-        "created_at": datetime.utcnow().isoformat(),
-        "title": "New Conversation",
-        "messages": []
-    }
+        conversation = {
+            "id": conversation_id,
+            "created_at": datetime.utcnow().isoformat(),
+            "title": "New Conversation",
+            "messages": []
+        }
 
-    # Save to file
-    path = get_conversation_path(conversation_id)
-    _write_json_file(path, conversation)
+        # Save to file
+        path = get_conversation_path(conversation_id)
+        _write_json_file(path, conversation)
 
-    return conversation
+        return conversation
 
 
 def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
@@ -112,35 +127,47 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         Conversation dict or None if not found or corrupted
     """
-    path = get_conversation_path(conversation_id)
+    with _storage_lock:
+        try:
+            path = get_conversation_path(conversation_id)
+        except ValueError:
+            return None
 
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            conversation = json.load(f)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                conversation = json.load(f)
 
-        # Migrate stage3 format for all assistant messages
-        migrated = False
-        for message in conversation.get("messages", []):
-            if message.get("role") == "assistant" and message.get("stage3"):
-                original = message["stage3"]
-                # Check if migration is needed (old format lacks 'current' key)
-                if "current" not in original:
-                    message["stage3"] = _migrate_stage3(original)
-                    migrated = True
+            stored_id = conversation.get("id")
+            validate_storage_id(stored_id, "conversation_id")
+            if stored_id != conversation_id:
+                raise ValueError("conversation id does not match filename")
 
-        # Persist migration if any changes were made
-        if migrated:
-            save_conversation(conversation)
+            # Migrate stage3 format for all assistant messages
+            migrated = False
+            for message in conversation.get("messages", []):
+                if message.get("role") == "assistant" and message.get("stage3"):
+                    original = message["stage3"]
+                    # Check if migration is needed (old format lacks 'current' key)
+                    if "current" not in original:
+                        message["stage3"] = _migrate_stage3(original)
+                        migrated = True
 
-        return conversation
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError as e:
-        print(f"Error: Corrupted conversation file {conversation_id}: {e}")
-        return None
-    except IOError as e:
-        print(f"Error: Could not read conversation {conversation_id}: {e}")
-        return None
+            # Persist migration if any changes were made
+            if migrated:
+                save_conversation(conversation)
+
+            return conversation
+        except FileNotFoundError:
+            return None
+        except ValueError as e:
+            print(f"Error: Invalid conversation file {conversation_id}: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"Error: Corrupted conversation file {conversation_id}: {e}")
+            return None
+        except IOError as e:
+            print(f"Error: Could not read conversation {conversation_id}: {e}")
+            return None
 
 
 def save_conversation(conversation: Dict[str, Any]):
@@ -150,10 +177,11 @@ def save_conversation(conversation: Dict[str, Any]):
     Args:
         conversation: Conversation dict to save
     """
-    ensure_data_dir()
+    with _storage_lock:
+        ensure_data_dir()
 
-    path = get_conversation_path(conversation['id'])
-    _write_json_file(path, conversation)
+        path = get_conversation_path(conversation['id'])
+        _write_json_file(path, conversation)
 
 
 def list_conversations() -> List[Dict[str, Any]]:
@@ -163,31 +191,43 @@ def list_conversations() -> List[Dict[str, Any]]:
     Returns:
         List of conversation metadata dicts
     """
-    ensure_data_dir()
+    with _storage_lock:
+        ensure_data_dir()
 
-    conversations = []
-    for filename in os.listdir(DATA_DIR):
-        if filename.endswith('.json'):
-            path = os.path.join(DATA_DIR, filename)
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    # Return metadata only
-                    conversations.append({
-                        "id": data["id"],
-                        "created_at": data["created_at"],
-                        "title": data.get("title", "New Conversation"),
-                        "message_count": len(data["messages"])
-                    })
-            except (json.JSONDecodeError, KeyError, IOError) as e:
-                # Skip corrupted files but log the error
-                print(f"Warning: Skipping corrupted conversation file {filename}: {e}")
-                continue
+        conversations = []
+        for filename in os.listdir(DATA_DIR):
+            if filename.endswith('.json'):
+                file_id = filename[:-5]
+                try:
+                    validate_storage_id(file_id, "conversation filename")
+                except ValueError as e:
+                    print(f"Warning: Skipping unsafe conversation filename {filename}: {e}")
+                    continue
 
-    # Sort by creation time, newest first
-    conversations.sort(key=lambda x: x["created_at"], reverse=True)
+                path = os.path.join(DATA_DIR, filename)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        conversation_id = data["id"]
+                        validate_storage_id(conversation_id, "conversation_id")
+                        if conversation_id != file_id:
+                            raise ValueError("conversation id does not match filename")
+                        # Return metadata only
+                        conversations.append({
+                            "id": conversation_id,
+                            "created_at": data["created_at"],
+                            "title": data.get("title", "New Conversation"),
+                            "message_count": len(data["messages"])
+                        })
+                except (json.JSONDecodeError, KeyError, IOError, ValueError) as e:
+                    # Skip corrupted files but log the error
+                    print(f"Warning: Skipping corrupted conversation file {filename}: {e}")
+                    continue
 
-    return conversations
+        # Sort by creation time, newest first
+        conversations.sort(key=lambda x: x["created_at"], reverse=True)
+
+        return conversations
 
 
 def add_user_message(conversation_id: str, content: str):
@@ -198,16 +238,17 @@ def add_user_message(conversation_id: str, content: str):
         conversation_id: Conversation identifier
         content: User message content
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
-        "role": "user",
-        "content": content
-    })
+        conversation["messages"].append({
+            "role": "user",
+            "content": content
+        })
 
-    save_conversation(conversation)
+        save_conversation(conversation)
 
 
 def add_assistant_message(
@@ -231,21 +272,22 @@ def add_assistant_message(
         metadata: Additional metadata (e.g., label mappings, aggregates)
         trace: Debug trace payload for the full flow
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
-        "role": "assistant",
-        "stage1": stage1,
-        "negative": negative,
-        "stage2": stage2,
-        "stage3": stage3,
-        "metadata": metadata or {},
-        "trace": trace,
-    })
+        conversation["messages"].append({
+            "role": "assistant",
+            "stage1": stage1,
+            "negative": negative,
+            "stage2": stage2,
+            "stage3": stage3,
+            "metadata": metadata or {},
+            "trace": trace,
+        })
 
-    save_conversation(conversation)
+        save_conversation(conversation)
 
 
 def add_assistant_placeholder(
@@ -259,22 +301,23 @@ def add_assistant_placeholder(
     Returns:
         Index of the new assistant message in the conversation.
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
-        "role": "assistant",
-        "stage1": None,
-        "negative": None,
-        "stage2": None,
-        "stage3": None,
-        "metadata": metadata or {},
-        "trace": trace,
-    })
+        conversation["messages"].append({
+            "role": "assistant",
+            "stage1": None,
+            "negative": None,
+            "stage2": None,
+            "stage3": None,
+            "metadata": metadata or {},
+            "trace": trace,
+        })
 
-    save_conversation(conversation)
-    return len(conversation["messages"]) - 1
+        save_conversation(conversation)
+        return len(conversation["messages"]) - 1
 
 
 def update_assistant_message(
@@ -290,27 +333,30 @@ def update_assistant_message(
         message_index: Index of the assistant message to update
         updates: Dict of fields to update (metadata merges with existing)
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    if message_index < 0 or message_index >= len(conversation["messages"]):
-        raise IndexError("Assistant message index out of range")
+        if message_index < 0 or message_index >= len(conversation["messages"]):
+            raise IndexError("Assistant message index out of range")
 
-    message = conversation["messages"][message_index]
-    if message.get("role") != "assistant":
-        raise ValueError("Target message is not an assistant message")
+        message = conversation["messages"][message_index]
+        if message.get("role") != "assistant":
+            raise ValueError("Target message is not an assistant message")
 
-    metadata_update = updates.pop("metadata", None)
-    for key, value in updates.items():
-        message[key] = value
-    if metadata_update is not None:
-        message["metadata"] = {
-            **(message.get("metadata") or {}),
-            **metadata_update,
-        }
+        metadata_update = updates.get("metadata")
+        for key, value in updates.items():
+            if key == "metadata":
+                continue
+            message[key] = value
+        if metadata_update is not None:
+            message["metadata"] = {
+                **(message.get("metadata") or {}),
+                **metadata_update,
+            }
 
-    save_conversation(conversation)
+        save_conversation(conversation)
 
 
 def update_conversation_title(conversation_id: str, title: str):
@@ -321,12 +367,13 @@ def update_conversation_title(conversation_id: str, title: str):
         conversation_id: Conversation identifier
         title: New title for the conversation
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["title"] = title
-    save_conversation(conversation)
+        conversation["title"] = title
+        save_conversation(conversation)
 
 
 def append_stage3_version(
@@ -347,35 +394,36 @@ def append_stage3_version(
     Returns:
         Index of the new version in the versions array
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    if message_index < 0 or message_index >= len(conversation["messages"]):
-        raise IndexError("Message index out of range")
+        if message_index < 0 or message_index >= len(conversation["messages"]):
+            raise IndexError("Message index out of range")
 
-    message = conversation["messages"][message_index]
-    if message.get("role") != "assistant":
-        raise ValueError("Target message is not an assistant message")
+        message = conversation["messages"][message_index]
+        if message.get("role") != "assistant":
+            raise ValueError("Target message is not an assistant message")
 
-    stage3 = message.get("stage3")
-    if stage3 is None:
-        raise ValueError("Message has no stage3 data")
+        stage3 = message.get("stage3")
+        if stage3 is None:
+            raise ValueError("Message has no stage3 data")
 
-    # Ensure stage3 is in new format
-    if "current" not in stage3:
-        stage3 = _migrate_stage3(stage3)
-        message["stage3"] = stage3
+        # Ensure stage3 is in new format
+        if "current" not in stage3:
+            stage3 = _migrate_stage3(stage3)
+            message["stage3"] = stage3
 
-    # Append the new version
-    stage3["versions"].append(version)
-    version_index = len(stage3["versions"]) - 1
+        # Append the new version
+        stage3["versions"].append(version)
+        version_index = len(stage3["versions"]) - 1
 
-    if set_as_current:
-        stage3["current"] = version
+        if set_as_current:
+            stage3["current"] = version
 
-    save_conversation(conversation)
-    return version_index
+        save_conversation(conversation)
+        return version_index
 
 
 def set_stage3_current_version(
@@ -391,26 +439,27 @@ def set_stage3_current_version(
         message_index: Index of the assistant message
         version_index: Index of the version to set as current
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    if message_index < 0 or message_index >= len(conversation["messages"]):
-        raise IndexError("Message index out of range")
+        if message_index < 0 or message_index >= len(conversation["messages"]):
+            raise IndexError("Message index out of range")
 
-    message = conversation["messages"][message_index]
-    if message.get("role") != "assistant":
-        raise ValueError("Target message is not an assistant message")
+        message = conversation["messages"][message_index]
+        if message.get("role") != "assistant":
+            raise ValueError("Target message is not an assistant message")
 
-    stage3 = message.get("stage3")
-    if stage3 is None or "versions" not in stage3:
-        raise ValueError("Message has no stage3 versions")
+        stage3 = message.get("stage3")
+        if stage3 is None or "versions" not in stage3:
+            raise ValueError("Message has no stage3 versions")
 
-    if version_index < 0 or version_index >= len(stage3["versions"]):
-        raise IndexError("Version index out of range")
+        if version_index < 0 or version_index >= len(stage3["versions"]):
+            raise IndexError("Version index out of range")
 
-    stage3["current"] = stage3["versions"][version_index]
-    save_conversation(conversation)
+        stage3["current"] = stage3["versions"][version_index]
+        save_conversation(conversation)
 
 
 def _ensure_side_chats(message: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -433,18 +482,19 @@ def list_side_chat_threads(
         conversation_id: Conversation identifier
         message_index: Absolute assistant message index in the messages array
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    if message_index < 0 or message_index >= len(conversation["messages"]):
-        raise IndexError("Message index out of range")
+        if message_index < 0 or message_index >= len(conversation["messages"]):
+            raise IndexError("Message index out of range")
 
-    message = conversation["messages"][message_index]
-    if message.get("role") != "assistant":
-        raise ValueError("Target message is not an assistant message")
+        message = conversation["messages"][message_index]
+        if message.get("role") != "assistant":
+            raise ValueError("Target message is not an assistant message")
 
-    return list(_ensure_side_chats(message))
+        return list(_ensure_side_chats(message))
 
 
 def get_side_chat_thread(
@@ -480,27 +530,28 @@ def save_side_chat_thread(
         message_index: Absolute assistant message index in the messages array
         thread: Fully materialized thread payload
     """
-    conversation = get_conversation(conversation_id)
-    if conversation is None:
-        raise ValueError(f"Conversation {conversation_id} not found")
+    with _storage_lock:
+        conversation = get_conversation(conversation_id)
+        if conversation is None:
+            raise ValueError(f"Conversation {conversation_id} not found")
 
-    if message_index < 0 or message_index >= len(conversation["messages"]):
-        raise IndexError("Message index out of range")
+        if message_index < 0 or message_index >= len(conversation["messages"]):
+            raise IndexError("Message index out of range")
 
-    message = conversation["messages"][message_index]
-    if message.get("role") != "assistant":
-        raise ValueError("Target message is not an assistant message")
+        message = conversation["messages"][message_index]
+        if message.get("role") != "assistant":
+            raise ValueError("Target message is not an assistant message")
 
-    side_chats = _ensure_side_chats(message)
-    for index, existing in enumerate(side_chats):
-        if existing.get("id") == thread.get("id"):
-            side_chats[index] = thread
-            save_conversation(conversation)
-            return thread
+        side_chats = _ensure_side_chats(message)
+        for index, existing in enumerate(side_chats):
+            if existing.get("id") == thread.get("id"):
+                side_chats[index] = thread
+                save_conversation(conversation)
+                return thread
 
-    side_chats.append(thread)
-    save_conversation(conversation)
-    return thread
+        side_chats.append(thread)
+        save_conversation(conversation)
+        return thread
 
 
 _TITLE_SUFFIX_PATTERN = re.compile(r"^(.*?)(?:\s\((\d+)\))?$")
@@ -542,6 +593,14 @@ def ensure_unique_title(title: str, conversation_id: Optional[str] = None) -> st
         suffix += 1
 
 
+def update_conversation_title_unique(conversation_id: str, title: str) -> str:
+    """Set a title after resolving uniqueness under the storage lock."""
+    with _storage_lock:
+        unique_title = ensure_unique_title(title, conversation_id)
+        update_conversation_title(conversation_id, unique_title)
+        return unique_title
+
+
 def clear_conversations() -> int:
     """
     Delete all stored conversation JSON files.
@@ -549,19 +608,20 @@ def clear_conversations() -> int:
     Returns:
         Number of files deleted.
     """
-    data_path = Path(DATA_DIR)
-    if not data_path.exists():
-        return 0
+    with _storage_lock:
+        data_path = Path(DATA_DIR)
+        if not data_path.exists():
+            return 0
 
-    deleted = 0
-    for file_path in data_path.glob("*.json"):
-        try:
-            file_path.unlink()
-            deleted += 1
-        except OSError:
-            continue
+        deleted = 0
+        for file_path in data_path.glob("*.json"):
+            try:
+                file_path.unlink()
+                deleted += 1
+            except OSError:
+                continue
 
-    return deleted
+        return deleted
 
 
 def delete_conversation(conversation_id: str) -> bool:
@@ -574,15 +634,19 @@ def delete_conversation(conversation_id: str) -> bool:
     Returns:
         True if deleted, False if not found or deletion failed.
     """
-    path = Path(get_conversation_path(conversation_id))
-    try:
-        path.unlink()
-        return True
-    except FileNotFoundError:
-        return False
-    except OSError as e:
-        print(f"Error: Could not delete conversation {conversation_id}: {e}")
-        return False
+    with _storage_lock:
+        try:
+            path = Path(get_conversation_path(conversation_id))
+        except ValueError:
+            return False
+        try:
+            path.unlink()
+            return True
+        except FileNotFoundError:
+            return False
+        except OSError as e:
+            print(f"Error: Could not delete conversation {conversation_id}: {e}")
+            return False
 
 
 def list_incomplete_assistant_messages() -> List[Dict[str, Any]]:
@@ -592,56 +656,57 @@ def list_incomplete_assistant_messages() -> List[Dict[str, Any]]:
     Each result includes conversation metadata, assistant message index, and the
     user message content immediately preceding the assistant placeholder.
     """
-    ensure_data_dir()
+    with _storage_lock:
+        ensure_data_dir()
 
-    resumable_statuses = {
-        "pending",
-        "interactive",
-        "stage1",
-        "negative",
-        "stage2",
-        "deliberation",
-        "stage3",
-    }
-    candidates: List[Dict[str, Any]] = []
+        resumable_statuses = {
+            "pending",
+            "interactive",
+            "stage1",
+            "negative",
+            "stage2",
+            "deliberation",
+            "stage3",
+        }
+        candidates: List[Dict[str, Any]] = []
 
-    for conversation_meta in list_conversations():
-        conversation = get_conversation(conversation_meta["id"])
-        if conversation is None:
-            continue
-
-        messages = conversation.get("messages", [])
-        for index, message in enumerate(messages):
-            if message.get("role") != "assistant":
+        for conversation_meta in list_conversations():
+            conversation = get_conversation(conversation_meta["id"])
+            if conversation is None:
                 continue
 
-            metadata = message.get("metadata") or {}
-            status = metadata.get("status")
-            if status not in resumable_statuses:
-                continue
+            messages = conversation.get("messages", [])
+            for index, message in enumerate(messages):
+                if message.get("role") != "assistant":
+                    continue
 
-            if message.get("stage3"):
-                continue
+                metadata = message.get("metadata") or {}
+                status = metadata.get("status")
+                if status not in resumable_statuses:
+                    continue
 
-            user_message = None
-            for cursor in range(index - 1, -1, -1):
-                previous = messages[cursor]
-                if previous.get("role") == "user":
-                    user_message = previous.get("content")
-                    break
+                if message.get("stage3"):
+                    continue
 
-            if not user_message:
-                continue
+                user_message = None
+                for cursor in range(index - 1, -1, -1):
+                    previous = messages[cursor]
+                    if previous.get("role") == "user":
+                        user_message = previous.get("content")
+                        break
 
-            candidates.append({
-                "conversation_id": conversation["id"],
-                "conversation_title": conversation.get("title", "New Conversation"),
-                "assistant_index": index,
-                "assistant_message": message,
-                "content": user_message,
-                "negative_prompt": ((metadata.get("resume") or {}).get("negative_prompt")),
-                "consultation_id": metadata.get("consultation_id"),
-                "status": status,
-            })
+                if not user_message:
+                    continue
 
-    return candidates
+                candidates.append({
+                    "conversation_id": conversation["id"],
+                    "conversation_title": conversation.get("title", "New Conversation"),
+                    "assistant_index": index,
+                    "assistant_message": message,
+                    "content": user_message,
+                    "negative_prompt": ((metadata.get("resume") or {}).get("negative_prompt")),
+                    "consultation_id": metadata.get("consultation_id"),
+                    "status": status,
+                })
+
+        return candidates

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Checkbox } from './ui/checkbox';
@@ -154,7 +154,7 @@ function CheckboxField({ field, value, onChange }) {
 
 export default function InteractivePrompt({ prompt, onSubmit, onSkip }) {
   const isPromptRefinement = prompt.prompt_type === 'prompt_refinement';
-  const isRefinementLocked = (values) => {
+  const isRefinementLocked = useCallback((values) => {
     if (!isPromptRefinement) return false;
     const hasClarifyingAnswers = Object.entries(values).some(([key, value]) => {
       if (!key.startsWith('clarifying_answer_')) return false;
@@ -162,23 +162,24 @@ export default function InteractivePrompt({ prompt, onSubmit, onSkip }) {
     });
     const hasAdditionalInsights = String(values.additional_insights ?? '').trim().length > 0;
     return hasClarifyingAnswers || hasAdditionalInsights;
-  };
-  const applyRefinementLock = (values) => {
+  }, [isPromptRefinement]);
+  const applyRefinementLock = useCallback((values) => {
     if (!isRefinementLocked(values)) return values;
     if (values.refinement_action === 'refine_again') return values;
     return {
       ...values,
       refinement_action: 'refine_again',
     };
-  };
+  }, [isRefinementLocked]);
 
-  const [responses, setResponses] = useState(() => {
+  const buildInitialResponses = useCallback(() => {
     const initial = {};
     for (const field of prompt.fields || []) {
       initial[field.id] = field.default;
     }
     return applyRefinementLock(initial);
-  });
+  }, [applyRefinementLock, prompt.fields]);
+  const [responses, setResponses] = useState(buildInitialResponses);
   const refinementActionLocked = isRefinementLocked(responses);
 
   const handleFieldChange = (fieldId, value) => {

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import datetime
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional, TypedDict
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypedDict
 
 from langgraph.graph import StateGraph, START, END
 
@@ -17,13 +18,16 @@ from .config import (
     INTERACTIVE_MODE_ENABLED,
     INTERACTIVE_TIMEOUT_SECONDS,
     NEGATIVE_MODE_ENABLED,
+    PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
 )
 from . import storage
 from .council import (
     build_label_mapping,
+    build_responses_for_synthesis,
     calculate_aggregate_gap_scores,
     calculate_aggregate_rankings,
+    calculate_pairwise_rankings,
     generate_prompt_refinement,
     generate_conversation_title,
     generate_negative_prompt,
@@ -276,6 +280,10 @@ def _combine_parts(parts: List[str]) -> Optional[str]:
     return " ".join(filtered) if filtered else None
 
 
+def _text_length(value: Optional[str]) -> int:
+    return len(value or "")
+
+
 def _interactive_modifier(context: FlowContext) -> Optional[str]:
     if not _prompt_refinements_active(context) or not context.interactive_config:
         return None
@@ -382,6 +390,29 @@ def build_council_graph(context: FlowContext):
     def _cancel_state() -> Dict[str, Any]:
         return {"error": _CANCELLED_MESSAGE}
 
+    def _excluded_models(state: CouncilState) -> set[str]:
+        metadata_exclusions = (state.get("metadata") or {}).get("excluded_models") or []
+        exclusions = set(metadata_exclusions)
+        if context.interactive_config:
+            exclusions.update(context.interactive_config.excluded_models)
+        return exclusions
+
+    def _active_stage1_inputs(
+        state: CouncilState,
+    ) -> Tuple[List[Dict[str, Any]], List[str], Dict[str, str]]:
+        excluded_models = _excluded_models(state)
+        active_results = [
+            result
+            for result in state.get("stage1", [])
+            if result.get("model")
+            and result.get("model") not in excluded_models
+            and not result.get("failed")
+        ]
+        if not active_results:
+            return [], [], {}
+        labels, label_to_model = build_label_mapping(active_results)
+        return active_results, labels, label_to_model
+
     def _title_already_generated() -> bool:
         if not context.is_first_message:
             return True
@@ -407,34 +438,55 @@ def build_council_graph(context: FlowContext):
             else timeout_seconds
         )
 
-        if context.cancel_event is None:
+        if context.cancel_event is None and context.cancel_requested is None:
             return await asyncio.wait_for(
                 context.interactive_queue.get(),
                 timeout=timeout,
             )
 
+        async def _poll_cancel_requested() -> None:
+            while True:
+                if context.cancel_requested and context.cancel_requested():
+                    return
+                await asyncio.sleep(0.25)
+
         response_task = asyncio.create_task(context.interactive_queue.get())
-        cancel_task = asyncio.create_task(context.cancel_event.wait())
+        cancel_tasks = set()
+        if context.cancel_event is not None:
+            cancel_tasks.add(asyncio.create_task(context.cancel_event.wait()))
+        if context.cancel_requested is not None:
+            cancel_tasks.add(asyncio.create_task(_poll_cancel_requested()))
+        tasks = {response_task, *cancel_tasks}
+
+        async def _cancel_tasks(tasks_to_cancel: set[asyncio.Task]) -> None:
+            for task in tasks_to_cancel:
+                task.cancel()
+            with suppress(asyncio.CancelledError):
+                await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+
         try:
             done, pending = await asyncio.wait(
-                {response_task, cancel_task},
+                tasks,
                 timeout=timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
         except Exception:
-            response_task.cancel()
-            cancel_task.cancel()
+            await _cancel_tasks(tasks)
             raise
 
-        if cancel_task in done:
-            response_task.cancel()
+        if not done:
+            await _cancel_tasks(pending)
+            raise asyncio.TimeoutError
+
+        if done & cancel_tasks:
+            await _cancel_tasks({response_task, *pending})
             raise FlowCancelled()
+
         if response_task in done:
-            cancel_task.cancel()
+            await _cancel_tasks(pending)
             return response_task.result()
 
-        response_task.cancel()
-        cancel_task.cancel()
+        await _cancel_tasks(pending)
         raise asyncio.TimeoutError
 
     async def _request_interactive_response(prompt: InteractivePrompt) -> PromptResponse:
@@ -506,8 +558,10 @@ def build_council_graph(context: FlowContext):
         except Exception as exc:
             error_message = str(exc)
 
-        unique_title = storage.ensure_unique_title(title, context.conversation_id)
-        storage.update_conversation_title(context.conversation_id, unique_title)
+        unique_title = storage.update_conversation_title_unique(
+            context.conversation_id,
+            title,
+        )
 
         if error_message:
             context.trace.end_stage("title", title=unique_title, error=error_message)
@@ -561,8 +615,12 @@ def build_council_graph(context: FlowContext):
                     stage="prompt_refinement",
                     iteration=iteration,
                     intent=suggestion.get("intent") or "",
-                    clarifying_questions=suggestion.get("clarifying_questions") or [],
-                    refined_prompt=suggestion.get("refined_prompt") or "",
+                    clarifying_question_count=len(
+                        suggestion.get("clarifying_questions") or []
+                    ),
+                    refined_prompt_length=_text_length(
+                        suggestion.get("refined_prompt") or ""
+                    ),
                 )
 
                 if context.is_cancelled():
@@ -633,9 +691,9 @@ def build_council_graph(context: FlowContext):
                     iteration=iteration,
                     user_action=user_action,
                     final_action=action,
-                    refined_prompt=user_refined_prompt or None,
-                    clarifying_answers=new_answers,
-                    additional_insights=extra or None,
+                    refined_prompt_length=_text_length(user_refined_prompt),
+                    clarifying_answer_count=len(new_answers),
+                    additional_insights_length=_text_length(extra),
                 )
 
                 if action == "use_original":
@@ -658,11 +716,13 @@ def build_council_graph(context: FlowContext):
                 "prompt_refinement",
                 decision=decision,
                 iterations=iterations_used,
-                original_prompt=original_query,
-                refined_prompt=refined_prompt,
+                original_prompt_length=_text_length(original_query),
+                refined_prompt_length=_text_length(refined_prompt),
                 intent=last_suggestion.get("intent") or "",
-                clarifying_questions=last_suggestion.get("clarifying_questions") or [],
-                clarifying_answers=clarifying_answers,
+                clarifying_question_count=len(
+                    last_suggestion.get("clarifying_questions") or []
+                ),
+                clarifying_answer_count=len(clarifying_answers),
             )
 
             prompt_refinement_metadata = {
@@ -723,11 +783,24 @@ def build_council_graph(context: FlowContext):
         await context.set_status("stage1")
         await context.init_stage_progress("stage1", COUNCIL_MODELS)
         refinement_meta = (state.get("metadata") or {}).get("prompt_refinement")
+        refinement_trace = None
+        if refinement_meta:
+            refinement_trace = {
+                "enabled": refinement_meta.get("enabled"),
+                "decision": refinement_meta.get("decision"),
+                "iterations": refinement_meta.get("iterations"),
+                "original_prompt_length": _text_length(
+                    refinement_meta.get("original_prompt")
+                ),
+                "refined_prompt_length": _text_length(
+                    refinement_meta.get("refined_prompt")
+                ),
+            }
         context.trace.add_event(
             "prompt_finalized",
             stage="stage1",
-            prompt=state["user_query"],
-            refinement=refinement_meta,
+            prompt_length=_text_length(state["user_query"]),
+            refinement=refinement_trace,
         )
         context.trace.begin_stage("stage1", label="Stage 1")
         await context.emit_event({"type": "stage1_start"})
@@ -748,12 +821,14 @@ def build_council_graph(context: FlowContext):
             )
             return _cancel_state()
 
-        if not stage1_results:
+        successful_results = [
+            result for result in stage1_results if not result.get("failed")
+        ]
+        if not successful_results:
             context.trace.end_stage("stage1", response_count=0)
             error_message = "All models failed to respond. Please try again."
-            error_response = {"model": "error", "response": error_message}
-            await context.update_message({"stage1": [], "stage3": error_response})
-            return {"error": error_message, "stage1": [], "stage3": error_response}
+            await context.update_message({"stage1": stage1_results})
+            return {"error": error_message, "stage1": stage1_results}
 
         context.trace.end_stage("stage1", response_count=len(stage1_results))
         labels, label_to_model = build_label_mapping(stage1_results)
@@ -803,6 +878,18 @@ def build_council_graph(context: FlowContext):
         context.collected_responses["response_review"] = response
         await _persist_collected_responses(state["user_query"])
         context.refresh_interactive_config()
+
+        metadata_update: Dict[str, Any] = {}
+        if context.interactive_config:
+            metadata_update["excluded_models"] = context.interactive_config.excluded_models
+        if metadata_update:
+            await context.update_message({"metadata": metadata_update})
+            return {
+                "metadata": {
+                    **(state.get("metadata") or {}),
+                    **metadata_update,
+                }
+            }
         return {}
 
     async def negative_node(state: CouncilState) -> Dict[str, Any]:
@@ -838,15 +925,19 @@ def build_council_graph(context: FlowContext):
             "negative_prompt": resolved_negative_prompt,
         })
 
-        stage1_results = state.get("stage1", [])
+        stage1_results, labels, label_to_model = _active_stage1_inputs(state)
+        if not stage1_results:
+            error_message = "No successful responses remain after exclusions."
+            context.trace.end_stage("negative", error=error_message)
+            return {"error": error_message}
         stage_models = [result.get("model") for result in stage1_results if result.get("model")]
         await context.init_stage_progress("negative", stage_models)
 
         evaluations = await stage_negative_evaluations(
             state["user_query"],
             resolved_negative_prompt,
-            state.get("stage1", []),
-            state.get("labels", []),
+            stage1_results,
+            labels,
             trace=context.trace,
             progress=context.progress_callback("negative"),
         )
@@ -858,12 +949,15 @@ def build_council_graph(context: FlowContext):
 
         aggregate_gap_scores = calculate_aggregate_gap_scores(
             evaluations,
-            state.get("label_to_model", {}),
+            label_to_model,
         )
 
         await context.update_message({
             "negative": negative_context,
-            "metadata": {"aggregate_gap_scores": aggregate_gap_scores},
+            "metadata": {
+                "aggregate_gap_scores": aggregate_gap_scores,
+                "label_to_model": label_to_model,
+            },
         })
         await context.emit_event({
             "type": "negative_complete",
@@ -872,9 +966,18 @@ def build_council_graph(context: FlowContext):
             "aggregate_gap_scores": aggregate_gap_scores,
         })
 
+        merged_metadata = {
+            **(state.get("metadata") or {}),
+            "aggregate_gap_scores": aggregate_gap_scores,
+            "label_to_model": label_to_model,
+        }
+
         return {
             "negative": negative_context,
             "aggregate_gap_scores": aggregate_gap_scores,
+            "labels": labels,
+            "label_to_model": label_to_model,
+            "metadata": merged_metadata,
         }
 
     async def stage2_node(state: CouncilState) -> Dict[str, Any]:
@@ -886,16 +989,21 @@ def build_council_graph(context: FlowContext):
         await context.init_stage_progress("stage2", COUNCIL_MODELS)
 
         prompt_modifier = _stage2_prompt_modifier(context)
-        responses_to_rank = (
-            state.get("responses_for_synthesis")
-            if state.get("responses_for_synthesis")
-            else state.get("stage1", [])
-        )
+        if state.get("responses_for_synthesis"):
+            responses_to_rank = state.get("responses_for_synthesis", [])
+            labels, label_to_model = build_label_mapping(responses_to_rank)
+        else:
+            responses_to_rank, labels, label_to_model = _active_stage1_inputs(state)
+        if not responses_to_rank:
+            error_message = "No successful responses remain after exclusions."
+            context.trace.end_stage("stage2", error=error_message)
+            return {"error": error_message}
+
         stage2_results, label_to_model = await stage2_collect_rankings(
             state["user_query"],
             responses_to_rank,
-            state.get("labels"),
-            state.get("label_to_model"),
+            labels,
+            label_to_model,
             trace=context.trace,
             prompt_modifier=prompt_modifier,
             progress=context.progress_callback("stage2"),
@@ -905,16 +1013,25 @@ def build_council_graph(context: FlowContext):
         if context.is_cancelled():
             return _cancel_state()
 
-        aggregate_rankings, invalid_rankings = calculate_aggregate_rankings(
-            stage2_results,
-            label_to_model,
-        )
+        if PAIRWISE_RANKING_ENABLED:
+            aggregate_rankings, invalid_rankings = calculate_pairwise_rankings(
+                stage2_results,
+                label_to_model,
+            )
+            ranking_method = "pairwise"
+        else:
+            aggregate_rankings, invalid_rankings = calculate_aggregate_rankings(
+                stage2_results,
+                label_to_model,
+            )
+            ranking_method = "average_rank"
 
         metadata: Dict[str, Any] = {
             **(state.get("metadata") or {}),
             "label_to_model": label_to_model,
             "aggregate_rankings": aggregate_rankings,
             "invalid_rankings": invalid_rankings,
+            "ranking_method": ranking_method,
             "negative_mode": state.get("negative"),
         }
         if state.get("aggregate_gap_scores") is not None:
@@ -934,6 +1051,7 @@ def build_council_graph(context: FlowContext):
 
         return {
             "stage2": stage2_results,
+            "labels": list(label_to_model.keys()),
             "label_to_model": label_to_model,
             "aggregate_rankings": aggregate_rankings,
             "invalid_rankings": invalid_rankings,
@@ -947,15 +1065,21 @@ def build_council_graph(context: FlowContext):
         context.trace.begin_stage("deliberation", label="Deliberation")
         await context.emit_event({"type": "deliberation_start"})
 
-        stage1_results = state.get("stage1", [])
+        stage1_results, labels, label_to_model = _active_stage1_inputs(state)
+        if not stage1_results:
+            error_message = "No successful responses remain after exclusions."
+            context.trace.end_stage("deliberation", error=error_message)
+            return {"error": error_message}
         stage_models = [result.get("model") for result in stage1_results if result.get("model")]
         await context.init_stage_progress("deliberation", stage_models)
 
         deliberation_results = await stage_deliberation(
             state["user_query"],
-            state.get("stage1", []),
-            state.get("labels", []),
-            state.get("label_to_model", {}),
+            stage1_results,
+            labels,
+            label_to_model,
+            state.get("stage2", []),
+            state.get("aggregate_rankings", []),
             state.get("negative") if state.get("negative", {}).get("enabled") else None,
             state.get("aggregate_gap_scores"),
             trace=context.trace,
@@ -990,6 +1114,8 @@ def build_council_graph(context: FlowContext):
 
         return {
             "responses_for_synthesis": responses_for_synthesis,
+            "labels": labels,
+            "label_to_model": label_to_model,
             "metadata": merged_metadata,
         }
 
@@ -1029,24 +1155,38 @@ def build_council_graph(context: FlowContext):
         await context.emit_event({"type": "stage3_start"})
         await context.init_stage_progress("stage3", [CHAIRMAN_MODEL])
 
-        responses_for_synthesis = (
-            state.get("responses_for_synthesis")
-            if state.get("responses_for_synthesis")
-            else state.get("stage1", [])
-        )
+        responses_for_synthesis = state.get("responses_for_synthesis")
+        if not responses_for_synthesis:
+            deliberation = (state.get("metadata") or {}).get("deliberation") or {}
+            if deliberation.get("results"):
+                responses_for_synthesis = build_responses_for_synthesis(
+                    state.get("stage1", []),
+                    state.get("metadata", {}),
+                )
+            else:
+                responses_for_synthesis, _, _ = _active_stage1_inputs(state)
+        if not responses_for_synthesis:
+            error_message = "No successful responses are available for final synthesis."
+            context.trace.end_stage("stage3", error=error_message)
+            return {"error": error_message}
+
         prompt_modifier = _stage3_prompt_modifier(context)
-        stage3_result = await stage3_synthesize_final(
-            state["user_query"],
-            responses_for_synthesis,
-            state.get("stage2", []),
-            state.get("label_to_model", {}),
-            state.get("negative"),
-            state.get("aggregate_gap_scores"),
-            state.get("labels"),
-            trace=context.trace,
-            prompt_modifier=prompt_modifier,
-            progress=context.progress_callback("stage3"),
-        )
+        try:
+            stage3_result = await stage3_synthesize_final(
+                state["user_query"],
+                responses_for_synthesis,
+                state.get("stage2", []),
+                state.get("label_to_model", {}),
+                state.get("negative"),
+                state.get("aggregate_gap_scores"),
+                state.get("labels"),
+                trace=context.trace,
+                prompt_modifier=prompt_modifier,
+                progress=context.progress_callback("stage3"),
+            )
+        except Exception as exc:
+            context.trace.end_stage("stage3", error=str(exc))
+            raise
         context.trace.end_stage("stage3", model=stage3_result.get("model"))
 
         if context.is_cancelled():
@@ -1060,6 +1200,10 @@ def build_council_graph(context: FlowContext):
         stage3_metadata: Dict[str, Any] = {}
         if synthesis_mode:
             stage3_metadata["synthesis_mode"] = synthesis_mode
+        merged_metadata = {
+            **(state.get("metadata") or {}),
+            **stage3_metadata,
+        }
 
         # Create the new multi-version stage3 structure
         timestamp = datetime.utcnow().isoformat()
@@ -1068,6 +1212,8 @@ def build_council_graph(context: FlowContext):
             "response": stage3_result.get("response"),
             "mode": effective_mode,
             "timestamp": timestamp,
+            "finish_reason": stage3_result.get("finish_reason"),
+            "usage": stage3_result.get("usage"),
         }
 
         stage3_with_versions = {
@@ -1078,29 +1224,29 @@ def build_council_graph(context: FlowContext):
         await context.update_message({"stage3": stage3_with_versions, "metadata": stage3_metadata})
         await context.emit_event({"type": "stage3_complete", "data": stage3_with_versions})
 
-        return {"stage3": stage3_with_versions, "metadata": stage3_metadata}
+        return {"stage3": stage3_with_versions, "metadata": merged_metadata}
 
     def _route_from_start(state: CouncilState) -> str:
         if context.is_resume:
             if _has_stage3(state):
                 return "end"
-            if _has_stage2(state):
+            if _has_deliberation_results(state):
                 if context.interactive_enabled and "synthesis_prefs" not in context.collected_responses:
                     return "synthesis_prefs"
                 return "stage3"
-            if _has_deliberation_results(state):
-                return "stage2"
-            if _has_negative_results(state):
+            if _has_stage2(state):
                 if context.deliberation_enabled:
                     return "deliberation"
+                if context.interactive_enabled and "synthesis_prefs" not in context.collected_responses:
+                    return "synthesis_prefs"
+                return "stage3"
+            if _has_negative_results(state):
                 return "stage2"
             if _has_stage1(state):
                 if context.interactive_enabled and "response_review" not in context.collected_responses:
                     return "response_review"
                 if context.negative_enabled:
                     return "negative"
-                if context.deliberation_enabled:
-                    return "deliberation"
                 return "stage2"
             if context.is_first_message and not _title_already_generated():
                 return "title"
@@ -1126,8 +1272,6 @@ def build_council_graph(context: FlowContext):
             return "response_review"
         if context.negative_enabled:
             return "negative"
-        if context.deliberation_enabled:
-            return "deliberation"
         return "stage2"
 
     def _route_after_response_review(state: CouncilState) -> str:
@@ -1135,25 +1279,25 @@ def build_council_graph(context: FlowContext):
             return "end"
         if context.negative_enabled:
             return "negative"
-        if context.deliberation_enabled:
-            return "deliberation"
         return "stage2"
 
     def _route_after_negative(state: CouncilState) -> str:
         if state.get("error"):
             return "end"
-        if context.deliberation_enabled:
-            return "deliberation"
         return "stage2"
 
     def _route_after_deliberation(state: CouncilState) -> str:
         if state.get("error"):
             return "end"
-        return "stage2"
+        if context.interactive_enabled:
+            return "synthesis_prefs"
+        return "stage3"
 
     def _route_after_stage2(state: CouncilState) -> str:
         if state.get("error"):
             return "end"
+        if context.deliberation_enabled and not _has_deliberation_results(state):
+            return "deliberation"
         if context.interactive_enabled:
             return "synthesis_prefs"
         return "stage3"
@@ -1216,7 +1360,6 @@ def build_council_graph(context: FlowContext):
         {
             "response_review": "response_review",
             "negative": "negative",
-            "deliberation": "deliberation",
             "stage2": "stage2",
             "end": END,
         },
@@ -1226,7 +1369,6 @@ def build_council_graph(context: FlowContext):
         _route_after_response_review,
         {
             "negative": "negative",
-            "deliberation": "deliberation",
             "stage2": "stage2",
             "end": END,
         },
@@ -1235,7 +1377,6 @@ def build_council_graph(context: FlowContext):
         "negative",
         _route_after_negative,
         {
-            "deliberation": "deliberation",
             "stage2": "stage2",
             "end": END,
         },
@@ -1244,7 +1385,8 @@ def build_council_graph(context: FlowContext):
         "deliberation",
         _route_after_deliberation,
         {
-            "stage2": "stage2",
+            "synthesis_prefs": "synthesis_prefs",
+            "stage3": "stage3",
             "end": END,
         },
     )
@@ -1252,6 +1394,7 @@ def build_council_graph(context: FlowContext):
         "stage2",
         _route_after_stage2,
         {
+            "deliberation": "deliberation",
             "synthesis_prefs": "synthesis_prefs",
             "stage3": "stage3",
             "end": END,

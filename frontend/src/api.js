@@ -7,6 +7,9 @@ import { apiKeyStorage } from './utils/apiKeyStorage';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001';
 const API_KEY_HEADER = 'X-API-Key';
 
+const pathSegment = (value) => encodeURIComponent(String(value));
+const conversationPath = (conversationId) => `/api/conversations/${pathSegment(conversationId)}`;
+
 /**
  * Check if we're in a secure context (HTTPS or localhost).
  * API requests should only be made in secure contexts to protect the API key.
@@ -82,6 +85,23 @@ const parseFilenameFromContentDisposition = (headerValue) => {
   return simpleMatch && simpleMatch[1] ? simpleMatch[1] : null;
 };
 
+const parseErrorDetail = async (response, fallback) => {
+  const payload = await response.json().catch(() => null);
+  const detail = payload?.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => item?.msg || item?.message || null)
+      .filter(Boolean);
+    if (messages.length) {
+      return messages.join('; ');
+    }
+  }
+  return fallback;
+};
+
 export const api = {
   /**
    * List all conversations.
@@ -115,7 +135,7 @@ export const api = {
    * Get a specific conversation.
    */
   async getConversation(conversationId) {
-    const response = await apiFetch(`/api/conversations/${conversationId}`);
+    const response = await apiFetch(conversationPath(conversationId));
     if (!response.ok) {
       throw new Error('Failed to get conversation');
     }
@@ -126,7 +146,7 @@ export const api = {
    * Delete a conversation.
    */
   async deleteConversation(conversationId) {
-    const response = await apiFetch(`/api/conversations/${conversationId}`, {
+    const response = await apiFetch(conversationPath(conversationId), {
       method: 'DELETE',
     });
     if (!response.ok) {
@@ -165,7 +185,7 @@ export const api = {
    * Use getConsultationStatus to poll for results.
    */
   async sendMessage(conversationId, content, negativePrompt) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/message`, {
+    const response = await apiFetch(`${conversationPath(conversationId)}/message`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -176,7 +196,7 @@ export const api = {
       }),
     });
     if (!response.ok) {
-      throw new Error('Failed to send message');
+      throw new Error(await parseErrorDetail(response, 'Failed to send message'));
     }
     return response.json();
   },
@@ -185,7 +205,7 @@ export const api = {
    * Open, resume, or create a side-chat thread for a specific council artifact.
    */
   async openSideChat(conversationId, payload) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/side-chats/open`, {
+    const response = await apiFetch(`${conversationPath(conversationId)}/side-chats/open`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -193,8 +213,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Failed to open side chat' }));
-      throw new Error(error.detail || 'Failed to open side chat');
+      throw new Error(await parseErrorDetail(response, 'Failed to open side chat'));
     }
     return response.json();
   },
@@ -204,7 +223,7 @@ export const api = {
    */
   async sendSideChatMessage(conversationId, threadId, messageIndex, content) {
     const response = await apiFetch(
-      `/api/conversations/${conversationId}/side-chats/${threadId}/message`,
+      `${conversationPath(conversationId)}/side-chats/${pathSegment(threadId)}/message`,
       {
         method: 'POST',
         headers: {
@@ -217,8 +236,7 @@ export const api = {
       }
     );
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Failed to send side-chat message' }));
-      throw new Error(error.detail || 'Failed to send side-chat message');
+      throw new Error(await parseErrorDetail(response, 'Failed to send side-chat message'));
     }
     return response.json();
   },
@@ -262,7 +280,7 @@ export const api = {
    * @returns {Promise<{status: string, version: object, version_index: number}>}
    */
   async resynthesize(conversationId, messageIndex, synthesisMode, focusAreas = null) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/resynthesize`, {
+    const response = await apiFetch(`${conversationPath(conversationId)}/resynthesize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -275,8 +293,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Resynthesis failed' }));
-      throw new Error(error.detail || 'Resynthesis failed');
+      throw new Error(await parseErrorDetail(response, 'Resynthesis failed'));
     }
 
     return response.json();
@@ -291,12 +308,11 @@ export const api = {
   async exportMarkdown(conversationId, messageIndex) {
     const params = new URLSearchParams({ message_index: String(messageIndex) });
     const response = await apiFetch(
-      `/api/conversations/${conversationId}/export-markdown?${params.toString()}`
+      `${conversationPath(conversationId)}/export-markdown?${params.toString()}`
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Export failed' }));
-      throw new Error(error.detail || 'Export failed');
+      throw new Error(await parseErrorDetail(response, 'Export failed'));
     }
 
     const filename = parseFilenameFromContentDisposition(
@@ -317,7 +333,7 @@ export const api = {
    * @returns {Promise<{status: string, versions: object[], version_indices: number[], errors?: object[]}>}
    */
   async resynthesizeAll(conversationId, messageIndex, modes = null) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/resynthesize-all`, {
+    const response = await apiFetch(`${conversationPath(conversationId)}/resynthesize-all`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -329,8 +345,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Resynthesis failed' }));
-      throw new Error(error.detail || 'Resynthesis failed');
+      throw new Error(await parseErrorDetail(response, 'Resynthesis failed'));
     }
 
     return response.json();
@@ -344,7 +359,7 @@ export const api = {
    * @returns {Promise<{status: string}>}
    */
   async setCurrentVersion(conversationId, messageIndex, versionIndex) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/set-current-version`, {
+    const response = await apiFetch(`${conversationPath(conversationId)}/set-current-version`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -356,8 +371,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Failed to set current version' }));
-      throw new Error(error.detail || 'Failed to set current version');
+      throw new Error(await parseErrorDetail(response, 'Failed to set current version'));
     }
 
     return response.json();
@@ -367,7 +381,7 @@ export const api = {
    * Get consultation status for a conversation.
    */
   async getConsultationStatus(conversationId) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/consultation/status`);
+    const response = await apiFetch(`${conversationPath(conversationId)}/consultation/status`);
     if (!response.ok) {
       throw new Error('Failed to get consultation status');
     }
@@ -378,7 +392,7 @@ export const api = {
    * Get message queue for a conversation.
    */
   async getConversationQueue(conversationId) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/queue`);
+    const response = await apiFetch(`${conversationPath(conversationId)}/queue`);
     if (!response.ok) {
       throw new Error('Failed to get conversation queue');
     }
@@ -400,7 +414,7 @@ export const api = {
    * Cancel an in-progress consultation.
    */
   async cancelConsultation(conversationId) {
-    const response = await apiFetch(`/api/conversations/${conversationId}/consultation/cancel`, {
+    const response = await apiFetch(`${conversationPath(conversationId)}/consultation/cancel`, {
       method: 'POST',
     });
     if (!response.ok) {

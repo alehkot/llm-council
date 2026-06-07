@@ -34,6 +34,115 @@ def build_label_mapping(stage1_results: List[Dict[str, Any]]) -> Tuple[List[str]
     return labels, label_to_model
 
 
+def build_responses_for_synthesis(
+    stage1_results: List[Dict[str, Any]],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Prefer deliberation revisions for synthesis when they are available.
+
+    Stage 2 rankings are preserved by label/model, so keeping the original model
+    keys lets the chairman align revised responses with existing rankings.
+    """
+    metadata = metadata or {}
+    excluded_models = set(metadata.get("excluded_models") or [])
+    deliberation = metadata.get("deliberation") or {}
+    deliberation_results = deliberation.get("results") or []
+
+    revised_responses: List[Dict[str, Any]] = []
+    for result in deliberation_results:
+        model = result.get("model")
+        if not model or model in excluded_models:
+            continue
+        response_text = (
+            result.get("revised")
+            or result.get("response")
+            or result.get("original")
+            or ""
+        )
+        revised_responses.append({
+            "model": model,
+            "response": response_text,
+        })
+
+    if revised_responses:
+        return revised_responses
+
+    return [
+        result
+        for result in stage1_results
+        if result.get("model") not in excluded_models and not result.get("failed")
+    ]
+
+
+def _ranking_position_counts(
+    label: str,
+    stage2_results: List[Dict[str, Any]],
+    expected_label_count: int,
+) -> Dict[int, int]:
+    """Count how often a response label appeared at each rank."""
+    counts: Dict[int, int] = {}
+    for ranking in stage2_results:
+        parsed_ranking = ranking.get("parsed_ranking")
+        if parsed_ranking is None:
+            parsed_ranking = parse_ranking_from_text(ranking.get("ranking", ""))
+        if label not in parsed_ranking:
+            continue
+        position = parsed_ranking.index(label) + 1
+        if 1 <= position <= expected_label_count:
+            counts[position] = counts.get(position, 0) + 1
+    return counts
+
+
+def build_peer_review_feedback(
+    model: str,
+    label: str,
+    stage2_results: Optional[List[Dict[str, Any]]] = None,
+    aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
+    expected_label_count: int = 0,
+) -> str:
+    """Build concise peer-ranking feedback for one model's deliberation prompt."""
+    if not stage2_results and not aggregate_rankings:
+        return ""
+
+    lines = ["Peer-ranking feedback:"]
+    matching_aggregate = None
+    aggregate_rank = None
+    for index, item in enumerate(aggregate_rankings or [], start=1):
+        if item.get("model") == model:
+            matching_aggregate = item
+            aggregate_rank = index
+            break
+
+    if matching_aggregate:
+        vote_count = matching_aggregate.get("rankings_count", "n/a")
+        if matching_aggregate.get("win_percentage") is not None:
+            win_pct = float(matching_aggregate.get("win_percentage") or 0) * 100
+            lines.append(
+                f"- Aggregate peer rank: #{aggregate_rank} of "
+                f"{len(aggregate_rankings or [])} ({win_pct:.0f}% pairwise win rate, "
+                f"{vote_count} votes)."
+            )
+        else:
+            lines.append(
+                f"- Aggregate peer rank: #{aggregate_rank} of "
+                f"{len(aggregate_rankings or [])} "
+                f"(average rank {matching_aggregate.get('average_rank', 'n/a')}, "
+                f"{vote_count} votes)."
+            )
+
+    if label and stage2_results and expected_label_count:
+        counts = _ranking_position_counts(label, stage2_results, expected_label_count)
+        if counts:
+            distribution = ", ".join(
+                f"rank {rank}: {count}"
+                for rank, count in sorted(counts.items())
+            )
+            lines.append(f"- Position distribution for your response: {distribution}.")
+
+    return "\n".join(lines)
+
+
 async def stage1_collect_responses(
     user_query: str,
     trace: Optional[TraceCollector] = None,
@@ -692,6 +801,8 @@ async def stage_deliberation(
     stage1_results: List[Dict[str, Any]],
     labels: List[str],
     label_to_model: Dict[str, str],
+    stage2_results: Optional[List[Dict[str, Any]]] = None,
+    aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
     negative_context: Optional[Dict[str, Any]] = None,
     aggregate_gap_scores: Optional[List[Dict[str, Any]]] = None,
     trace: Optional[TraceCollector] = None,
@@ -702,7 +813,8 @@ async def stage_deliberation(
 
     Each model receives:
     1. Its original response
-    2. Gap-finding feedback (if available)
+    2. Peer-ranking feedback (if available)
+    3. Gap-finding feedback (if available)
 
     Then submits a revised response addressing identified weaknesses.
 
@@ -711,6 +823,8 @@ async def stage_deliberation(
         stage1_results: Original responses from Stage 1
         labels: Label list aligned with stage1_results
         label_to_model: Mapping from labels to model names
+        stage2_results: Optional peer-ranking results
+        aggregate_rankings: Optional aggregate ranking summary
         negative_context: Optional gap-finding data
         aggregate_gap_scores: Optional aggregated gap scores
 
@@ -731,6 +845,14 @@ async def stage_deliberation(
         if progress:
             await progress(model, "running", {"label": label})
 
+        peer_feedback = build_peer_review_feedback(
+            model,
+            label,
+            stage2_results=stage2_results,
+            aggregate_rankings=aggregate_rankings,
+            expected_label_count=len(labels),
+        )
+
         # Build gap-finding feedback if available (anonymized - no label references)
         gap_text = ""
         if aggregate_gap_scores:
@@ -744,6 +866,11 @@ async def stage_deliberation(
                         for summary_item in gap_data["gap_summaries"][:3]:
                             gap_text += f"  - {summary_item['summary']}\n"
                     break
+        feedback_text = "\n\n".join(
+            part for part in [peer_feedback, gap_text.strip()] if part
+        )
+        if not feedback_text:
+            feedback_text = "No specific peer-ranking or gap-finding feedback was available."
 
         # Build the deliberation prompt (anonymized - no label references to preserve blind review)
         prompt = f"""You previously answered this question:
@@ -753,13 +880,13 @@ ORIGINAL QUESTION: {user_query}
 YOUR ORIGINAL RESPONSE:
 {original_response}
 
-PEER FEEDBACK:
-{gap_text}
+FEEDBACK:
+{feedback_text}
 
 Based on this feedback from your peers, you now have the opportunity to revise your response.
 
 INSTRUCTIONS:
-1. Address any specific gaps or weaknesses identified in the gap-finding analysis
+1. Address any specific gaps, weaknesses, or ranking signals identified in the feedback
 2. Maintain the strengths of your original response while improving weak areas
 3. Be concise - don't add unnecessary padding just to seem more complete
 
@@ -823,8 +950,14 @@ async def stage3_synthesize_final(
 
     Returns:
         Dict with 'model' and 'response' keys
+
+    Raises:
+        RuntimeError: If the chairman model fails or returns an empty synthesis
     """
     # Rebuild the labels used in Stage 2 so the chairman can align feedback
+    if not stage1_results:
+        raise RuntimeError("No successful responses are available for final synthesis.")
+
     labels = labels or [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
 
     # Map labels to models, falling back to stage1 ordering if mapping is missing
@@ -934,6 +1067,13 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - Any patterns of agreement or disagreement
 - When provided, the negative evaluations and scores that highlight missing risks or blind spots
 
+Write a complete answer to the original question, not a brief recap of the council
+process. Preserve substantive depth from the strongest responses and deliberation
+revisions. Compress duplicated points, but do not discard important reasoning,
+caveats, trade-offs, examples, or implementation details merely for brevity. If
+the user's request explicitly asks for a concise answer, respect that; otherwise
+make the synthesis thorough enough to stand alone.
+
 """
 
     if prompt_modifier:
@@ -959,15 +1099,22 @@ Your task as Chairman is to synthesize all of this information into a single, co
         await progress(CHAIRMAN_MODEL, "complete" if response is not None else "failed")
 
     if response is None:
-        # Fallback if chairman fails
-        return {
-            "model": CHAIRMAN_MODEL,
-            "response": "Error: Unable to generate final synthesis."
-        }
+        raise RuntimeError("Chairman model failed to generate final synthesis.")
+
+    content = response.get("content", "")
+    if not str(content).strip():
+        raise RuntimeError("Chairman model returned an empty final synthesis.")
+    finish_reason = str(response.get("finish_reason") or "").strip().lower()
+    if finish_reason in {"length", "max_tokens", "token_limit"}:
+        raise RuntimeError(
+            "Chairman model hit the output token limit before completing final synthesis."
+        )
 
     return {
         "model": CHAIRMAN_MODEL,
-        "response": response.get('content', '')
+        "response": content,
+        "finish_reason": response.get("finish_reason"),
+        "usage": response.get("usage"),
     }
 
 
@@ -1058,10 +1205,9 @@ def calculate_aggregate_rankings(
         return seen, ""
 
     for ranking in stage2_results:
-        ranking_text = ranking['ranking']
-
-        # Parse the ranking from the structured format
-        parsed_ranking = parse_ranking_from_text(ranking_text)
+        parsed_ranking = ranking.get("parsed_ranking")
+        if parsed_ranking is None:
+            parsed_ranking = parse_ranking_from_text(ranking.get("ranking", ""))
 
         normalized, error = normalize_ranking(parsed_ranking)
         if error:
@@ -1148,8 +1294,9 @@ def calculate_pairwise_rankings(
     valid_ranking_count = 0
 
     for ranking in stage2_results:
-        ranking_text = ranking['ranking']
-        parsed_ranking = parse_ranking_from_text(ranking_text)
+        parsed_ranking = ranking.get("parsed_ranking")
+        if parsed_ranking is None:
+            parsed_ranking = parse_ranking_from_text(ranking.get("ranking", ""))
         normalized, error = normalize_ranking(parsed_ranking)
 
         if error:
@@ -1404,13 +1551,16 @@ async def run_full_council(
         trace.end_stage("stage1", response_count=len(stage1_results))
 
     # If no models responded successfully, return error
-    if not stage1_results:
+    active_stage1_results = [
+        result for result in stage1_results if not result.get("failed")
+    ]
+    if not active_stage1_results:
         return [], None, [], {
             "model": "error",
             "response": "All models failed to respond. Please try again."
         }, {}
 
-    labels, label_to_model = build_label_mapping(stage1_results)
+    labels, label_to_model = build_label_mapping(active_stage1_results)
 
     # Optional negative evaluation stage
     negative_context: Dict[str, Any] = {"enabled": False, "prompt": negative_prompt, "evaluations": []}
@@ -1424,7 +1574,7 @@ async def run_full_council(
         negative_evaluations = await stage_negative_evaluations(
             user_query,
             resolved_negative_prompt,
-            stage1_results,
+            active_stage1_results,
             labels,
             trace=trace,
         )
@@ -1441,7 +1591,7 @@ async def run_full_council(
         trace.begin_stage("stage2", label="Stage 2")
     stage2_results, label_to_model = await stage2_collect_rankings(
         user_query,
-        stage1_results,
+        active_stage1_results,
         labels,
         label_to_model,
         trace=trace,
@@ -1469,17 +1619,17 @@ async def run_full_council(
 
     # Optional deliberation round
     deliberation_results = None
-    responses_for_synthesis = stage1_results  # Default to original responses
+    responses_for_synthesis = active_stage1_results  # Default to original responses
     if DELIBERATION_ENABLED:
         if trace:
             trace.begin_stage("deliberation", label="Deliberation")
         deliberation_results = await stage_deliberation(
             user_query,
-            stage1_results,
-            stage2_results,
-            aggregate_rankings,
+            active_stage1_results,
             labels,
             label_to_model,
+            stage2_results,
+            aggregate_rankings,
             negative_context if negative_context.get("enabled") else None,
             aggregate_gap_scores,
             trace=trace,

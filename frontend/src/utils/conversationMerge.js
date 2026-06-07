@@ -60,12 +60,9 @@ export const mergeConversation = (current, incoming) => {
 
   const currentMessages = Array.isArray(current.messages) ? current.messages : [];
   const incomingMessages = Array.isArray(incoming.messages) ? incoming.messages : [];
-  const maxLen = Math.max(currentMessages.length, incomingMessages.length);
-  const mergedMessages = [];
-
-  for (let i = 0; i < maxLen; i += 1) {
-    mergedMessages[i] = mergeMessage(currentMessages[i], incomingMessages[i]);
-  }
+  const mergedMessages = incomingMessages.map((message, index) => (
+    mergeMessage(currentMessages[index], message)
+  ));
 
   return {
     ...current,

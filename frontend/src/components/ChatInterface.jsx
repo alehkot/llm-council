@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import Markdown from './Markdown';
 import Stage1 from './Stage1';
@@ -98,8 +98,13 @@ export default function ChatInterface({
     ? config.negative_prompt_max_chars
     : DEFAULT_NEGATIVE_PROMPT_MAX_CHARS;
   const interactivePromptKey = currentInteractivePrompt
-    ? `${currentInteractivePrompt.session_id ?? 'no-session'}:${currentInteractivePrompt.prompt_id ?? 'no-prompt'}`
+    ? [
+      currentInteractivePrompt.session_id ?? 'no-session',
+      currentInteractivePrompt.prompt_id ?? 'no-prompt',
+      currentInteractivePrompt.title ?? '',
+    ].join(':')
     : null;
+  const conversationMessageCount = conversation?.messages?.length ?? 0;
 
   // Compute current loading stage for announcements
   const lastMessage = conversation?.messages?.[conversation.messages.length - 1];
@@ -126,7 +131,7 @@ export default function ChatInterface({
       const timer = setTimeout(() => setStatusAnnouncement(''), 1000);
       return () => clearTimeout(timer);
     }
-  }, [currentLoadingStage, isLoading]);
+  }, [currentLoadingStage, isLoading, statusAnnouncement]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return undefined;
@@ -141,26 +146,26 @@ export default function ChatInterface({
     return () => mediaQuery.removeListener(handleChange);
   }, []);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({
       behavior: prefersReducedMotion ? 'auto' : 'smooth',
     });
-  };
+  }, [prefersReducedMotion]);
 
   useEffect(() => {
     const timer = setTimeout(scrollToBottom, 100);
     return () => clearTimeout(timer);
-  }, [conversation?.messages?.length, interactivePromptKey]);
+  }, [conversationMessageCount, interactivePromptKey, scrollToBottom]);
 
   useEffect(() => {
-    if (conversation && conversation.messages.length === 0) {
+    if (conversation?.id && conversationMessageCount === 0) {
       setInput('');
       setNegativePrompt('');
     }
-  }, [conversation?.id]);
+  }, [conversation?.id, conversationMessageCount]);
 
   useEffect(() => {
-    if (!conversation) return;
+    if (!conversation?.id) return;
     setVisibleMessageCount(DEFAULT_VISIBLE_MESSAGES);
     setSideChatSource(null);
   }, [conversation?.id]);
@@ -570,6 +575,31 @@ export default function ChatInterface({
                                 </div>
                               )}
 
+                              {(msg.loading?.stage2 || msg.stage2) && (
+                                <div className="stage-block stage-block-stage2">
+                                  {msg.loading?.stage2 && (
+                                    <Card className="stage-loading stage-loading-stage2 border-dashed bg-muted/50">
+                                      <CardContent className="stage-loading-content flex flex-col gap-2 p-4 text-sm text-muted-foreground">
+                                        <div className="flex items-center gap-3">
+                                          <span className="spinner" aria-hidden="true" />
+                                          <span className="stage-loading-text">Running Stage 2: Peer rankings…</span>
+                                        </div>
+                                        <StageProgress progress={msg.metadata?.stage_progress?.stage2} />
+                                      </CardContent>
+                                    </Card>
+                                  )}
+                                  {msg.stage2 && (
+                                    <Stage2
+                                      rankings={msg.stage2}
+                                      labelToModel={msg.metadata?.label_to_model}
+                                      aggregateRankings={msg.metadata?.aggregate_rankings}
+                                      conversationId={conversation.id}
+                                      messageIndex={assistantMessageIndex}
+                                    />
+                                  )}
+                                </div>
+                              )}
+
                               {((msg.loading?.deliberation && !hasDeliberationResults) ||
                                 (msg.metadata?.deliberation?.enabled &&
                                   (msg.metadata?.deliberation?.results?.length ?? 0) > 0)) && (
@@ -599,31 +629,6 @@ export default function ChatInterface({
                                   </div>
                                 )}
 
-                              {(msg.loading?.stage2 || msg.stage2) && (
-                                <div className="stage-block stage-block-stage2">
-                                  {msg.loading?.stage2 && (
-                                    <Card className="stage-loading stage-loading-stage2 border-dashed bg-muted/50">
-                                      <CardContent className="stage-loading-content flex flex-col gap-2 p-4 text-sm text-muted-foreground">
-                                        <div className="flex items-center gap-3">
-                                          <span className="spinner" aria-hidden="true" />
-                                          <span className="stage-loading-text">Running Stage 2: Peer rankings…</span>
-                                        </div>
-                                        <StageProgress progress={msg.metadata?.stage_progress?.stage2} />
-                                      </CardContent>
-                                    </Card>
-                                  )}
-                                  {msg.stage2 && (
-                                    <Stage2
-                                      rankings={msg.stage2}
-                                      labelToModel={msg.metadata?.label_to_model}
-                                      aggregateRankings={msg.metadata?.aggregate_rankings}
-                                      conversationId={conversation.id}
-                                      messageIndex={assistantMessageIndex}
-                                    />
-                                  )}
-                                </div>
-                              )}
-
                               {(msg.loading?.stage3 || msg.stage3) && (
                                 <div className="stage-block stage-block-stage3">
                                   {msg.loading?.stage3 && !msg.stage3 && (
@@ -648,9 +653,9 @@ export default function ChatInterface({
                                         assistantAbsoluteIndex: absoluteIndex,
                                         assistantMessageIndex,
                                       })}
-                                      onVersionAdded={(version) => {
+                                      onVersionAdded={(version, options) => {
                                         if (onVersionAdded) {
-                                          onVersionAdded(absoluteIndex, version);
+                                          onVersionAdded(absoluteIndex, version, options);
                                         }
                                       }}
                                       onCurrentChanged={(versionIndex) => {
@@ -690,6 +695,7 @@ export default function ChatInterface({
 
           {currentInteractivePrompt && (
             <InteractivePrompt
+              key={interactivePromptKey}
               prompt={currentInteractivePrompt}
               onSubmit={onInteractiveSubmit}
               onSkip={onInteractiveSkip}

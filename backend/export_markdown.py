@@ -29,6 +29,28 @@ def _response_label(index: int) -> str:
     return f"Response {index + 1}"
 
 
+def _stage1_export_label(
+    response: Dict[str, Any],
+    index: int,
+    label_by_model: Dict[str, str],
+    used_labels: set[str],
+) -> str:
+    """Use active anonymous labels only when they still map to this model."""
+    model = _normalize_text(response.get("model"))
+    active_label = label_by_model.get(model)
+    if active_label:
+        used_labels.add(active_label)
+        return active_label
+
+    label = f"Stage 1 item {index + 1}"
+    suffix = 2
+    while label in used_labels:
+        label = f"Stage 1 item {index + 1}.{suffix}"
+        suffix += 1
+    used_labels.add(label)
+    return label
+
+
 def _normalize_stage3(stage3: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if stage3 is None:
         return None
@@ -157,6 +179,7 @@ def build_markdown_export(
     aggregate_gap_scores = metadata.get("aggregate_gap_scores") or []
     deliberation = metadata.get("deliberation") or {}
     prompt_refinement = metadata.get("prompt_refinement") or {}
+    excluded_models = set(metadata.get("excluded_models") or [])
 
     label_by_model: Dict[str, str] = {}
     for label, model in label_to_model.items():
@@ -183,6 +206,11 @@ def build_markdown_export(
             [
                 "## Response Label Mapping",
                 "",
+                (
+                    "These labels apply to responses included in peer ranking and synthesis. "
+                    "Excluded or failed Stage 1 rows are listed separately below."
+                ),
+                "",
                 "| Label | Model |",
                 "| --- | --- |",
             ]
@@ -194,13 +222,24 @@ def build_markdown_export(
 
     lines.extend(["## Stage 1: Individual Responses", ""])
     if stage1:
+        used_stage1_labels: set[str] = set()
         for index, response in enumerate(stage1):
             model = response.get("model") or "unknown"
-            label = label_by_model.get(model) or _response_label(index)
+            label = _stage1_export_label(
+                response,
+                index,
+                label_by_model,
+                used_stage1_labels,
+            )
             lines.append(f"### {label} ({model})")
             lines.append("")
+            status_flags = []
             if response.get("failed"):
-                lines.append("_This model call was marked as failed._")
+                status_flags.append("failed")
+            if model in excluded_models:
+                status_flags.append("excluded from review and synthesis")
+            if status_flags:
+                lines.append(f"_Status: {', '.join(status_flags)}._")
                 lines.append("")
             lines.append((response.get("response") or "").strip() or "_No response content captured._")
             lines.append("")
@@ -337,9 +376,12 @@ def build_markdown_export(
         current_model = current.get("model") or "unknown"
         current_mode = current.get("mode") or "unknown"
         current_timestamp = current.get("timestamp") or "n/a"
+        current_finish_reason = current.get("finish_reason")
         lines.append(f"- Current Mode: {current_mode}")
         lines.append(f"- Current Model: {current_model}")
         lines.append(f"- Current Timestamp: {current_timestamp}")
+        if current_finish_reason:
+            lines.append(f"- Current Finish Reason: {current_finish_reason}")
         lines.append("")
         lines.append((current.get("response") or "").strip() or "_Current synthesis is empty._")
         lines.append("")
@@ -351,9 +393,12 @@ def build_markdown_export(
                 mode = version.get("mode") or "unknown"
                 model = version.get("model") or "unknown"
                 timestamp = version.get("timestamp") or "n/a"
+                finish_reason = version.get("finish_reason")
                 lines.append(f"#### Version {index}: {mode} ({model})")
                 lines.append("")
                 lines.append(f"_Timestamp: {timestamp}_")
+                if finish_reason:
+                    lines.append(f"_Finish Reason: {finish_reason}_")
                 lines.append("")
                 lines.append((version.get("response") or "").strip() or "_No response captured._")
                 lines.append("")

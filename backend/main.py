@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Deque
 from collections import deque
@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from time import monotonic
 import uuid
-import json
 import asyncio
 
 from . import storage
@@ -37,7 +36,7 @@ from .config import (
     TITLE_MODEL,
 )
 from .langgraph_flow import FlowCallbacks, FlowContext, run_council_graph
-from .council import stage3_synthesize_final
+from .council import build_responses_for_synthesis, stage3_synthesize_final
 from .trace import TraceCollector
 from .consultation_manager import consultation_manager
 from .interactive import (
@@ -91,6 +90,8 @@ def _bruteforce_enabled() -> bool:
 
 
 def _validate_message_lengths(content: str, negative_prompt: Optional[str]) -> None:
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
     if len(content) > MAX_PROMPT_CHARS:
         raise HTTPException(
             status_code=413,
@@ -103,7 +104,28 @@ def _validate_message_lengths(content: str, negative_prompt: Optional[str]) -> N
         )
 
 
+def _normalize_optional_text(
+    value: Optional[str],
+    label: str,
+    max_chars: int,
+) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if len(normalized) > max_chars:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{label} too long (max {max_chars} characters)."
+        )
+    return normalized
+
+
 def _client_id_from_request(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+
     forwarded_for = request.headers.get("X-Forwarded-For", "")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
@@ -330,8 +352,9 @@ async def delete_conversation(conversation_id: str):
 @app.delete("/api/conversations")
 async def delete_all_conversations():
     """Delete all stored conversations."""
+    cancelled = consultation_manager.cancel_all_consultations()
     deleted = storage.clear_conversations()
-    return {"status": "ok", "deleted": deleted}
+    return {"status": "ok", "deleted": deleted, "cancelled": cancelled}
 
 
 class ResynthesizeAllRequest(BaseModel):
@@ -413,6 +436,8 @@ def _get_assistant_message_context(conversation_id: str, message_index: int):
 
     if not stage1 or not stage2:
         raise HTTPException(status_code=400, detail="Missing stage1 or stage2 data for resynthesis")
+    if not target_msg.get("stage3"):
+        raise HTTPException(status_code=400, detail="Missing stage3 data for resynthesis")
 
     return conversation, original_idx, target_msg, user_query
 
@@ -466,6 +491,8 @@ async def _run_synthesis(
     metadata = target_msg.get("metadata", {})
     label_to_model = metadata.get("label_to_model", {})
     aggregate_gap_scores = metadata.get("aggregate_gap_scores")
+    responses_for_synthesis = build_responses_for_synthesis(stage1, metadata)
+    focus_areas = _normalize_optional_text(focus_areas, "Focus areas", MAX_PROMPT_CHARS)
 
     # Build the synthesis mode prompt modifier
     synthesis_guidance_parts = []
@@ -488,7 +515,7 @@ async def _run_synthesis(
 
     new_stage3 = await stage3_synthesize_final(
         user_query=user_query,
-        stage1_results=stage1,
+        stage1_results=responses_for_synthesis,
         stage2_results=stage2,
         label_to_model=label_to_model,
         negative_context=negative_context,
@@ -502,6 +529,8 @@ async def _run_synthesis(
         "response": new_stage3.get("response"),
         "mode": synthesis_mode,
         "timestamp": datetime.utcnow().isoformat(),
+        "finish_reason": new_stage3.get("finish_reason"),
+        "usage": new_stage3.get("usage"),
     }
 
     return version
@@ -513,6 +542,15 @@ async def resynthesize_response(conversation_id: str, request: ResynthesizeReque
     Re-run Stage 3 synthesis with different settings.
     Appends the new synthesis as a version and sets it as current.
     """
+    if request.synthesis_mode not in SYNTHESIS_MODE_DESCRIPTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid synthesis mode: {request.synthesis_mode}. "
+                f"Valid modes: {ALL_SYNTHESIS_MODES}"
+            ),
+        )
+
     conversation, original_idx, target_msg, user_query = _get_assistant_message_context(
         conversation_id, request.message_index
     )
@@ -521,6 +559,8 @@ async def resynthesize_response(conversation_id: str, request: ResynthesizeReque
         version = await _run_synthesis(
             user_query, target_msg, request.synthesis_mode, request.focus_areas
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
 
@@ -556,8 +596,15 @@ async def resynthesize_all(conversation_id: str, request: ResynthesizeAllRequest
         conversation_id, request.message_index
     )
 
-    # Determine which modes to run
-    requested_modes = request.modes if request.modes else ALL_SYNTHESIS_MODES
+    # Determine which modes to run, preserving explicit empty lists and de-duplicating.
+    raw_modes = request.modes if request.modes is not None else ALL_SYNTHESIS_MODES
+    requested_modes = []
+    seen_modes = set()
+    for mode in raw_modes:
+        if mode in seen_modes:
+            continue
+        seen_modes.add(mode)
+        requested_modes.append(mode)
 
     # Validate modes
     invalid_modes = [m for m in requested_modes if m not in SYNTHESIS_MODE_DESCRIPTIONS]
@@ -566,6 +613,9 @@ async def resynthesize_all(conversation_id: str, request: ResynthesizeAllRequest
             status_code=400,
             detail=f"Invalid synthesis modes: {invalid_modes}. Valid modes: {ALL_SYNTHESIS_MODES}"
         )
+
+    if request.modes is not None and not requested_modes:
+        return {"status": "ok", "versions": [], "message": "No synthesis modes requested"}
 
     # If no specific modes requested, find modes that don't exist yet
     if request.modes is None:

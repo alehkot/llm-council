@@ -37,6 +37,102 @@ def _backoff_seconds(retry_index: int) -> float:
     return backoff
 
 
+def _content_length(value: Any) -> int:
+    """Return a text length estimate without preserving the text itself."""
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, list):
+        return sum(_content_length(item) for item in value)
+    if isinstance(value, dict):
+        return sum(_content_length(item) for item in value.values())
+    return len(str(value))
+
+
+def _summarize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Summarize message payloads without storing prompt contents."""
+    summary = []
+    for message in messages:
+        content = message.get("content")
+        summary.append({
+            "role": message.get("role"),
+            "content_length": _content_length(content),
+        })
+    return summary
+
+
+def _sanitize_headers(headers: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Keep only non-sensitive, useful header metadata for traces."""
+    if not headers:
+        return headers
+    allowed = {
+        "content-type",
+        "x-request-id",
+        "x-ratelimit-limit",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset",
+    }
+    sanitized = {}
+    for key, value in headers.items():
+        key_lower = key.lower()
+        if key_lower in allowed:
+            sanitized[key] = value
+    return sanitized
+
+
+def _summarize_request_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Summarize outbound provider request metadata without prompt text."""
+    return {
+        "model": payload.get("model"),
+        "max_tokens": payload.get("max_tokens"),
+        "reasoning": payload.get("reasoning"),
+        "message_count": len(payload.get("messages") or []),
+        "messages": _summarize_messages(payload.get("messages") or []),
+    }
+
+
+def _summarize_response_body(body: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Summarize provider response metadata without completion text."""
+    if body is None:
+        return None
+    if not isinstance(body, dict):
+        return {"type": type(body).__name__}
+
+    summary: Dict[str, Any] = {
+        "id": body.get("id"),
+        "model": body.get("model"),
+        "object": body.get("object"),
+        "created": body.get("created"),
+        "usage": body.get("usage"),
+    }
+    if "error" in body and isinstance(body["error"], dict):
+        error = body["error"]
+        summary["error"] = {
+            "code": error.get("code"),
+            "type": error.get("type"),
+            "message_length": _content_length(error.get("message")),
+        }
+    if "raw_text" in body:
+        summary["raw_text_length"] = _content_length(body.get("raw_text"))
+
+    choices_summary = []
+    for choice in body.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message") or {}
+        choices_summary.append({
+            "index": choice.get("index"),
+            "finish_reason": choice.get("finish_reason"),
+            "message_role": message.get("role"),
+            "content_length": _content_length(message.get("content")),
+            "reasoning_details_count": len(message.get("reasoning_details") or []),
+        })
+    if choices_summary:
+        summary["choices"] = choices_summary
+    return {key: value for key, value in summary.items() if value is not None}
+
+
 def _extract_message_content(message: Dict[str, Any]) -> Optional[str]:
     """Normalize provider message payloads to plain text content."""
     content = message.get("content")
@@ -134,15 +230,16 @@ async def query_model(
 
                 # Validate response structure before accessing nested keys
                 if 'choices' not in data or not data['choices']:
-                    error_message = f"Unexpected API response structure from {model}: {data}"
+                    error_message = f"Unexpected API response structure from {model}"
                     if attempt + 1 < total_attempts:
                         continue
                     print(error_message)
                     return None
 
-                message = data['choices'][0].get('message', {})
+                choice = data['choices'][0]
+                message = choice.get('message', {})
                 if not message:
-                    error_message = f"No message in API response from {model}: {data}"
+                    error_message = f"No message in API response from {model}"
                     if attempt + 1 < total_attempts:
                         continue
                     print(error_message)
@@ -150,7 +247,7 @@ async def query_model(
 
                 content = _extract_message_content(message)
                 if content is None:
-                    error_message = f"No text content in API response from {model}: {data}"
+                    error_message = f"No text content in API response from {model}"
                     if attempt + 1 < total_attempts:
                         continue
                     print(error_message)
@@ -158,7 +255,9 @@ async def query_model(
 
                 return {
                     'content': content,
-                    'reasoning_details': message.get('reasoning_details')
+                    'reasoning_details': message.get('reasoning_details'),
+                    'finish_reason': choice.get('finish_reason'),
+                    'usage': data.get('usage'),
                 }
 
         except httpx.HTTPStatusError as e:
@@ -199,14 +298,14 @@ async def query_model(
                     context=attempt_context,
                     request={
                         "url": OPENROUTER_API_URL,
-                        "headers": trace_headers,
-                        "payload": payload,
+                        "headers": _sanitize_headers(trace_headers),
+                        "payload": _summarize_request_payload(payload),
                         "timeout": timeout,
                     },
                     response={
                         "status_code": response_status,
-                        "headers": response_headers,
-                        "body": response_body,
+                        "headers": _sanitize_headers(response_headers),
+                        "body": _summarize_response_body(response_body),
                     },
                     timing={
                         "started_at": started_at_iso or ended_at_iso,

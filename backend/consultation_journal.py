@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import DATA_DIR
+from .storage import validate_storage_id
 
 
 _CONSULTATION_DIR = Path(DATA_DIR).parent / "consultations"
@@ -20,7 +21,8 @@ def _ensure_consultation_dir() -> None:
 
 
 def _job_path(consultation_id: str) -> Path:
-    return _CONSULTATION_DIR / f"{consultation_id}.json"
+    safe_id = validate_storage_id(consultation_id, "consultation_id")
+    return _CONSULTATION_DIR / f"{safe_id}.json"
 
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -51,6 +53,7 @@ def create_job(
     assistant_index: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Create a durable consultation record."""
+    validate_storage_id(conversation_id, "conversation_id")
     timestamp = datetime.utcnow().isoformat()
     payload = {
         "consultation_id": consultation_id,
@@ -69,13 +72,21 @@ def create_job(
 
 def get_job(consultation_id: str) -> Optional[Dict[str, Any]]:
     """Load a persisted consultation record."""
-    path = _job_path(consultation_id)
+    try:
+        path = _job_path(consultation_id)
+    except ValueError:
+        return None
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
+            job = json.load(handle)
+        validate_storage_id(job.get("consultation_id", ""), "consultation_id")
+        validate_storage_id(job.get("conversation_id", ""), "conversation_id")
+        if job.get("consultation_id") != consultation_id:
+            raise ValueError("consultation id does not match filename")
+        return job
     except FileNotFoundError:
         return None
-    except (json.JSONDecodeError, OSError) as exc:
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
         print(f"Warning: Failed to read consultation job {consultation_id}: {exc}")
         return None
 
@@ -96,10 +107,25 @@ def delete_job(consultation_id: str) -> None:
     """Delete a consultation record if it exists."""
     try:
         _job_path(consultation_id).unlink()
+    except ValueError:
+        return
     except FileNotFoundError:
         return
     except OSError as exc:
         print(f"Warning: Failed to delete consultation job {consultation_id}: {exc}")
+
+
+def clear_jobs() -> int:
+    """Delete all durable consultation records."""
+    _ensure_consultation_dir()
+    deleted = 0
+    for path in _CONSULTATION_DIR.glob("*.json"):
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError as exc:
+            print(f"Warning: Failed to delete consultation job {path.name}: {exc}")
+    return deleted
 
 
 def list_jobs() -> List[Dict[str, Any]]:
@@ -109,7 +135,13 @@ def list_jobs() -> List[Dict[str, Any]]:
     for path in sorted(_CONSULTATION_DIR.glob("*.json")):
         try:
             with open(path, "r", encoding="utf-8") as handle:
-                jobs.append(json.load(handle))
-        except (json.JSONDecodeError, OSError) as exc:
+                job = json.load(handle)
+            validate_storage_id(path.stem, "consultation filename")
+            validate_storage_id(job.get("consultation_id", ""), "consultation_id")
+            validate_storage_id(job.get("conversation_id", ""), "conversation_id")
+            if job.get("consultation_id") != path.stem:
+                raise ValueError("consultation id does not match filename")
+            jobs.append(job)
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
             print(f"Warning: Failed to read consultation job {path.name}: {exc}")
     return jobs

@@ -47,6 +47,12 @@ function threadMatchesSource(thread, source, selectedModel) {
   if (thread.source_type !== source.sourceType) return false;
 
   if (source.sourceType === 'stage3') {
+    if (source.sourceKey && thread.source_key) {
+      return thread.source_key === source.sourceKey;
+    }
+    if (source.sourceMode && thread.source_mode && thread.source_mode !== source.sourceMode) {
+      return false;
+    }
     return thread.source_version_index === source.versionIndex;
   }
 

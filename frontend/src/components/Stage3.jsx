@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import Markdown from './Markdown';
 import ExportMarkdownButton from './ExportMarkdownButton';
 import { Badge } from './ui/badge';
@@ -54,6 +54,22 @@ function getVersionTabLabel(version, isCurrentVersion) {
   return `${label}${time ? ` (${time})` : ''}${isCurrentVersion ? ' ★' : ''}`;
 }
 
+function getCurrentVersionIndex(stage3Data) {
+  if (!stage3Data?.versions?.length) return 0;
+  const currentVersion = stage3Data.current;
+  const idx = stage3Data.versions.findIndex(
+    v => v.timestamp === currentVersion?.timestamp && v.mode === currentVersion?.mode
+  );
+  return idx >= 0 ? idx : 0;
+}
+
+function getStage3SourceKey(version, versionIndex) {
+  if (!version) return null;
+  const mode = version.mode || 'best_of_breed';
+  const timestamp = version.timestamp || versionIndex;
+  return `stage3::${mode}::${timestamp}`;
+}
+
 /**
  * Normalize stage3 data to handle both old and new formats.
  * Old format: { model: "...", response: "..." }
@@ -100,16 +116,19 @@ export default function Stage3({
 
   // Active tab state - default to showing the current version
   const [activeVersionIndex, setActiveVersionIndex] = useState(() => {
-    if (!stage3Data) return 0;
-    const currentVersion = stage3Data.current;
-    const idx = stage3Data.versions.findIndex(
-      v => v.timestamp === currentVersion?.timestamp && v.mode === currentVersion?.mode
-    );
-    return idx >= 0 ? idx : 0;
+    return getCurrentVersionIndex(stage3Data);
   });
+  const currentVersionIndex = useMemo(() => getCurrentVersionIndex(stage3Data), [stage3Data]);
+
+  useEffect(() => {
+    setActiveVersionIndex(currentVersionIndex);
+  }, [conversationId, currentVersionIndex, messageIndex]);
 
   // Get the currently displayed version
-  const activeVersion = stage3Data?.versions?.[activeVersionIndex] || stage3Data?.current;
+  const resolvedActiveVersionIndex = stage3Data?.versions?.[activeVersionIndex]
+    ? activeVersionIndex
+    : currentVersionIndex;
+  const activeVersion = stage3Data?.versions?.[resolvedActiveVersionIndex] || stage3Data?.current;
   const currentVersion = stage3Data?.current;
 
   // Check if active version is the current one
@@ -151,7 +170,7 @@ export default function Stage3({
     try {
       const result = await api.resynthesize(conversationId, messageIndex, selectedMode);
       if (onVersionAdded && result.version) {
-        onVersionAdded(result.version);
+        onVersionAdded(result.version, { setAsCurrent: true });
         // Switch to the new version tab (assuming it's appended at the end)
         const newIndex = (stage3Data?.versions?.length || 0);
         setActiveVersionIndex(newIndex);
@@ -175,7 +194,7 @@ export default function Stage3({
       if (onVersionAdded && result.versions) {
         // Add all new versions
         result.versions.forEach((version) => {
-          onVersionAdded(version);
+          onVersionAdded(version, { setAsCurrent: false });
         });
       }
       if (result.errors && result.errors.length > 0) {
@@ -193,15 +212,21 @@ export default function Stage3({
     if (!conversationId || messageIndex === undefined || isActiveVersionCurrent) return;
 
     try {
-      await api.setCurrentVersion(conversationId, messageIndex, activeVersionIndex);
+      await api.setCurrentVersion(conversationId, messageIndex, resolvedActiveVersionIndex);
       if (onCurrentChanged) {
-        onCurrentChanged(activeVersionIndex);
+        onCurrentChanged(resolvedActiveVersionIndex);
       }
     } catch (err) {
       console.error('Failed to set current version:', err);
       setResynthError(err.message);
     }
-  }, [conversationId, messageIndex, activeVersionIndex, isActiveVersionCurrent, onCurrentChanged]);
+  }, [
+    conversationId,
+    messageIndex,
+    isActiveVersionCurrent,
+    onCurrentChanged,
+    resolvedActiveVersionIndex,
+  ]);
 
   if (!stage3Data) {
     return null;
@@ -249,7 +274,10 @@ export default function Stage3({
                 onClick={() => onStartSideChat({
                   sourceType: 'stage3',
                   sourceModel: activeVersion.model,
-                  versionIndex: activeVersionIndex,
+                  versionIndex: resolvedActiveVersionIndex,
+                  sourceMode: activeVersion.mode || 'best_of_breed',
+                  sourceTimestamp: activeVersion.timestamp || resolvedActiveVersionIndex,
+                  sourceKey: getStage3SourceKey(activeVersion, resolvedActiveVersionIndex),
                   sourceTitle: `Synthesis · ${currentModeInfo.label}`,
                   sourcePreview: activeVersion.response,
                 })}

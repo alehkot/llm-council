@@ -79,6 +79,7 @@ class ConsultationState:
             "consultation_id": self.id,
             "conversation_id": self.conversation_id,
             "status": self.status.value,
+            "assistant_index": self.assistant_index,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -261,7 +262,7 @@ class ConsultationManager:
         negative_prompt: Optional[str],
         assistant_message: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        from .council import build_label_mapping
+        from .council import build_label_mapping, build_responses_for_synthesis
 
         message = assistant_message or {}
         metadata = dict(message.get("metadata") or {})
@@ -306,14 +307,10 @@ class ConsultationManager:
         deliberation = metadata.get("deliberation") or {}
         results = deliberation.get("results") or []
         if results:
-            initial_state["responses_for_synthesis"] = [
-                {
-                    "model": item.get("model"),
-                    "response": item.get("revised") or item.get("response") or "",
-                }
-                for item in results
-                if item.get("model")
-            ]
+            initial_state["responses_for_synthesis"] = build_responses_for_synthesis(
+                stage1_results or [],
+                metadata,
+            )
 
         return initial_state
 
@@ -591,6 +588,34 @@ class ConsultationManager:
                 return True
             return False
 
+    def cancel_all_consultations(self) -> int:
+        """Cancel all active and queued consultations and clear durable jobs."""
+
+        cancelled = 0
+        with self._lock:
+            queued_ids = [
+                queued.id
+                for queue in self._queues.values()
+                for queued in queue
+            ]
+            cancelled += len(queued_ids)
+            self._queues.clear()
+
+            for state in self._consultations.values():
+                if state.status in (
+                    ConsultationStatus.COMPLETE,
+                    ConsultationStatus.FAILED,
+                ):
+                    continue
+                state.cancel_event.set()
+                state.status = ConsultationStatus.FAILED
+                state.error = "Cancelled"
+                state.updated_at = datetime.utcnow()
+                cancelled += 1
+
+        consultation_journal.clear_jobs()
+        return cancelled
+
     def _update_status(self, state: ConsultationState, status: ConsultationStatus) -> None:
         """Update consultation status and durable journal state."""
 
@@ -703,8 +728,8 @@ class ConsultationManager:
                     "flow_start",
                     conversation_id=conversation_id,
                     consultation_id=state.id,
-                    user_message=state.message_content,
-                    negative_prompt=state.negative_prompt,
+                    user_message_length=len(state.message_content or ""),
+                    negative_prompt_length=len(state.negative_prompt or ""),
                     async_mode=True,
                 )
 
@@ -819,7 +844,7 @@ class ConsultationManager:
 
             error_message = final_state.get("error")
             stage3_result = final_state.get("stage3")
-            if error_message and not stage3_result:
+            if error_message:
                 with self._lock:
                     state.error = error_message
                     state.status = ConsultationStatus.FAILED
@@ -898,7 +923,7 @@ class ConsultationManager:
                 state.session_id = None
 
             loop.close()
-            self._on_consultation_complete(state.conversation_id)
+            self._on_consultation_complete(state)
 
     def _job_is_already_terminal(self, job: Dict[str, Any]) -> bool:
         assistant_index = job.get("assistant_index")
@@ -1033,10 +1058,15 @@ class ConsultationManager:
                 future = self._executor.submit(self._run_consultation, state)
                 self._futures[state.conversation_id] = future
 
-    def _on_consultation_complete(self, conversation_id: str) -> None:
+    def _on_consultation_complete(self, state: ConsultationState) -> None:
         """Handle consultation completion and process the next queued message."""
 
+        conversation_id = state.conversation_id
         with self._lock:
+            current_state = self._consultations.get(conversation_id)
+            if current_state is not state:
+                return
+
             self._futures.pop(conversation_id, None)
 
             queue = self._queues.get(conversation_id, [])
