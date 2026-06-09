@@ -33,6 +33,7 @@ from .config import (
     PROMPT_REFINEMENT_MODEL,
     OPENROUTER_MAX_TOKENS,
     STREAM_TIMEOUT_SECONDS,
+    SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
 from .langgraph_flow import FlowCallbacks, FlowContext, run_council_graph
@@ -296,6 +297,7 @@ async def get_config():
         "stream_timeout_seconds": STREAM_TIMEOUT_SECONDS,
         "prompt_max_chars": MAX_PROMPT_CHARS,
         "negative_prompt_max_chars": MAX_NEGATIVE_PROMPT_CHARS,
+        "synthesis_context_max_chars": SYNTHESIS_CONTEXT_MAX_CHARS,
         "openrouter_max_tokens": OPENROUTER_MAX_TOKENS,
         "council_models": COUNCIL_MODELS,
         "chairman_model": CHAIRMAN_MODEL,
@@ -370,10 +372,22 @@ class SetCurrentVersionRequest(BaseModel):
 
 
 SYNTHESIS_MODE_DESCRIPTIONS = {
-    "consensus": "Find and present only the points where all or most responses agree. Filter out minority opinions and contested claims.",
-    "best_of_breed": "Pick the best elements from each response - the clearest explanation, the best examples, the most thoughtful caveats.",
-    "comprehensive": "Include all perspectives, even if they contradict. Present trade-offs and alternative viewpoints explicitly.",
-    "weighted": "Prioritize content from higher-ranked responses. Lower-ranked responses should contribute less to the final answer.",
+    "consensus": (
+        "Find and present only the points where all or most responses agree. "
+        "Filter out minority opinions and contested claims."
+    ),
+    "best_of_breed": (
+        "Pick the best elements from each response - the clearest explanation, "
+        "the best examples, and the most thoughtful caveats."
+    ),
+    "comprehensive": (
+        "Include all perspectives, even if they contradict. Present trade-offs "
+        "and alternative viewpoints explicitly."
+    ),
+    "weighted": (
+        "Prioritize both content and context budget from higher-ranked responses. "
+        "Lower-ranked responses should contribute less to the final answer."
+    ),
 }
 
 ALL_SYNTHESIS_MODES = list(SYNTHESIS_MODE_DESCRIPTIONS.keys())
@@ -491,6 +505,10 @@ async def _run_synthesis(
     metadata = target_msg.get("metadata", {})
     label_to_model = metadata.get("label_to_model", {})
     aggregate_gap_scores = metadata.get("aggregate_gap_scores")
+    aggregate_rankings = metadata.get("aggregate_rankings")
+    using_deliberation_revisions = bool(
+        (metadata.get("deliberation") or {}).get("results")
+    )
     responses_for_synthesis = build_responses_for_synthesis(stage1, metadata)
     focus_areas = _normalize_optional_text(focus_areas, "Focus areas", MAX_PROMPT_CHARS)
 
@@ -510,6 +528,7 @@ async def _run_synthesis(
     if target_msg.get("negative"):
         negative_context = {
             "enabled": True,
+            "prompt": target_msg["negative"].get("prompt", ""),
             "evaluations": target_msg["negative"].get("evaluations", []),
         }
 
@@ -520,7 +539,10 @@ async def _run_synthesis(
         label_to_model=label_to_model,
         negative_context=negative_context,
         aggregate_gap_scores=aggregate_gap_scores,
+        aggregate_rankings=aggregate_rankings,
         prompt_modifier=prompt_modifier,
+        synthesis_mode=synthesis_mode,
+        using_deliberation_revisions=using_deliberation_revisions,
     )
 
     # Create version entry

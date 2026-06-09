@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Council Consulting Flow</title>
+  <style>
+    :root {
+      --page: #f7f8f4;
+      --paper: #ffffff;
+      --ink: #1b1d1a;
+      --muted: #5c625a;
+      --line: #d8ddd2;
+      --line-strong: #aeb8a8;
+      --stage: #1f6f6a;
+      --stage-soft: #dff4ef;
+      --review: #965f0f;
+      --review-soft: #fff0d1;
+      --synthesis: #254f92;
+      --synthesis-soft: #e6eeff;
+      --warning: #9f2d35;
+      --warning-soft: #ffe6e8;
+      --ok: #2f6b32;
+      --ok-soft: #e8f4df;
+      --shadow: 0 24px 60px rgba(34, 38, 30, 0.12);
+      --radius: 8px;
+      color-scheme: light;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(31, 111, 106, 0.06) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(31, 111, 106, 0.05) 1px, transparent 1px),
+        var(--page);
+      background-size: 28px 28px;
+      color: var(--ink);
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
+      gap: 28px;
+      align-items: end;
+      padding: 28px 0 34px;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      max-width: 920px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.4rem, 7vw, 5.7rem);
+      line-height: 0.94;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: clamp(1.55rem, 3vw, 2.15rem);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 1rem;
+      line-height: 1.2;
+    }
+
+    .deck {
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.55;
+    }
+
+    .source-box {
+      border-left: 4px solid var(--ink);
+      padding-left: 16px;
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .source-box code,
+    .code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.92em;
+      color: #22271f;
+    }
+
+    .section {
+      margin-top: 28px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: var(--shadow);
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: start;
+      margin-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+    }
+
+    .section-head p {
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 0 10px;
+      background: var(--paper);
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: grid;
+      gap: 12px;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .lane {
+      display: flex;
+      align-items: center;
+      border-right: 2px solid var(--line-strong);
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .step {
+      position: relative;
+      min-height: 132px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--stage);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: var(--paper);
+    }
+
+    .step.review {
+      border-top-color: var(--review);
+      background: var(--review-soft);
+    }
+
+    .step.synthesis {
+      border-top-color: var(--synthesis);
+      background: var(--synthesis-soft);
+    }
+
+    .step.negative {
+      border-top-color: var(--warning);
+      background: var(--warning-soft);
+    }
+
+    .step.optional::after {
+      content: "optional";
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: var(--muted);
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .step-number {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .step h3 {
+      margin-bottom: 8px;
+      padding-right: 70px;
+    }
+
+    .step p,
+    .truth-card p,
+    .callout p,
+    .version-flow p {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.44;
+    }
+
+    .connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--line-strong);
+      font-weight: 800;
+      font-size: 0.9rem;
+    }
+
+    .input-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .input-card {
+      min-height: 164px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: var(--paper);
+    }
+
+    .input-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+    }
+
+    .input-card p {
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.42;
+    }
+
+    .input-card.primary {
+      border-color: rgba(31, 111, 106, 0.55);
+      background: var(--stage-soft);
+    }
+
+    .input-card.rank {
+      border-color: rgba(37, 79, 146, 0.45);
+      background: var(--synthesis-soft);
+    }
+
+    .input-card.risk {
+      border-color: rgba(159, 45, 53, 0.42);
+      background: var(--warning-soft);
+    }
+
+    .input-card.mode {
+      border-color: rgba(150, 95, 15, 0.45);
+      background: var(--review-soft);
+    }
+
+    .chairman {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .chairman-panel {
+      border: 2px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--paper);
+      padding: 18px;
+    }
+
+    .chairman-panel h3 {
+      font-size: 1.25rem;
+      margin-bottom: 8px;
+    }
+
+    .chairman-panel p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+
+    .prompt-strip {
+      display: grid;
+      gap: 8px;
+    }
+
+    .prompt-line {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 8px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcf9;
+      padding: 10px;
+      font-size: 0.84rem;
+      line-height: 1.35;
+    }
+
+    .prompt-line b {
+      color: var(--ink);
+    }
+
+    .truth-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .truth-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      background: var(--paper);
+    }
+
+    .truth-card h3 {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 1rem;
+    }
+
+    .truth-card .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      background: var(--ok-soft);
+      color: var(--ok);
+      font-size: 0.66rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .truth-card .tag.soft {
+      background: var(--review-soft);
+      color: var(--review);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      padding: 13px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      background: #f0f3ec;
+      color: var(--ink);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    td:first-child {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .version-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .version-flow .box {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      padding: 15px;
+    }
+
+    .version-flow h3 {
+      margin-bottom: 8px;
+    }
+
+    .callout {
+      margin-top: 16px;
+      border: 1px solid rgba(159, 45, 53, 0.28);
+      border-left: 5px solid var(--warning);
+      border-radius: var(--radius);
+      background: var(--warning-soft);
+      padding: 16px;
+    }
+
+    .callout h3 {
+      margin-bottom: 8px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--paper);
+      padding: 6px 10px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--stage);
+    }
+
+    .dot.review {
+      background: var(--review);
+    }
+
+    .dot.synthesis {
+      background: var(--synthesis);
+    }
+
+    .dot.warning {
+      background: var(--warning);
+    }
+
+    footer {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 980px) {
+      header,
+      .chairman,
+      .truth-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .input-grid,
+      .version-flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 700px) {
+      main {
+        width: min(100vw - 20px, 1180px);
+        padding-top: 16px;
+      }
+
+      .section {
+        padding: 18px;
+      }
+
+      .section-head,
+      .flow-row,
+      .prompt-line {
+        display: block;
+      }
+
+      .section-head p,
+      .source-box {
+        margin-top: 12px;
+      }
+
+      .lane {
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-right: 0;
+        border-bottom: 2px solid var(--line-strong);
+      }
+
+      .steps,
+      .input-grid,
+      .version-flow {
+        grid-template-columns: 1fr;
+      }
+
+      .step {
+        min-height: auto;
+      }
+
+      .prompt-line b {
+        display: block;
+        margin-bottom: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>How LLM Council consulting really works</h1>
+      </div>
+      <div class="source-box">
+        Source-backed explainer for the current repo flow.<br>
+        Checked against <code>backend/langgraph_flow.py</code>, <code>backend/council.py</code>,
+        <code>backend/main.py</code>, and <code>backend/interactive.py</code>.
+      </div>
+    </header>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <span class="badge">Runtime flow</span>
+          <h2>One consultation is a gated pipeline, not one giant prompt.</h2>
+        </div>
+        <p>
+          Feature flags and interactive checkpoints decide which nodes run. The happy path is:
+          collect model answers, optionally critique them, rank them anonymously, optionally let
+          models revise, then ask the chairman model to synthesize.
+        </p>
+      </div>
+
+      <div class="flow" aria-label="Consultation pipeline">
+        <div class="flow-row">
+          <div class="lane">Setup</div>
+          <div class="steps">
+            <article class="step optional review">
+              <span class="step-number">00</span>
+              <h3>Title</h3>
+              <p>First messages can generate a conversation title before the council work starts.</p>
+            </article>
+            <article class="step optional review">
+              <span class="step-number">01</span>
+              <h3>Pre-query config</h3>
+              <p>Interactive mode can collect domain, style, and priority hints before Stage 1.</p>
+            </article>
+            <div class="connector">then</div>
+            <article class="step">
+              <span class="step-number">02</span>
+              <h3>Stage 1</h3>
+              <p>All council models answer the user question in parallel. Failed responses are excluded later.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="flow-row">
+          <div class="lane">Review</div>
+          <div class="steps">
+            <article class="step optional review">
+              <span class="step-number">03</span>
+              <h3>Response review</h3>
+              <p>Interactive mode can exclude weak model responses and add gap concerns for Negative Mode.</p>
+            </article>
+            <article class="step optional negative">
+              <span class="step-number">04</span>
+              <h3>Negative Mode</h3>
+              <p>Models evaluate gaps, risks, blind spots, and edge cases. Higher scores mean better coverage.</p>
+            </article>
+            <article class="step">
+              <span class="step-number">05</span>
+              <h3>Stage 2 ranking</h3>
+              <p>Models review anonymized responses as Response A, B, C, etc. Aggregate rankings are computed.</p>
+            </article>
+            <article class="step optional review">
+              <span class="step-number">06</span>
+              <h3>Deliberation</h3>
+              <p>Each model sees feedback about its own answer and can produce a revised answer.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="flow-row">
+          <div class="lane">Synthesis</div>
+          <div class="steps">
+            <article class="step optional synthesis">
+              <span class="step-number">07</span>
+              <h3>Synthesis prefs</h3>
+              <p>Interactive mode can collect synthesis mode and focus areas before Stage 3.</p>
+            </article>
+        <article class="step synthesis">
+          <span class="step-number">08</span>
+          <h3>Stage 3 chairman</h3>
+          <p>The chairman receives mode-packed context and writes a final answer.</p>
+            </article>
+            <article class="step synthesis">
+              <span class="step-number">09</span>
+              <h3>Versioned output</h3>
+              <p>The result is stored as the current Stage 3 version and can later be resynthesized.</p>
+            </article>
+            <article class="step">
+              <span class="step-number">10</span>
+              <h3>Polling UI</h3>
+              <p>The frontend polls status and merges persisted stage updates into the visible conversation.</p>
+            </article>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend" aria-label="Legend">
+        <span><i class="dot"></i>Core council work</span>
+        <span><i class="dot review"></i>Interactive or revision step</span>
+        <span><i class="dot warning"></i>Gap/risk step</span>
+        <span><i class="dot synthesis"></i>Chairman synthesis</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <span class="badge">Stage 3 input path</span>
+          <h2>What the chairman actually synthesizes</h2>
+        </div>
+        <p>
+          Stage 3 does not simply reread raw Stage 1. When deliberation exists, the revised
+          deliberation answers become the main response body sent to the chairman.
+        </p>
+      </div>
+
+      <div class="input-grid">
+        <article class="input-card primary">
+          <strong>User query</strong>
+          <p>The original prompt, or the refined prompt when prompt refinement chose to use it.</p>
+        </article>
+        <article class="input-card primary">
+          <strong>Responses for synthesis</strong>
+          <p>Usually deliberation-revised answers. A mode-aware packer decides how much of each answer is included.</p>
+        </article>
+        <article class="input-card rank">
+          <strong>Stage 2 rankings</strong>
+          <p>Aggregate rankings plus compact final ranking lines from reviewers.</p>
+        </article>
+        <article class="input-card risk">
+          <strong>Negative analysis</strong>
+          <p>Optional gap scores and reviewer summaries. Higher gap score means the answer addresses concerns better.</p>
+        </article>
+        <article class="input-card mode">
+          <strong>Prompt modifier</strong>
+          <p>Optional synthesis preference, focus areas, and decision-support guidance when that path is active.</p>
+        </article>
+      </div>
+
+      <div class="chairman">
+        <div class="chairman-panel">
+          <h3>Chairman model</h3>
+          <p>
+            The chairman still receives one assembled prompt, but response and ranking evidence is
+            packed first. The prompt asks for a complete answer to the original question, not a recap
+            of the council process.
+          </p>
+        </div>
+        <div class="prompt-strip">
+          <div class="prompt-line">
+            <b>Response section</b>
+            <span>Named <span class="code">RESPONSES FOR SYNTHESIS - Deliberation Revisions</span> when deliberation output is used; otherwise named <span class="code">STAGE 1 - Individual Responses</span>. The section can contain full-priority text or compact excerpts.</span>
+          </div>
+          <div class="prompt-line">
+            <b>Ranking section</b>
+            <span>Includes aggregate ranking summary and compact final ranking lines, with rationale excerpts only for modes that benefit from them.</span>
+          </div>
+          <div class="prompt-line">
+            <b>Negative section</b>
+            <span>Included only when Negative Mode ran. With deliberation revisions, it is framed as a pre-deliberation checklist to verify, not unresolved criticism to repeat.</span>
+          </div>
+          <div class="prompt-line">
+            <b>Additional guidance</b>
+            <span>Where synthesis mode and focus areas appear when that path injects them.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <h3>Compatibility note</h3>
+        <p>
+          The function argument is still named <span class="code">stage1_results</span> for compatibility, but
+          the prompt heading now changes when the content is deliberation-revised.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <span class="badge">Synthesis modes</span>
+          <h2>Synthesis modes now control context packing and prompt guidance.</h2>
+        </div>
+        <p>
+          Each mode changes which artifacts get full space, which get compact excerpts, and how much
+          peer-review rationale is forwarded. The chairman still makes the final judgment; the app
+          does not mechanically assemble the answer.
+        </p>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Mode</th>
+            <th>Instruction</th>
+            <th>What is algorithmic?</th>
+            <th>Practical effect</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Consensus</td>
+            <td>Find and present only common ground. Filter out minority or contested claims.</td>
+            <td>All responses use compact evidence; ranking rationale is omitted.</td>
+            <td>Produces a narrower answer focused on agreement across responses.</td>
+          </tr>
+          <tr>
+            <td>Best of Breed</td>
+            <td>Pick the best elements from each response: clear explanations, examples, and caveats.</td>
+            <td>Top-ranked responses get full-priority space; others keep high-signal excerpts.</td>
+            <td>Scavenges useful pieces while spending more input budget on stronger answers.</td>
+          </tr>
+          <tr>
+            <td>Comprehensive</td>
+            <td>Include all perspectives, contradictions, trade-offs, and alternatives.</td>
+            <td>Every response receives broad space, subject to the global context budget.</td>
+            <td>Preserves more disagreement, alternatives, and rationale.</td>
+          </tr>
+          <tr>
+            <td>Weighted by Rankings</td>
+            <td>Prioritize higher-ranked responses. Lower-ranked responses contribute less.</td>
+            <td>Aggregate rankings reorder and allocate context budget; no numeric content blend.</td>
+            <td>Leans harder on responses that Stage 2 ranked highly.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="truth-grid" style="margin-top: 16px;">
+        <article class="truth-card">
+          <h3>Real data path <span class="tag">hard</span></h3>
+          <p>Stage 2 aggregate rankings and Negative Mode aggregate gap scores are computed data structures.</p>
+        </article>
+        <article class="truth-card">
+          <h3>Mode behavior <span class="tag soft">mixed</span></h3>
+          <p>Mode selection does reorder and compact context, but final prose is still chairman judgment.</p>
+        </article>
+        <article class="truth-card">
+          <h3>Exclusions <span class="tag">hard</span></h3>
+          <p>Interactive response exclusions are applied to active Stage 1 inputs before ranking, deliberation, and synthesis.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <span class="badge">Resynthesis</span>
+          <h2>Regenerating a synthesis appends a new Stage 3 version.</h2>
+        </div>
+        <p>
+          Resynthesis does not rerun Stage 1, Stage 2, Negative Mode, or deliberation. It reuses the
+          existing persisted evidence, repacks the synthesis context for the selected mode, and asks
+          the chairman for another final answer with new guidance.
+        </p>
+      </div>
+
+      <div class="version-flow">
+        <article class="box">
+          <h3>1. Pick mode</h3>
+          <p>The UI sends a requested synthesis mode and optional focus areas.</p>
+        </article>
+        <article class="box">
+          <h3>2. Rebuild input</h3>
+          <p><span class="code">build_responses_for_synthesis</span> prefers deliberation revisions if present.</p>
+        </article>
+        <article class="box">
+          <h3>3. Pack context</h3>
+          <p>The backend applies mode-specific response, ranking, and negative-summary budgets.</p>
+        </article>
+        <article class="box">
+          <h3>4. Run chairman</h3>
+          <p>The chairman receives the packed context and writes a new final answer.</p>
+        </article>
+        <article class="box">
+          <h3>5. Append version</h3>
+          <p>The new answer is added to <span class="code">stage3.versions</span> and can become current.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <span class="badge">Current caveats</span>
+          <h2>Implementation truths worth keeping in mind</h2>
+        </div>
+        <p>
+          These are not necessarily bugs, but they explain why the UI can feel less deterministic than
+          the stage labels imply.
+        </p>
+      </div>
+
+      <div class="truth-grid">
+        <article class="truth-card">
+          <h3>Deliberation is explicit</h3>
+          <p>
+            Stage 3 receives revised answer text after deliberation and labels the response section
+            accordingly. Negative Mode is treated as a checklist against those revisions.
+          </p>
+        </article>
+        <article class="truth-card">
+          <h3>Weighted is not numeric</h3>
+          <p>
+            The app computes rankings, but the weighted mode does not mechanically blend answers by score.
+            It uses rankings to spend more context on top-ranked responses, then instructs the chairman
+            to favor them.
+          </p>
+        </article>
+        <article class="truth-card">
+          <h3>Initial and resynthesis share packing</h3>
+          <p>
+            Both the initial LangGraph run and explicit resynthesis path call the same Stage 3 context
+            packer, so mode behavior is consistent.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <footer>
+      Generated as a static repo-local explainer. Open this file directly in a browser:
+      <span class="code">docs/consulting-flow/index.html</span>.
+    </footer>
+  </main>
+</body>
+</html>

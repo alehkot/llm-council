@@ -148,10 +148,13 @@ if STREAM_TIMEOUT_SECONDS <= 0:
 # Prompt length limits (characters)
 MAX_PROMPT_CHARS = _get_int_env("MAX_PROMPT_CHARS", 15000)
 MAX_NEGATIVE_PROMPT_CHARS = _get_int_env("MAX_NEGATIVE_PROMPT_CHARS", 15000)
+SYNTHESIS_CONTEXT_MAX_CHARS = _get_int_env("SYNTHESIS_CONTEXT_MAX_CHARS", 45000)
 if MAX_PROMPT_CHARS <= 0:
     raise ValueError("MAX_PROMPT_CHARS must be > 0")
 if MAX_NEGATIVE_PROMPT_CHARS <= 0:
     raise ValueError("MAX_NEGATIVE_PROMPT_CHARS must be > 0")
+if SYNTHESIS_CONTEXT_MAX_CHARS <= 0:
+    raise ValueError("SYNTHESIS_CONTEXT_MAX_CHARS must be > 0")
 
 # Consultation thread pool size
 CONSULTATION_POOL_SIZE = _get_int_env("CONSULTATION_POOL_SIZE", 4)

@@ -1155,6 +1155,9 @@ def build_council_graph(context: FlowContext):
         await context.emit_event({"type": "stage3_start"})
         await context.init_stage_progress("stage3", [CHAIRMAN_MODEL])
 
+        using_deliberation_revisions = bool(
+            ((state.get("metadata") or {}).get("deliberation") or {}).get("results")
+        )
         responses_for_synthesis = state.get("responses_for_synthesis")
         if not responses_for_synthesis:
             deliberation = (state.get("metadata") or {}).get("deliberation") or {}
@@ -1170,18 +1173,27 @@ def build_council_graph(context: FlowContext):
             context.trace.end_stage("stage3", error=error_message)
             return {"error": error_message}
 
+        synthesis_mode = (
+            context.interactive_config.synthesis_mode
+            if context.interactive_config
+            else None
+        )
+        effective_mode = synthesis_mode or "best_of_breed"
         prompt_modifier = _stage3_prompt_modifier(context)
         try:
             stage3_result = await stage3_synthesize_final(
-                state["user_query"],
-                responses_for_synthesis,
-                state.get("stage2", []),
-                state.get("label_to_model", {}),
-                state.get("negative"),
-                state.get("aggregate_gap_scores"),
-                state.get("labels"),
+                user_query=state["user_query"],
+                stage1_results=responses_for_synthesis,
+                stage2_results=state.get("stage2", []),
+                label_to_model=state.get("label_to_model", {}),
+                negative_context=state.get("negative"),
+                aggregate_gap_scores=state.get("aggregate_gap_scores"),
+                aggregate_rankings=state.get("aggregate_rankings"),
+                labels=state.get("labels"),
                 trace=context.trace,
                 prompt_modifier=prompt_modifier,
+                synthesis_mode=effective_mode,
+                using_deliberation_revisions=using_deliberation_revisions,
                 progress=context.progress_callback("stage3"),
             )
         except Exception as exc:
@@ -1191,11 +1203,6 @@ def build_council_graph(context: FlowContext):
 
         if context.is_cancelled():
             return _cancel_state()
-
-        # Include synthesis mode in metadata if it was set via interactive config
-        synthesis_mode = context.interactive_config.synthesis_mode if context.interactive_config else None
-        # Default to best_of_breed if no mode specified
-        effective_mode = synthesis_mode or "best_of_breed"
 
         stage3_metadata: Dict[str, Any] = {}
         if synthesis_mode:

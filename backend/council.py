@@ -14,6 +14,7 @@ from .config import (
     PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
     PROMPT_REFINEMENT_MODEL,
+    SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
 from .trace import TraceCollector
@@ -22,6 +23,433 @@ from .trace import TraceCollector
 ProgressCallback = Optional[
     Callable[[str, str, Optional[Dict[str, Any]]], Awaitable[None]]
 ]
+
+SYNTHESIS_MODES = {"consensus", "best_of_breed", "comprehensive", "weighted"}
+
+SYNTHESIS_CONTEXT_POLICIES: Dict[str, Dict[str, int]] = {
+    "consensus": {
+        "full_top": 0,
+        "full_chars": 7000,
+        "compact_chars": 1800,
+        "fallback_chars": 1200,
+        "gap_summaries_per_response": 1,
+        "ranking_note_chars": 0,
+    },
+    "best_of_breed": {
+        "full_top": 2,
+        "full_chars": 8000,
+        "compact_chars": 3200,
+        "fallback_chars": 1800,
+        "gap_summaries_per_response": 2,
+        "ranking_note_chars": 450,
+    },
+    "comprehensive": {
+        "full_top": 999,
+        "full_chars": 8500,
+        "compact_chars": 8500,
+        "fallback_chars": 4500,
+        "gap_summaries_per_response": 3,
+        "ranking_note_chars": 700,
+    },
+    "weighted": {
+        "full_top": 2,
+        "full_chars": 9000,
+        "compact_chars": 1200,
+        "fallback_chars": 900,
+        "gap_summaries_per_response": 1,
+        "ranking_note_chars": 250,
+    },
+}
+
+
+def _normalize_synthesis_mode(mode: Optional[str]) -> str:
+    """Return a known synthesis mode, defaulting conservatively."""
+    candidate = (mode or "best_of_breed").strip()
+    return candidate if candidate in SYNTHESIS_MODES else "best_of_breed"
+
+
+def _trim_text(text: str, max_chars: int) -> str:
+    """Trim long text while preserving both setup and conclusion."""
+    cleaned = str(text or "").strip()
+    if max_chars <= 0 or len(cleaned) <= max_chars:
+        return cleaned
+    if max_chars < 80:
+        return cleaned[:max_chars].rstrip()
+
+    marker = "\n\n[...content omitted by synthesis context packer...]\n\n"
+    available = max_chars - len(marker)
+    head_chars = max(40, int(available * 0.68))
+    tail_chars = max(20, available - head_chars)
+    return f"{cleaned[:head_chars].rstrip()}{marker}{cleaned[-tail_chars:].lstrip()}"
+
+
+def _paragraphs(text: str) -> List[Tuple[int, str]]:
+    """Split text into paragraph-like chunks with stable original indices."""
+    chunks = []
+    for index, raw in enumerate(str(text or "").replace("\r\n", "\n").split("\n\n")):
+        chunk = "\n".join(line.rstrip() for line in raw.splitlines()).strip()
+        if chunk:
+            chunks.append((index, chunk))
+    return chunks
+
+
+def _paragraph_score(paragraph: str, mode: str) -> int:
+    """Heuristic score for excerpts when a response must be compacted."""
+    lowered = paragraph.lower()
+    score = 0
+    if paragraph.lstrip().startswith(("-", "*", "#")):
+        score += 3
+    if any(token in lowered for token in ("recommend", "conclusion", "therefore", "should")):
+        score += 3
+    if any(
+        token in lowered
+        for token in ("risk", "caveat", "trade-off", "edge case", "limitation")
+    ):
+        score += 3
+    if any(token in lowered for token in ("because", "evidence", "example", "step", "option")):
+        score += 2
+    if mode == "consensus" and any(
+        token in lowered for token in ("agree", "common", "consensus", "shared", "same")
+    ):
+        score += 3
+    if mode == "weighted" and any(
+        token in lowered for token in ("recommend", "answer", "most important", "priority")
+    ):
+        score += 2
+    if 120 <= len(paragraph) <= 900:
+        score += 1
+    return score
+
+
+def _extract_response_excerpt(text: str, max_chars: int, mode: str) -> str:
+    """Build a compact but evidence-rich excerpt from a response."""
+    cleaned = str(text or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    paragraphs = _paragraphs(cleaned)
+    if not paragraphs:
+        return _trim_text(cleaned, max_chars)
+
+    selected: Dict[int, str] = {}
+    # Preserve the answer setup and conclusion; fill the middle with high-signal paragraphs.
+    selected[paragraphs[0][0]] = paragraphs[0][1]
+    if len(paragraphs) > 1:
+        selected[paragraphs[-1][0]] = paragraphs[-1][1]
+
+    scored = sorted(
+        (
+            (
+                _paragraph_score(paragraph, mode),
+                -abs(index - len(paragraphs) // 2),
+                index,
+                paragraph,
+            )
+            for index, paragraph in paragraphs[1:-1]
+        ),
+        reverse=True,
+    )
+
+    for _, _, index, paragraph in scored:
+        candidate = "\n\n".join(
+            part for _, part in sorted({**selected, index: paragraph}.items())
+        )
+        if len(candidate) <= max_chars:
+            selected[index] = paragraph
+
+    excerpt = "\n\n".join(part for _, part in sorted(selected.items()))
+    return _trim_text(excerpt, max_chars)
+
+
+def _label_by_model(label_to_model: Dict[str, str]) -> Dict[str, str]:
+    return {model: label for label, model in label_to_model.items()}
+
+
+def _rank_sort_key(entry: Dict[str, Any]) -> Tuple[int, str]:
+    rank = entry.get("rank")
+    return (int(rank) if isinstance(rank, int) else 10_000, entry.get("label") or "")
+
+
+def _format_rank_detail(rank_item: Optional[Dict[str, Any]]) -> str:
+    if not rank_item:
+        return "not ranked"
+    bits = []
+    if rank_item.get("win_percentage") is not None:
+        bits.append(f"{float(rank_item.get('win_percentage') or 0) * 100:.0f}% pairwise win rate")
+    if rank_item.get("average_rank") is not None:
+        bits.append(f"avg rank {rank_item.get('average_rank')}")
+    if rank_item.get("rankings_count") is not None:
+        bits.append(f"{rank_item.get('rankings_count')} valid votes")
+    return ", ".join(bits) or "ranked"
+
+
+def _build_response_entries(
+    stage1_results: List[Dict[str, Any]],
+    labels: List[str],
+    label_to_model: Dict[str, str],
+    aggregate_rankings: Optional[List[Dict[str, Any]]],
+    aggregate_gap_scores: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Attach labels, ranking, and gap metadata to synthesis responses."""
+    model_to_label = _label_by_model(label_to_model)
+    rank_by_model: Dict[str, Dict[str, Any]] = {}
+    for index, item in enumerate(aggregate_rankings or [], start=1):
+        model = item.get("model")
+        if model:
+            rank_by_model[model] = {**item, "rank": index}
+
+    gap_by_model = {
+        item.get("model"): item
+        for item in aggregate_gap_scores or []
+        if item.get("model")
+    }
+
+    entries = []
+    for index, result in enumerate(stage1_results):
+        model = result.get("model", "unknown")
+        label = model_to_label.get(model)
+        if not label and index < len(labels):
+            label = labels[index]
+        entries.append({
+            "label": label or f"Response {chr(65 + index)}",
+            "model": model,
+            "response": result.get("response", ""),
+            "rank_item": rank_by_model.get(model),
+            "rank": rank_by_model.get(model, {}).get("rank"),
+            "gap_item": gap_by_model.get(model),
+        })
+
+    return entries
+
+
+def _resolve_aggregate_rankings(
+    stage2_results: List[Dict[str, Any]],
+    label_to_model: Dict[str, str],
+    aggregate_rankings: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Use persisted aggregate rankings, falling back to local recomputation."""
+    if aggregate_rankings:
+        return aggregate_rankings
+    if not stage2_results or not label_to_model:
+        return []
+    if PAIRWISE_RANKING_ENABLED:
+        calculated, _ = calculate_pairwise_rankings(stage2_results, label_to_model)
+    else:
+        calculated, _ = calculate_aggregate_rankings(stage2_results, label_to_model)
+    return calculated
+
+
+def build_synthesis_response_context(
+    stage1_results: List[Dict[str, Any]],
+    labels: List[str],
+    label_to_model: Dict[str, str],
+    aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
+    aggregate_gap_scores: Optional[List[Dict[str, Any]]] = None,
+    synthesis_mode: Optional[str] = None,
+    max_chars: int = SYNTHESIS_CONTEXT_MAX_CHARS,
+) -> Tuple[str, str]:
+    """
+    Build a mode-aware response section for Stage 3.
+
+    The goal is to keep the chairman prompt focused on evidence needed for the
+    selected synthesis mode instead of blindly forwarding every artifact at full
+    length. This is deterministic by design; an LLM distillation step can be
+    added later for overflow cases without changing Stage 3's public contract.
+    """
+    mode = _normalize_synthesis_mode(synthesis_mode)
+    policy = SYNTHESIS_CONTEXT_POLICIES[mode]
+    entries = _build_response_entries(
+        stage1_results,
+        labels,
+        label_to_model,
+        aggregate_rankings,
+        aggregate_gap_scores,
+    )
+
+    has_rankings = any(entry.get("rank") is not None for entry in entries)
+
+    if has_rankings and mode in {"weighted", "consensus"}:
+        entries = sorted(entries, key=_rank_sort_key)
+    elif mode == "best_of_breed":
+        ranked = sorted(entries, key=_rank_sort_key)
+        unranked = [entry for entry in entries if entry.get("rank") is None]
+        entries = ranked if has_rankings and len(unranked) != len(entries) else entries
+
+    full_labels = set()
+    if mode == "comprehensive":
+        full_labels = {entry["label"] for entry in entries}
+    elif not has_rankings and len(entries) <= policy["full_top"]:
+        full_labels = {entry["label"] for entry in entries}
+    elif has_rankings:
+        for entry in sorted(entries, key=_rank_sort_key)[:policy["full_top"]]:
+            full_labels.add(entry["label"])
+    else:
+        full_labels = set()
+
+    blocks = []
+    full_included = []
+    compact_included = []
+    compacted_by_global_budget = False
+    for entry in entries:
+        is_full = entry["label"] in full_labels
+        char_limit = policy["full_chars"] if is_full else policy["compact_chars"]
+        text = entry["response"]
+        included_text = (
+            _trim_text(text, char_limit)
+            if is_full
+            else _extract_response_excerpt(text, char_limit, mode)
+        )
+        if is_full and len(str(text or "")) <= char_limit:
+            inclusion = "full"
+        elif is_full:
+            inclusion = "full-priority, trimmed"
+        else:
+            inclusion = "compact excerpt"
+        if inclusion == "full":
+            full_included.append(entry["label"])
+        else:
+            compact_included.append(f"{entry['label']} ({inclusion})")
+
+        rank_text = f"rank #{entry['rank']}: {_format_rank_detail(entry['rank_item'])}"
+        if entry.get("rank") is None:
+            rank_text = _format_rank_detail(entry.get("rank_item"))
+        gap_item = entry.get("gap_item") or {}
+        gap_text = ""
+        if gap_item:
+            gap_text = (
+                f"; gap score {gap_item.get('avg_gap_score', 'n/a')}/10 "
+                f"from {gap_item.get('peer_evaluation_count', 'n/a')} peer reviews"
+            )
+
+        blocks.append(
+            f"{entry['label']} ({entry['model']}; {rank_text}{gap_text}; {inclusion}):\n"
+            f"{included_text}"
+        )
+
+    response_text = "\n\n".join(blocks)
+    if len(response_text) > max_chars:
+        compacted_by_global_budget = True
+        headers = [
+            f"{entry['label']} ({entry['model']}; compressed for global context budget):\n"
+            for entry in entries
+        ]
+        header_budget = sum(len(header) for header in headers)
+        header_budget += max(0, len(entries) - 1) * 2
+        available_for_text = max(0, max_chars - header_budget)
+        per_entry_chars = max(
+            120,
+            min(policy["fallback_chars"], available_for_text // max(1, len(entries))),
+        )
+        response_text = "\n\n".join(
+            f"{header}{_extract_response_excerpt(entry['response'], per_entry_chars, mode)}"
+            for header, entry in zip(headers, entries)
+        )
+        if len(response_text) > max_chars:
+            overage_per_entry = (
+                (len(response_text) - max_chars) // max(1, len(entries))
+            ) + 20
+            per_entry_chars = max(80, per_entry_chars - overage_per_entry)
+            response_text = "\n\n".join(
+                f"{header}{_extract_response_excerpt(entry['response'], per_entry_chars, mode)}"
+                for header, entry in zip(headers, entries)
+            )
+        if len(response_text) > max_chars:
+            response_text = _trim_text(response_text, max_chars)
+
+    note_parts = [
+        f"Synthesis mode: {mode}.",
+        "Responses are packed by mode before the chairman sees them.",
+    ]
+    if mode == "weighted":
+        note_parts.append(
+            "Higher-ranked responses receive full-priority space; "
+            "lower-ranked responses are compacted."
+        )
+    elif mode == "consensus":
+        note_parts.append(
+            "All responses remain represented, but compacted responses emphasize "
+            "shared conclusions and caveats."
+        )
+    elif mode == "best_of_breed":
+        note_parts.append(
+            "Top-ranked responses receive full-priority space while other "
+            "responses keep high-signal excerpts."
+        )
+    elif mode == "comprehensive":
+        note_parts.append(
+            "All responses receive broad space, subject only to the global context budget."
+        )
+    if not has_rankings and mode != "comprehensive":
+        note_parts.append(
+            "No aggregate rankings were available, so responses use equal compact "
+            "evidence instead of rank-prioritized space."
+        )
+    if compacted_by_global_budget:
+        note_parts.append("The global context budget required extra compression.")
+    if full_included:
+        note_parts.append(f"Full responses included: {', '.join(full_included)}.")
+    if compact_included:
+        note_parts.append(f"Compacted artifacts: {', '.join(compact_included)}.")
+
+    return response_text, " ".join(note_parts)
+
+
+def build_synthesis_ranking_context(
+    stage2_results: List[Dict[str, Any]],
+    label_to_model: Dict[str, str],
+    aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
+    synthesis_mode: Optional[str] = None,
+) -> str:
+    """Build a compact ranking context for Stage 3."""
+    mode = _normalize_synthesis_mode(synthesis_mode)
+    policy = SYNTHESIS_CONTEXT_POLICIES[mode]
+    aggregate_rankings = _resolve_aggregate_rankings(
+        stage2_results,
+        label_to_model,
+        aggregate_rankings,
+    )
+    label_by_model = _label_by_model(label_to_model)
+
+    lines = ["Aggregate ranking summary:"]
+    if aggregate_rankings:
+        for index, item in enumerate(aggregate_rankings, start=1):
+            model = item.get("model", "unknown")
+            label = label_by_model.get(model, "unlabeled")
+            lines.append(
+                f"{index}. {label} ({model}): {_format_rank_detail({**item, 'rank': index})}"
+            )
+    else:
+        lines.append("- No valid aggregate ranking was available.")
+
+    final_rank_lines = []
+    rationale_lines = []
+    expected_labels = list(label_to_model.keys())
+    for result in stage2_results:
+        parsed = result.get("parsed_ranking")
+        if parsed is None:
+            parsed = parse_ranking_from_text(result.get("ranking", ""), expected_labels)
+        if parsed:
+            final_rank_lines.append(f"- {result.get('model', 'unknown')}: {' > '.join(parsed)}")
+        elif result.get("validation_error"):
+            final_rank_lines.append(
+                f"- {result.get('model', 'unknown')}: invalid ({result.get('validation_error')})"
+            )
+
+        rationale_limit = policy["ranking_note_chars"]
+        if rationale_limit > 0:
+            ranking_text = str(result.get("ranking") or "").strip()
+            rationale = ranking_text.split("FINAL RANKING:", 1)[0].strip()
+            if rationale:
+                rationale_lines.append(
+                    f"- {result.get('model', 'unknown')}: {_trim_text(rationale, rationale_limit)}"
+                )
+
+    if final_rank_lines:
+        lines.extend(["", "Reviewer final ranking lines:", *final_rank_lines])
+    if rationale_lines:
+        lines.extend(["", "Compact reviewer rationale excerpts:", *rationale_lines])
+
+    return "\n".join(lines)
 
 
 def build_label_mapping(stage1_results: List[Dict[str, Any]]) -> Tuple[List[str], Dict[str, str]]:
@@ -930,9 +1358,12 @@ async def stage3_synthesize_final(
     label_to_model: Dict[str, str],
     negative_context: Optional[Dict[str, Any]] = None,
     aggregate_gap_scores: Optional[List[Dict[str, Any]]] = None,
+    aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
     labels: Optional[List[str]] = None,
     trace: Optional[TraceCollector] = None,
     prompt_modifier: Optional[str] = None,
+    synthesis_mode: str = "best_of_breed",
+    using_deliberation_revisions: bool = False,
     progress: ProgressCallback = None,
 ) -> Dict[str, Any]:
     """
@@ -945,8 +1376,12 @@ async def stage3_synthesize_final(
         label_to_model: Mapping from Response labels to model identifiers
         negative_context: Optional negative evaluation data
         aggregate_gap_scores: Optional aggregated gap-finding scores per response
+        aggregate_rankings: Optional aggregated peer-ranking summary
         labels: Label list aligned with stage1_results
         prompt_modifier: Optional extra guidance appended to the synthesis prompt
+        synthesis_mode: How to pack and guide synthesis context
+        using_deliberation_revisions: Whether responses are revised answers
+            from the deliberation round
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -966,16 +1401,55 @@ async def stage3_synthesize_final(
         for label, result in zip(labels, stage1_results)
     ]
 
-    # Build comprehensive context for chairman with consistent labels
-    stage1_text = "\n\n".join([
-        f"{label} ({label_to_model.get(label, result['model'])}):\n{result['response']}"
-        for label, result in zip(labels, stage1_results)
-    ])
+    mode = _normalize_synthesis_mode(synthesis_mode)
+    policy = SYNTHESIS_CONTEXT_POLICIES[mode]
+    aggregate_rankings = _resolve_aggregate_rankings(
+        stage2_results,
+        label_to_model,
+        aggregate_rankings,
+    )
 
-    stage2_text = "\n\n".join([
-        f"Model: {result['model']}\nRanking: {result['ranking']}"
-        for result in stage2_results
-    ])
+    stage1_text, packing_note = build_synthesis_response_context(
+        stage1_results,
+        labels,
+        label_to_model,
+        aggregate_rankings=aggregate_rankings,
+        aggregate_gap_scores=aggregate_gap_scores,
+        synthesis_mode=mode,
+    )
+    stage2_text = build_synthesis_ranking_context(
+        stage2_results,
+        label_to_model,
+        aggregate_rankings=aggregate_rankings,
+        synthesis_mode=mode,
+    )
+
+    response_heading = (
+        "RESPONSES FOR SYNTHESIS - Deliberation Revisions"
+        if using_deliberation_revisions
+        else "STAGE 1 - Individual Responses"
+    )
+    negative_heading = (
+        "NEGATIVE MODE - Pre-Deliberation Gap/Risk Checklist"
+        if using_deliberation_revisions
+        else "NEGATIVE MODE - Gap/Risk Analysis"
+    )
+    negative_instruction = (
+        "These evaluations were produced before deliberation. Use them as a "
+        "verification checklist against the revised responses above: confirm "
+        "whether the revisions fixed the flagged gaps, and do not repeat a "
+        "criticism as unresolved merely because it appears below."
+        if using_deliberation_revisions
+        else "Use these evaluations as active gap/risk analysis for the responses."
+    )
+    negative_bullet = (
+        "- When provided, use negative evaluations and scores as a "
+        "pre-deliberation checklist: verify whether revised responses fixed the "
+        "flagged risks or blind spots before treating them as unresolved"
+        if using_deliberation_revisions
+        else "- When provided, the negative evaluations and scores that highlight "
+        "missing risks or blind spots"
+    )
 
     negative_text = ""
     if negative_context and negative_context.get("enabled"):
@@ -1000,12 +1474,15 @@ async def stage3_synthesize_final(
 
             # Collect common gaps across responses
             common_gaps = []
+            summary_limit = policy["gap_summaries_per_response"]
             for gap_data in aggregate_gap_scores:
-                for summary_item in gap_data.get("gap_summaries", [])[:2]:  # Top 2 per response
+                for summary_item in gap_data.get("gap_summaries", [])[:summary_limit]:
                     common_gaps.append(f"- {gap_data['label']}: {summary_item['summary']}")
 
             negative_text = f"""
-NEGATIVE MODE - Gap/Risk Analysis:
+{negative_heading}:
+
+{negative_instruction}
 
 Negative prompt used:
 {negative_context.get('prompt', '')}
@@ -1038,7 +1515,10 @@ KEY GAPS IDENTIFIED BY PEER REVIEWERS:
                 )
 
             negative_text = f"""
-NEGATIVE MODE - Gap/Risk Evaluations:
+{negative_heading}:
+
+{negative_instruction}
+
 Negative prompt used:
 {negative_context.get('prompt', '')}
 
@@ -1053,7 +1533,13 @@ Original Question: {user_query}
 Response labels (used in the rankings):
 {chr(10).join(label_mapping)}
 
-STAGE 1 - Individual Responses:
+SYNTHESIS CONTEXT PACKING:
+{packing_note}
+The response evidence below may be excerpted according to the selected mode. Do not infer
+that an omitted detail was absent from the original model output; use omitted lower-priority
+artifacts cautiously and rely on the included evidence.
+
+{response_heading}:
 {stage1_text}
 
 STAGE 2 - Peer Rankings:
@@ -1065,7 +1551,7 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The individual responses and their insights
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
-- When provided, the negative evaluations and scores that highlight missing risks or blind spots
+{negative_bullet}
 
 Write a complete answer to the original question, not a brief recap of the council
 process. Preserve substantive depth from the strongest responses and deliberation
@@ -1647,14 +2133,17 @@ async def run_full_council(
     if trace:
         trace.begin_stage("stage3", label="Stage 3")
     stage3_result = await stage3_synthesize_final(
-        user_query,
-        responses_for_synthesis,  # Use revised responses if deliberation happened
-        stage2_results,
-        label_to_model,
-        negative_context,
-        aggregate_gap_scores,
-        labels,
+        user_query=user_query,
+        stage1_results=responses_for_synthesis,  # Use revised responses if deliberation happened
+        stage2_results=stage2_results,
+        label_to_model=label_to_model,
+        negative_context=negative_context,
+        aggregate_gap_scores=aggregate_gap_scores,
+        aggregate_rankings=aggregate_rankings,
+        labels=labels,
         trace=trace,
+        synthesis_mode="best_of_breed",
+        using_deliberation_revisions=bool(deliberation_results),
     )
     if trace:
         trace.end_stage("stage3", model=stage3_result.get("model"))

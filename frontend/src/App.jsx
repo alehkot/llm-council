@@ -369,6 +369,7 @@ function App() {
           interactive_mode_enabled: false,
           prompt_max_chars: null,
           negative_prompt_max_chars: null,
+          synthesis_context_max_chars: null,
           council_models: [],
           chairman_model: null,
           title_model: null,

@@ -36,6 +36,20 @@ import { useAppStore } from '../store/useAppStore';
 const DEFAULT_PROMPT_MAX_CHARS = 15000;
 const DEFAULT_NEGATIVE_PROMPT_MAX_CHARS = 15000;
 const DEFAULT_VISIBLE_MESSAGES = 50;
+const NEGATIVE_PROMPT_EXAMPLES = [
+  {
+    label: 'Risk review',
+    prompt: 'Find hidden assumptions, failure modes, missing caveats, and safety or compliance risks.',
+  },
+  {
+    label: 'Implementation review',
+    prompt: 'Look for unclear sequencing, missing dependencies, weak test coverage, and rollback gaps.',
+  },
+  {
+    label: 'Decision review',
+    prompt: 'Challenge the recommendation by naming tradeoffs, alternatives, weak evidence, and reversal conditions.',
+  },
+];
 
 export default function ChatInterface({
   onSendMessage,
@@ -97,6 +111,7 @@ export default function ChatInterface({
     && config.negative_prompt_max_chars > 0
     ? config.negative_prompt_max_chars
     : DEFAULT_NEGATIVE_PROMPT_MAX_CHARS;
+  const isNegativeModeDisabled = config?.negative_mode_enabled === false;
   const interactivePromptKey = currentInteractivePrompt
     ? [
       currentInteractivePrompt.session_id ?? 'no-session',
@@ -766,23 +781,46 @@ export default function ChatInterface({
             </div>
             <div className="negative-prompt-input-group space-y-2">
               <div className="negative-prompt-input-header flex items-center justify-between">
-                <Label htmlFor="negative-prompt-input" className="negative-prompt-input-label">Negative prompt (optional)</Label>
+                <Label htmlFor="negative-prompt-input" className="negative-prompt-input-label">Negative Mode instructions (optional)</Label>
+                <span className="negative-prompt-char-count text-xs text-muted-foreground">
+                  {negativePrompt.length}/{negativePromptMaxChars}
+                </span>
               </div>
               <Textarea
                 id="negative-prompt-input"
                 name="negativePrompt"
                 className="chat-negative-prompt-input min-h-[120px] resize-y"
-                placeholder={'Optional… e.g., "List edge cases, risks, and missing steps."'}
+                placeholder={'Optional: tell the critique stage what to stress-test.'}
                 value={negativePrompt}
                 onChange={(e) => setNegativePrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={isLoading}
                 maxLength={negativePromptMaxChars}
                 autoComplete="off"
+                aria-describedby="negative-prompt-helper negative-prompt-examples"
               />
-              <p className="negative-prompt-helper-text text-xs text-muted-foreground">
-                When enabled in config, models will critique answers using this inverse prompt and score themselves and a peer.
+              <p id="negative-prompt-helper" className="negative-prompt-helper-text text-xs text-muted-foreground">
+                {isNegativeModeDisabled
+                  ? 'Negative Mode is disabled in backend config, so this field will be ignored until it is enabled.'
+                  : 'Controls the optional Negative Mode critique stage: after initial answers, reviewers use this instruction to find gaps before peer review and final synthesis. Leave blank to let the app generate a general gap-finding prompt.'}
               </p>
+              <div id="negative-prompt-examples" className="negative-prompt-examples space-y-2">
+                <p className="text-xs font-medium text-foreground">Examples</p>
+                <div className="grid gap-2">
+                  {NEGATIVE_PROMPT_EXAMPLES.map((example) => (
+                    <button
+                      key={example.label}
+                      type="button"
+                      className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                      onClick={() => setNegativePrompt(example.prompt)}
+                      disabled={isLoading}
+                    >
+                      <span className="block font-medium text-foreground">{example.label}</span>
+                      <span className="block text-muted-foreground">{example.prompt}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
           <div className="chat-input-footer mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

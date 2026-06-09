@@ -24,10 +24,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { api } from '../api';
 
 const SYNTHESIS_MODES = [
-  { value: 'consensus', label: 'Consensus', description: 'Common ground only' },
-  { value: 'best_of_breed', label: 'Best of Breed', description: 'Best elements from each' },
-  { value: 'comprehensive', label: 'Comprehensive', description: 'All perspectives' },
-  { value: 'weighted', label: 'Weighted', description: 'Favor top-ranked' },
+  { value: 'consensus', label: 'Consensus', description: 'Compact all; common ground' },
+  { value: 'best_of_breed', label: 'Best of Breed', description: 'Top answers plus excerpts' },
+  { value: 'comprehensive', label: 'Comprehensive', description: 'Broad context from all' },
+  { value: 'weighted', label: 'Weighted', description: 'Rank-prioritized context' },
 ];
 
 /**
