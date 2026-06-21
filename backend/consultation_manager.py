@@ -9,7 +9,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from . import consultation_journal, storage
 from .config import (
@@ -158,14 +158,19 @@ class ConsultationManager:
         existing_resume = dict((existing or {}).get("resume") or {})
         resume = {
             **existing_resume,
-            "user_query": existing_resume.get("user_query") or (existing or {}).get("user_query") or content,
+            "user_query": existing_resume.get("user_query")
+            or (existing or {}).get("user_query")
+            or content,
             "negative_prompt": negative_prompt,
-            "collected_responses": dict(existing_resume.get("collected_responses") or {}),
+            "collected_responses": dict(
+                existing_resume.get("collected_responses") or {}
+            ),
             "updated_at": datetime.utcnow().isoformat(),
         }
         return {
             "consultation_id": consultation_id,
-            "status": (existing or {}).get("status") or ConsultationStatus.PENDING.value,
+            "status": (existing or {}).get("status")
+            or ConsultationStatus.PENDING.value,
             "resume": resume,
         }
 
@@ -197,7 +202,9 @@ class ConsultationManager:
         if conversation is None:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        existing_index = self._find_persisted_assistant_index(conversation, consultation_id)
+        existing_index = self._find_persisted_assistant_index(
+            conversation, consultation_id
+        )
         if existing_index is not None:
             return existing_index
 
@@ -266,13 +273,16 @@ class ConsultationManager:
 
         message = assistant_message or {}
         metadata = dict(message.get("metadata") or {})
-        effective_user_query = ConsultationManager._resolve_effective_user_query(content, metadata)
+        effective_user_query = ConsultationManager._resolve_effective_user_query(
+            content, metadata
+        )
         resume = metadata.get("resume") or {}
 
         initial_state: Dict[str, Any] = {
             "user_query": effective_user_query,
             "negative_prompt": resume.get("negative_prompt", negative_prompt),
-            "negative": message.get("negative") or {
+            "negative": message.get("negative")
+            or {
                 "enabled": False,
                 "prompt": resume.get("negative_prompt", negative_prompt),
                 "evaluations": [],
@@ -329,7 +339,9 @@ class ConsultationManager:
         if conversation is None:
             return False
         prior_messages = conversation.get("messages", [])[:assistant_index]
-        prior_assistants = [msg for msg in prior_messages if msg.get("role") == "assistant"]
+        prior_assistants = [
+            msg for msg in prior_messages if msg.get("role") == "assistant"
+        ]
         prior_users = [msg for msg in prior_messages if msg.get("role") == "user"]
         return len(prior_assistants) == 0 and len(prior_users) == 1
 
@@ -357,7 +369,9 @@ class ConsultationManager:
                 negative_prompt,
             )
         else:
-            existing_message = self._load_assistant_message(conversation_id, assistant_index)
+            existing_message = self._load_assistant_message(
+                conversation_id, assistant_index
+            )
             if existing_message is None:
                 assistant_index = self._ensure_assistant_placeholder(
                     consultation_id,
@@ -374,8 +388,11 @@ class ConsultationManager:
                         negative_prompt,
                         existing={
                             **(existing_message.get("metadata") or {}),
-                            "status": status or (existing_message.get("metadata") or {}).get("status"),
-                            "resume": (existing_message.get("metadata") or {}).get("resume"),
+                            "status": status
+                            or (existing_message.get("metadata") or {}).get("status"),
+                            "resume": (existing_message.get("metadata") or {}).get(
+                                "resume"
+                            ),
                         },
                     ),
                 }
@@ -392,7 +409,9 @@ class ConsultationManager:
             },
         )
 
-        assistant_message = self._load_assistant_message(conversation_id, assistant_index)
+        assistant_message = self._load_assistant_message(
+            conversation_id, assistant_index
+        )
         metadata = dict((assistant_message or {}).get("metadata") or {})
         state = ConsultationState(
             id=consultation_id,
@@ -471,7 +490,9 @@ class ConsultationManager:
                 "status": "started",
             }
 
-    def submit_interactive_response(self, session_id: str, prompt_response: Any) -> None:
+    def submit_interactive_response(
+        self, session_id: str, prompt_response: Any
+    ) -> None:
         """Submit a response to an interactive prompt in the worker thread's event loop."""
 
         with self._lock:
@@ -513,13 +534,18 @@ class ConsultationManager:
         with self._lock:
             active = []
             for conv_id, state in self._consultations.items():
-                if state.status not in (ConsultationStatus.COMPLETE, ConsultationStatus.FAILED):
-                    active.append({
-                        "conversation_id": conv_id,
-                        "consultation_id": state.id,
-                        "status": state.status.value,
-                        "started_at": state.created_at.isoformat(),
-                    })
+                if state.status not in (
+                    ConsultationStatus.COMPLETE,
+                    ConsultationStatus.FAILED,
+                ):
+                    active.append(
+                        {
+                            "conversation_id": conv_id,
+                            "consultation_id": state.id,
+                            "status": state.status.value,
+                            "started_at": state.created_at.isoformat(),
+                        }
+                    )
 
             active_count = len(active)
             total_queued = sum(len(q) for q in self._queues.values())
@@ -584,7 +610,9 @@ class ConsultationManager:
                             },
                         )
                     except Exception as exc:
-                        print(f"Warning: Failed to persist consultation cancellation: {exc}")
+                        print(
+                            f"Warning: Failed to persist consultation cancellation: {exc}"
+                        )
                 return True
             return False
 
@@ -594,9 +622,7 @@ class ConsultationManager:
         cancelled = 0
         with self._lock:
             queued_ids = [
-                queued.id
-                for queue in self._queues.values()
-                for queued in queue
+                queued.id for queue in self._queues.values() for queued in queue
             ]
             cancelled += len(queued_ids)
             self._queues.clear()
@@ -616,7 +642,9 @@ class ConsultationManager:
         consultation_journal.clear_jobs()
         return cancelled
 
-    def _update_status(self, state: ConsultationState, status: ConsultationStatus) -> None:
+    def _update_status(
+        self, state: ConsultationState, status: ConsultationStatus
+    ) -> None:
         """Update consultation status and durable journal state."""
 
         with self._lock:
@@ -639,7 +667,12 @@ class ConsultationManager:
     def _run_consultation(self, state: ConsultationState) -> None:
         """Run consultation in a worker thread."""
 
-        from .langgraph_flow import FlowCallbacks, FlowContext, run_council_graph
+        from .langgraph_flow import (
+            CouncilState,
+            FlowCallbacks,
+            FlowContext,
+            run_council_graph,
+        )
         from .trace import TraceCollector
 
         conversation_id = state.conversation_id
@@ -702,7 +735,9 @@ class ConsultationManager:
             if conversation is None:
                 raise ValueError(f"Conversation {conversation_id} not found")
 
-            assistant_message = self._load_assistant_message(conversation_id, state.assistant_index)
+            assistant_message = self._load_assistant_message(
+                conversation_id, state.assistant_index
+            )
             if assistant_message is None:
                 raise ValueError(
                     f"Assistant placeholder {state.assistant_index} not found for {conversation_id}",
@@ -813,14 +848,18 @@ class ConsultationManager:
                 negative_enabled=NEGATIVE_MODE_ENABLED,
                 deliberation_enabled=DELIBERATION_ENABLED,
                 interactive_enabled=INTERACTIVE_MODE_ENABLED,
-                interactive_queue=state.interactive_queue if INTERACTIVE_MODE_ENABLED else None,
+                interactive_queue=state.interactive_queue
+                if INTERACTIVE_MODE_ENABLED
+                else None,
                 session_id=state.session_id if INTERACTIVE_MODE_ENABLED else None,
                 interactive_timeout_seconds=INTERACTIVE_TIMEOUT_SECONDS,
                 prompt_refinement_enabled=PROMPT_REFINEMENT_ENABLED,
                 collected_responses=restored_responses,
                 conversation_id=conversation_id,
                 conversation_title=conversation.get("title", "New Conversation"),
-                is_first_message=self._is_first_message(conversation_id, state.assistant_index),
+                is_first_message=self._is_first_message(
+                    conversation_id, state.assistant_index
+                ),
                 is_resume=state.resume_from_storage,
                 cancel_requested=state.cancel_event.is_set,
                 resume_metadata=resume_payload,
@@ -838,9 +877,24 @@ class ConsultationManager:
                     state.message_content,
                     state.negative_prompt,
                     context,
-                    initial_state=initial_state,
+                    initial_state=cast(CouncilState, initial_state),
                 )
             )
+
+            if state.cancel_event.is_set():
+                with self._lock:
+                    state.error = "Cancelled"
+                    state.status = ConsultationStatus.FAILED
+                    state.metadata = {
+                        **(state.metadata or {}),
+                        "status": ConsultationStatus.FAILED.value,
+                        "error": "Cancelled",
+                        "interactive_prompt": None,
+                    }
+                    state.updated_at = datetime.utcnow()
+                persist_failure("Cancelled")
+                consultation_journal.delete_job(state.id)
+                return
 
             error_message = final_state.get("error")
             stage3_result = final_state.get("stage3")
@@ -933,7 +987,9 @@ class ConsultationManager:
                 ConsultationStatus.FAILED.value,
             }
 
-        message = self._load_assistant_message(job["conversation_id"], int(assistant_index))
+        message = self._load_assistant_message(
+            job["conversation_id"], int(assistant_index)
+        )
         if message is None:
             return False
         metadata = message.get("metadata") or {}

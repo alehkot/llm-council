@@ -29,7 +29,7 @@ def _is_retryable_status(status_code: Optional[int]) -> bool:
 
 
 def _backoff_seconds(retry_index: int) -> float:
-    backoff = OPENROUTER_RETRY_BASE_SECONDS * (2 ** retry_index)
+    backoff = OPENROUTER_RETRY_BASE_SECONDS * (2**retry_index)
     backoff = min(backoff, OPENROUTER_RETRY_MAX_SECONDS)
     if OPENROUTER_RETRY_JITTER > 0:
         jitter = backoff * OPENROUTER_RETRY_JITTER
@@ -55,10 +55,12 @@ def _summarize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     summary = []
     for message in messages:
         content = message.get("content")
-        summary.append({
-            "role": message.get("role"),
-            "content_length": _content_length(content),
-        })
+        summary.append(
+            {
+                "role": message.get("role"),
+                "content_length": _content_length(content),
+            }
+        )
     return summary
 
 
@@ -92,7 +94,9 @@ def _summarize_request_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _summarize_response_body(body: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _summarize_response_body(
+    body: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     """Summarize provider response metadata without completion text."""
     if body is None:
         return None
@@ -121,13 +125,15 @@ def _summarize_response_body(body: Optional[Dict[str, Any]]) -> Optional[Dict[st
         if not isinstance(choice, dict):
             continue
         message = choice.get("message") or {}
-        choices_summary.append({
-            "index": choice.get("index"),
-            "finish_reason": choice.get("finish_reason"),
-            "message_role": message.get("role"),
-            "content_length": _content_length(message.get("content")),
-            "reasoning_details_count": len(message.get("reasoning_details") or []),
-        })
+        choices_summary.append(
+            {
+                "index": choice.get("index"),
+                "finish_reason": choice.get("finish_reason"),
+                "message_role": message.get("role"),
+                "content_length": _content_length(message.get("content")),
+                "reasoning_details_count": len(message.get("reasoning_details") or []),
+            }
+        )
     if choices_summary:
         summary["choices"] = choices_summary
     return {key: value for key, value in summary.items() if value is not None}
@@ -185,9 +191,7 @@ async def query_model(
         "model": model,
         "messages": messages,
         "max_tokens": OPENROUTER_MAX_TOKENS,
-        "reasoning": {
-            "effort": "high"
-        }
+        "reasoning": {"effort": "high"},
     }
 
     total_attempts = max(1, OPENROUTER_MAX_RETRIES + 1)
@@ -213,9 +217,7 @@ async def query_model(
 
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
-                    OPENROUTER_API_URL,
-                    headers=headers,
-                    json=payload
+                    OPENROUTER_API_URL, headers=headers, json=payload
                 )
                 response_status = response.status_code
                 response_headers = dict(response.headers)
@@ -229,16 +231,24 @@ async def query_model(
                     response.raise_for_status()
 
                 # Validate response structure before accessing nested keys
-                if 'choices' not in data or not data['choices']:
+                choices = data.get("choices") if isinstance(data, dict) else None
+                if not isinstance(choices, list) or not choices:
                     error_message = f"Unexpected API response structure from {model}"
                     if attempt + 1 < total_attempts:
                         continue
                     print(error_message)
                     return None
 
-                choice = data['choices'][0]
-                message = choice.get('message', {})
-                if not message:
+                choice = choices[0]
+                if not isinstance(choice, dict):
+                    error_message = f"Unexpected choice structure from {model}"
+                    if attempt + 1 < total_attempts:
+                        continue
+                    print(error_message)
+                    return None
+
+                message = choice.get("message") or {}
+                if not isinstance(message, dict) or not message:
                     error_message = f"No message in API response from {model}"
                     if attempt + 1 < total_attempts:
                         continue
@@ -254,10 +264,10 @@ async def query_model(
                     return None
 
                 return {
-                    'content': content,
-                    'reasoning_details': message.get('reasoning_details'),
-                    'finish_reason': choice.get('finish_reason'),
-                    'usage': data.get('usage'),
+                    "content": content,
+                    "reasoning_details": message.get("reasoning_details"),
+                    "finish_reason": choice.get("finish_reason"),
+                    "usage": data.get("usage"),
                 }
 
         except httpx.HTTPStatusError as e:

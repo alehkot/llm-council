@@ -16,7 +16,9 @@ _storage_lock = threading.RLock()
 
 def validate_storage_id(identifier: str, label: str = "identifier") -> str:
     """Validate ids before using them as JSON filenames."""
-    if not isinstance(identifier, str) or not SAFE_STORAGE_ID_PATTERN.fullmatch(identifier):
+    if not isinstance(identifier, str) or not SAFE_STORAGE_ID_PATTERN.fullmatch(
+        identifier
+    ):
         raise ValueError(
             f"{label} must be 1-128 characters using only letters, numbers, '_' or '-'"
         )
@@ -105,7 +107,7 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
             "id": conversation_id,
             "created_at": datetime.utcnow().isoformat(),
             "title": "New Conversation",
-            "messages": []
+            "messages": [],
         }
 
         # Save to file
@@ -134,7 +136,7 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
             return None
 
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 conversation = json.load(f)
 
             stored_id = conversation.get("id")
@@ -159,11 +161,11 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
             return conversation
         except FileNotFoundError:
             return None
-        except ValueError as e:
-            print(f"Error: Invalid conversation file {conversation_id}: {e}")
-            return None
         except json.JSONDecodeError as e:
             print(f"Error: Corrupted conversation file {conversation_id}: {e}")
+            return None
+        except ValueError as e:
+            print(f"Error: Invalid conversation file {conversation_id}: {e}")
             return None
         except IOError as e:
             print(f"Error: Could not read conversation {conversation_id}: {e}")
@@ -180,7 +182,7 @@ def save_conversation(conversation: Dict[str, Any]):
     with _storage_lock:
         ensure_data_dir()
 
-        path = get_conversation_path(conversation['id'])
+        path = get_conversation_path(conversation["id"])
         _write_json_file(path, conversation)
 
 
@@ -196,32 +198,38 @@ def list_conversations() -> List[Dict[str, Any]]:
 
         conversations = []
         for filename in os.listdir(DATA_DIR):
-            if filename.endswith('.json'):
+            if filename.endswith(".json"):
                 file_id = filename[:-5]
                 try:
                     validate_storage_id(file_id, "conversation filename")
                 except ValueError as e:
-                    print(f"Warning: Skipping unsafe conversation filename {filename}: {e}")
+                    print(
+                        f"Warning: Skipping unsafe conversation filename {filename}: {e}"
+                    )
                     continue
 
                 path = os.path.join(DATA_DIR, filename)
                 try:
-                    with open(path, 'r', encoding='utf-8') as f:
+                    with open(path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         conversation_id = data["id"]
                         validate_storage_id(conversation_id, "conversation_id")
                         if conversation_id != file_id:
                             raise ValueError("conversation id does not match filename")
                         # Return metadata only
-                        conversations.append({
-                            "id": conversation_id,
-                            "created_at": data["created_at"],
-                            "title": data.get("title", "New Conversation"),
-                            "message_count": len(data["messages"])
-                        })
+                        conversations.append(
+                            {
+                                "id": conversation_id,
+                                "created_at": data["created_at"],
+                                "title": data.get("title", "New Conversation"),
+                                "message_count": len(data["messages"]),
+                            }
+                        )
                 except (json.JSONDecodeError, KeyError, IOError, ValueError) as e:
                     # Skip corrupted files but log the error
-                    print(f"Warning: Skipping corrupted conversation file {filename}: {e}")
+                    print(
+                        f"Warning: Skipping corrupted conversation file {filename}: {e}"
+                    )
                     continue
 
         # Sort by creation time, newest first
@@ -243,10 +251,7 @@ def add_user_message(conversation_id: str, content: str):
         if conversation is None:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        conversation["messages"].append({
-            "role": "user",
-            "content": content
-        })
+        conversation["messages"].append({"role": "user", "content": content})
 
         save_conversation(conversation)
 
@@ -277,15 +282,17 @@ def add_assistant_message(
         if conversation is None:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        conversation["messages"].append({
-            "role": "assistant",
-            "stage1": stage1,
-            "negative": negative,
-            "stage2": stage2,
-            "stage3": stage3,
-            "metadata": metadata or {},
-            "trace": trace,
-        })
+        conversation["messages"].append(
+            {
+                "role": "assistant",
+                "stage1": stage1,
+                "negative": negative,
+                "stage2": stage2,
+                "stage3": stage3,
+                "metadata": metadata or {},
+                "trace": trace,
+            }
+        )
 
         save_conversation(conversation)
 
@@ -306,15 +313,17 @@ def add_assistant_placeholder(
         if conversation is None:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        conversation["messages"].append({
-            "role": "assistant",
-            "stage1": None,
-            "negative": None,
-            "stage2": None,
-            "stage3": None,
-            "metadata": metadata or {},
-            "trace": trace,
-        })
+        conversation["messages"].append(
+            {
+                "role": "assistant",
+                "stage1": None,
+                "negative": None,
+                "stage2": None,
+                "stage3": None,
+                "metadata": metadata or {},
+                "trace": trace,
+            }
+        )
 
         save_conversation(conversation)
         return len(conversation["messages"]) - 1
@@ -412,7 +421,10 @@ def append_stage3_version(
 
         # Ensure stage3 is in new format
         if "current" not in stage3:
-            stage3 = _migrate_stage3(stage3)
+            migrated_stage3 = _migrate_stage3(stage3)
+            if migrated_stage3 is None:
+                raise ValueError("Message has no stage3 data")
+            stage3 = migrated_stage3
             message["stage3"] = stage3
 
         # Append the new version
@@ -698,15 +710,21 @@ def list_incomplete_assistant_messages() -> List[Dict[str, Any]]:
                 if not user_message:
                     continue
 
-                candidates.append({
-                    "conversation_id": conversation["id"],
-                    "conversation_title": conversation.get("title", "New Conversation"),
-                    "assistant_index": index,
-                    "assistant_message": message,
-                    "content": user_message,
-                    "negative_prompt": ((metadata.get("resume") or {}).get("negative_prompt")),
-                    "consultation_id": metadata.get("consultation_id"),
-                    "status": status,
-                })
+                candidates.append(
+                    {
+                        "conversation_id": conversation["id"],
+                        "conversation_title": conversation.get(
+                            "title", "New Conversation"
+                        ),
+                        "assistant_index": index,
+                        "assistant_message": message,
+                        "content": user_message,
+                        "negative_prompt": (
+                            (metadata.get("resume") or {}).get("negative_prompt")
+                        ),
+                        "consultation_id": metadata.get("consultation_id"),
+                        "status": status,
+                    }
+                )
 
         return candidates

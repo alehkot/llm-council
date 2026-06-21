@@ -24,7 +24,6 @@ from .config import (
     COUNCIL_MODELS,
     DELIBERATION_ENABLED,
     INTERACTIVE_MODE_ENABLED,
-    INTERACTIVE_TIMEOUT_SECONDS,
     NEGATIVE_MODE_ENABLED,
     MAX_NEGATIVE_PROMPT_CHARS,
     MAX_PROMPT_CHARS,
@@ -36,9 +35,7 @@ from .config import (
     SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
-from .langgraph_flow import FlowCallbacks, FlowContext, run_council_graph
 from .council import build_responses_for_synthesis, stage3_synthesize_final
-from .trace import TraceCollector
 from .consultation_manager import consultation_manager
 from .interactive import (
     PromptResponse,
@@ -75,6 +72,24 @@ class _BruteForceEntry:
 
 _bruteforce_state: Dict[str, _BruteForceEntry] = {}
 _bruteforce_lock = asyncio.Lock()
+_side_chat_locks: Dict[tuple[str, int, str], asyncio.Lock] = {}
+_side_chat_locks_guard = asyncio.Lock()
+
+
+async def _get_side_chat_lock(
+    conversation_id: str,
+    message_index: int,
+    thread_id: str,
+) -> asyncio.Lock:
+    """Serialize sends to the same side-chat thread to preserve turn order."""
+    key = (conversation_id, message_index, thread_id)
+    async with _side_chat_locks_guard:
+        lock = _side_chat_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _side_chat_locks[key] = lock
+        return lock
+
 
 # Enable CORS for local development
 app.add_middleware(
@@ -96,12 +111,12 @@ def _validate_message_lengths(content: str, negative_prompt: Optional[str]) -> N
     if len(content) > MAX_PROMPT_CHARS:
         raise HTTPException(
             status_code=413,
-            detail=f"Prompt too long (max {MAX_PROMPT_CHARS} characters)."
+            detail=f"Prompt too long (max {MAX_PROMPT_CHARS} characters).",
         )
     if negative_prompt and len(negative_prompt) > MAX_NEGATIVE_PROMPT_CHARS:
         raise HTTPException(
             status_code=413,
-            detail=f"Negative prompt too long (max {MAX_NEGATIVE_PROMPT_CHARS} characters)."
+            detail=f"Negative prompt too long (max {MAX_NEGATIVE_PROMPT_CHARS} characters).",
         )
 
 
@@ -117,8 +132,7 @@ def _normalize_optional_text(
         return None
     if len(normalized) > max_chars:
         raise HTTPException(
-            status_code=413,
-            detail=f"{label} too long (max {max_chars} characters)."
+            status_code=413, detail=f"{label} too long (max {max_chars} characters)."
         )
     return normalized
 
@@ -156,7 +170,9 @@ async def _check_bruteforce_lockout(client_id: str) -> Optional[JSONResponse]:
             return JSONResponse(
                 status_code=429,
                 headers={"Retry-After": str(retry_after)},
-                content={"detail": "Too many invalid API key attempts. Try again later."},
+                content={
+                    "detail": "Too many invalid API key attempts. Try again later."
+                },
             )
         if entry.locked_until:
             entry.locked_until = 0.0
@@ -184,7 +200,9 @@ async def _record_bruteforce_failure(client_id: str) -> Optional[JSONResponse]:
             return JSONResponse(
                 status_code=429,
                 headers={"Retry-After": str(retry_after)},
-                content={"detail": "Too many invalid API key attempts. Try again later."},
+                content={
+                    "detail": "Too many invalid API key attempts. Try again later."
+                },
             )
     return None
 
@@ -216,17 +234,20 @@ async def require_api_key(request: Request, call_next):
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
+
     pass
 
 
 class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
+
     content: str
     negative_prompt: Optional[str] = None
 
 
 class OpenSideChatRequest(BaseModel):
     """Open, resume, or create a persisted side-chat thread."""
+
     message_index: int
     source_type: str
     source_model: Optional[str] = None
@@ -238,12 +259,14 @@ class OpenSideChatRequest(BaseModel):
 
 class SendSideChatMessageRequest(BaseModel):
     """Send a direct follow-up to a persisted side-chat thread."""
+
     message_index: int
     content: str
 
 
 class ResynthesizeRequest(BaseModel):
     """Request to rerun synthesis with different settings."""
+
     message_index: int
     synthesis_mode: str
     focus_areas: Optional[str] = None
@@ -251,6 +274,7 @@ class ResynthesizeRequest(BaseModel):
 
 class InteractiveResponseRequest(BaseModel):
     """Response to an interactive prompt."""
+
     session_id: str
     prompt_id: str
     responses: Dict[str, Any]
@@ -259,6 +283,7 @@ class InteractiveResponseRequest(BaseModel):
 
 class ConversationMetadata(BaseModel):
     """Conversation metadata for list view."""
+
     id: str
     created_at: str
     title: str
@@ -267,6 +292,7 @@ class ConversationMetadata(BaseModel):
 
 class Conversation(BaseModel):
     """Full conversation with all messages."""
+
     id: str
     created_at: str
     title: str
@@ -361,12 +387,14 @@ async def delete_all_conversations():
 
 class ResynthesizeAllRequest(BaseModel):
     """Request to run all missing synthesis modes."""
+
     message_index: int
     modes: Optional[List[str]] = None  # If None, generates all missing modes
 
 
 class SetCurrentVersionRequest(BaseModel):
     """Request to set a specific version as current."""
+
     message_index: int
     version_index: int
 
@@ -411,7 +439,7 @@ def _get_assistant_message_base_context(conversation_id: str, message_index: int
     if message_index < 0 or message_index >= len(assistant_messages):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid message_index. Found {len(assistant_messages)} assistant messages."
+            detail=f"Invalid message_index. Found {len(assistant_messages)} assistant messages.",
         )
 
     original_idx, target_msg = assistant_messages[message_index]
@@ -437,21 +465,29 @@ def _get_assistant_message_context(conversation_id: str, message_index: int):
     Helper to get assistant message and related context for resynthesis.
     Returns tuple of (conversation, original_idx, target_msg, user_query).
     """
-    conversation, original_idx, target_msg, user_query, _ = _get_assistant_message_base_context(
-        conversation_id,
-        message_index,
+    conversation, original_idx, target_msg, user_query, _ = (
+        _get_assistant_message_base_context(
+            conversation_id,
+            message_index,
+        )
     )
 
     if not user_query:
-        raise HTTPException(status_code=400, detail="Could not find user query for this message")
+        raise HTTPException(
+            status_code=400, detail="Could not find user query for this message"
+        )
 
     stage1 = target_msg.get("stage1", [])
     stage2 = target_msg.get("stage2", [])
 
     if not stage1 or not stage2:
-        raise HTTPException(status_code=400, detail="Missing stage1 or stage2 data for resynthesis")
+        raise HTTPException(
+            status_code=400, detail="Missing stage1 or stage2 data for resynthesis"
+        )
     if not target_msg.get("stage3"):
-        raise HTTPException(status_code=400, detail="Missing stage3 data for resynthesis")
+        raise HTTPException(
+            status_code=400, detail="Missing stage3 data for resynthesis"
+        )
 
     return conversation, original_idx, target_msg, user_query
 
@@ -469,8 +505,8 @@ async def export_markdown(conversation_id: str, message_index: int):
     """
     Export all relevant context for an assistant message as a markdown document.
     """
-    conversation, _, target_msg, user_query, request_number = _get_assistant_message_export_context(
-        conversation_id, message_index
+    conversation, _, target_msg, user_query, request_number = (
+        _get_assistant_message_export_context(conversation_id, message_index)
     )
 
     markdown = build_markdown_export(
@@ -516,12 +552,16 @@ async def _run_synthesis(
     synthesis_guidance_parts = []
     mode_desc = SYNTHESIS_MODE_DESCRIPTIONS.get(synthesis_mode)
     if mode_desc:
-        synthesis_guidance_parts.append(f"Synthesis mode: {synthesis_mode}. {mode_desc}")
+        synthesis_guidance_parts.append(
+            f"Synthesis mode: {synthesis_mode}. {mode_desc}"
+        )
 
     if focus_areas:
         synthesis_guidance_parts.append(f"Focus areas: {focus_areas}")
 
-    prompt_modifier = " ".join(synthesis_guidance_parts) if synthesis_guidance_parts else None
+    prompt_modifier = (
+        " ".join(synthesis_guidance_parts) if synthesis_guidance_parts else None
+    )
 
     # Handle negative context if present
     negative_context = None
@@ -633,11 +673,15 @@ async def resynthesize_all(conversation_id: str, request: ResynthesizeAllRequest
     if invalid_modes:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid synthesis modes: {invalid_modes}. Valid modes: {ALL_SYNTHESIS_MODES}"
+            detail=f"Invalid synthesis modes: {invalid_modes}. Valid modes: {ALL_SYNTHESIS_MODES}",
         )
 
     if request.modes is not None and not requested_modes:
-        return {"status": "ok", "versions": [], "message": "No synthesis modes requested"}
+        return {
+            "status": "ok",
+            "versions": [],
+            "message": "No synthesis modes requested",
+        }
 
     # If no specific modes requested, find modes that don't exist yet
     if request.modes is None:
@@ -709,13 +753,15 @@ async def set_current_version(conversation_id: str, request: SetCurrentVersionRe
     if request.message_index < 0 or request.message_index >= len(assistant_messages):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid message_index. Found {len(assistant_messages)} assistant messages."
+            detail=f"Invalid message_index. Found {len(assistant_messages)} assistant messages.",
         )
 
     original_idx, _ = assistant_messages[request.message_index]
 
     try:
-        storage.set_stage3_current_version(conversation_id, original_idx, request.version_index)
+        storage.set_stage3_current_version(
+            conversation_id, original_idx, request.version_index
+        )
     except (IndexError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -725,9 +771,11 @@ async def set_current_version(conversation_id: str, request: SetCurrentVersionRe
 @app.post("/api/conversations/{conversation_id}/side-chats/open")
 async def open_side_chat(conversation_id: str, request: OpenSideChatRequest):
     """Open, resume, or create a persisted side-chat thread."""
-    _, original_idx, assistant_message, user_query, _ = _get_assistant_message_base_context(
-        conversation_id,
-        request.message_index,
+    _, original_idx, assistant_message, user_query, _ = (
+        _get_assistant_message_base_context(
+            conversation_id,
+            request.message_index,
+        )
     )
 
     try:
@@ -754,18 +802,25 @@ async def open_side_chat(conversation_id: str, request: OpenSideChatRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     if request.thread_id:
-        thread = next((item for item in threads if item.get("id") == request.thread_id), None)
+        thread = next(
+            (item for item in threads if item.get("id") == request.thread_id), None
+        )
         if thread is None:
             raise HTTPException(status_code=404, detail="Side chat thread not found")
         if thread.get("source_key") != source["source_key"]:
-            raise HTTPException(status_code=400, detail="Requested thread does not match the source")
+            raise HTTPException(
+                status_code=400, detail="Requested thread does not match the source"
+            )
         if thread.get("target_model") != target_model:
-            raise HTTPException(status_code=400, detail="Requested thread does not match the model")
+            raise HTTPException(
+                status_code=400, detail="Requested thread does not match the model"
+            )
         return {"status": "ok", "created": False, "thread": thread}
 
     if not request.start_new:
         matching = [
-            item for item in threads
+            item
+            for item in threads
             if item.get("source_key") == source["source_key"]
             and item.get("target_model") == target_model
         ]
@@ -797,58 +852,66 @@ async def send_side_chat_message(
     )
     _validate_message_lengths(request.content, None)
 
-    try:
-        thread = storage.get_side_chat_thread(conversation_id, original_idx, thread_id)
-    except (IndexError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    lock = await _get_side_chat_lock(conversation_id, original_idx, thread_id)
+    async with lock:
+        try:
+            thread = storage.get_side_chat_thread(
+                conversation_id, original_idx, thread_id
+            )
+        except (IndexError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-    if thread is None:
-        raise HTTPException(status_code=404, detail="Side chat thread not found")
+        if thread is None:
+            raise HTTPException(status_code=404, detail="Side chat thread not found")
 
-    target_model = str(thread.get("target_model") or "").strip()
-    if target_model not in COUNCIL_MODELS:
-        raise HTTPException(status_code=400, detail="Side chat target model is no longer available")
+        target_model = str(thread.get("target_model") or "").strip()
+        if target_model not in COUNCIL_MODELS:
+            raise HTTPException(
+                status_code=400, detail="Side chat target model is no longer available"
+            )
 
-    response = await query_model(
-        target_model,
-        build_side_chat_messages(thread, request.content),
-        trace_stage="side_chat",
-        trace_context={
-            "conversation_id": conversation_id,
-            "thread_id": thread_id,
-            "source_type": thread.get("source_type"),
-            "source_key": thread.get("source_key"),
-        },
-    )
-    if response is None or not response.get("content"):
-        raise HTTPException(status_code=502, detail=f"{target_model} failed to respond")
+        response = await query_model(
+            target_model,
+            build_side_chat_messages(thread, request.content),
+            trace_stage="side_chat",
+            trace_context={
+                "conversation_id": conversation_id,
+                "thread_id": thread_id,
+                "source_type": thread.get("source_type"),
+                "source_key": thread.get("source_key"),
+            },
+        )
+        if response is None or not response.get("content"):
+            raise HTTPException(
+                status_code=502, detail=f"{target_model} failed to respond"
+            )
 
-    timestamp = datetime.utcnow().isoformat()
-    user_message = {
-        "id": str(uuid.uuid4()),
-        "role": "user",
-        "content": request.content.strip(),
-        "created_at": timestamp,
-    }
-    assistant_message = {
-        "id": str(uuid.uuid4()),
-        "role": "assistant",
-        "content": str(response.get("content") or "").strip(),
-        "created_at": timestamp,
-    }
+        timestamp = datetime.utcnow().isoformat()
+        user_message = {
+            "id": str(uuid.uuid4()),
+            "role": "user",
+            "content": request.content.strip(),
+            "created_at": timestamp,
+        }
+        assistant_message = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": str(response.get("content") or "").strip(),
+            "created_at": timestamp,
+        }
 
-    thread_messages = list(thread.get("messages") or [])
-    thread_messages.append(user_message)
-    thread_messages.append(assistant_message)
-    thread["messages"] = thread_messages
-    thread["updated_at"] = timestamp
+        thread_messages = list(thread.get("messages") or [])
+        thread_messages.append(user_message)
+        thread_messages.append(assistant_message)
+        thread["messages"] = thread_messages
+        thread["updated_at"] = timestamp
 
-    try:
-        storage.save_side_chat_thread(conversation_id, original_idx, thread)
-    except (IndexError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        try:
+            storage.save_side_chat_thread(conversation_id, original_idx, thread)
+        except (IndexError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-    return {"status": "ok", "thread": thread}
+        return {"status": "ok", "thread": thread}
 
 
 @app.post("/api/conversations/{conversation_id}/message")
@@ -918,9 +981,7 @@ async def get_global_consultation_status():
     return consultation_manager.get_global_status()
 
 
-
-
-
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8001)

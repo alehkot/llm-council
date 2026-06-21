@@ -3,7 +3,6 @@
 from typing import List, Dict, Any, Tuple, Optional, Callable, Awaitable
 import asyncio
 import json
-import random
 from .openrouter import query_model
 from .config import (
     CHAIRMAN_MODEL,
@@ -99,21 +98,27 @@ def _paragraph_score(paragraph: str, mode: str) -> int:
     score = 0
     if paragraph.lstrip().startswith(("-", "*", "#")):
         score += 3
-    if any(token in lowered for token in ("recommend", "conclusion", "therefore", "should")):
+    if any(
+        token in lowered for token in ("recommend", "conclusion", "therefore", "should")
+    ):
         score += 3
     if any(
         token in lowered
         for token in ("risk", "caveat", "trade-off", "edge case", "limitation")
     ):
         score += 3
-    if any(token in lowered for token in ("because", "evidence", "example", "step", "option")):
+    if any(
+        token in lowered
+        for token in ("because", "evidence", "example", "step", "option")
+    ):
         score += 2
     if mode == "consensus" and any(
         token in lowered for token in ("agree", "common", "consensus", "shared", "same")
     ):
         score += 3
     if mode == "weighted" and any(
-        token in lowered for token in ("recommend", "answer", "most important", "priority")
+        token in lowered
+        for token in ("recommend", "answer", "most important", "priority")
     ):
         score += 2
     if 120 <= len(paragraph) <= 900:
@@ -175,7 +180,9 @@ def _format_rank_detail(rank_item: Optional[Dict[str, Any]]) -> str:
         return "not ranked"
     bits = []
     if rank_item.get("win_percentage") is not None:
-        bits.append(f"{float(rank_item.get('win_percentage') or 0) * 100:.0f}% pairwise win rate")
+        bits.append(
+            f"{float(rank_item.get('win_percentage') or 0) * 100:.0f}% pairwise win rate"
+        )
     if rank_item.get("average_rank") is not None:
         bits.append(f"avg rank {rank_item.get('average_rank')}")
     if rank_item.get("rankings_count") is not None:
@@ -210,14 +217,16 @@ def _build_response_entries(
         label = model_to_label.get(model)
         if not label and index < len(labels):
             label = labels[index]
-        entries.append({
-            "label": label or f"Response {chr(65 + index)}",
-            "model": model,
-            "response": result.get("response", ""),
-            "rank_item": rank_by_model.get(model),
-            "rank": rank_by_model.get(model, {}).get("rank"),
-            "gap_item": gap_by_model.get(model),
-        })
+        entries.append(
+            {
+                "label": label or f"Response {chr(65 + index)}",
+                "model": model,
+                "response": result.get("response", ""),
+                "rank_item": rank_by_model.get(model),
+                "rank": rank_by_model.get(model, {}).get("rank"),
+                "gap_item": gap_by_model.get(model),
+            }
+        )
 
     return entries
 
@@ -281,7 +290,7 @@ def build_synthesis_response_context(
     elif not has_rankings and len(entries) <= policy["full_top"]:
         full_labels = {entry["label"] for entry in entries}
     elif has_rankings:
-        for entry in sorted(entries, key=_rank_sort_key)[:policy["full_top"]]:
+        for entry in sorted(entries, key=_rank_sort_key)[: policy["full_top"]]:
             full_labels.add(entry["label"])
     else:
         full_labels = set()
@@ -429,7 +438,9 @@ def build_synthesis_ranking_context(
         if parsed is None:
             parsed = parse_ranking_from_text(result.get("ranking", ""), expected_labels)
         if parsed:
-            final_rank_lines.append(f"- {result.get('model', 'unknown')}: {' > '.join(parsed)}")
+            final_rank_lines.append(
+                f"- {result.get('model', 'unknown')}: {' > '.join(parsed)}"
+            )
         elif result.get("validation_error"):
             final_rank_lines.append(
                 f"- {result.get('model', 'unknown')}: invalid ({result.get('validation_error')})"
@@ -452,12 +463,13 @@ def build_synthesis_ranking_context(
     return "\n".join(lines)
 
 
-def build_label_mapping(stage1_results: List[Dict[str, Any]]) -> Tuple[List[str], Dict[str, str]]:
+def build_label_mapping(
+    stage1_results: List[Dict[str, Any]],
+) -> Tuple[List[str], Dict[str, str]]:
     """Create consistent labels (Response A, B, C) for stage outputs."""
     labels = [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
     label_to_model = {
-        label: result["model"]
-        for label, result in zip(labels, stage1_results)
+        label: result["model"] for label, result in zip(labels, stage1_results)
     }
     return labels, label_to_model
 
@@ -488,10 +500,12 @@ def build_responses_for_synthesis(
             or result.get("original")
             or ""
         )
-        revised_responses.append({
-            "model": model,
-            "response": response_text,
-        })
+        revised_responses.append(
+            {
+                "model": model,
+                "response": response_text,
+            }
+        )
 
     if revised_responses:
         return revised_responses
@@ -563,8 +577,7 @@ def build_peer_review_feedback(
         counts = _ranking_position_counts(label, stage2_results, expected_label_count)
         if counts:
             distribution = ", ".join(
-                f"rank {rank}: {count}"
-                for rank, count in sorted(counts.items())
+                f"rank {rank}: {count}" for rank, count in sorted(counts.items())
             )
             lines.append(f"- Position distribution for your response: {distribution}.")
 
@@ -597,7 +610,7 @@ async def stage1_collect_responses(
 
     async def query_with_progress(model: str) -> Tuple[str, Optional[Dict[str, Any]]]:
         if progress:
-            await progress(model, "running")
+            await progress(model, "running", None)
         response = await query_model(
             model,
             messages,
@@ -606,7 +619,9 @@ async def stage1_collect_responses(
             trace_context={"kind": "responses"},
         )
         if progress:
-            await progress(model, "complete" if response is not None else "failed")
+            await progress(
+                model, "complete" if response is not None else "failed", None
+            )
         return model, response
 
     tasks = [query_with_progress(model) for model in COUNCIL_MODELS]
@@ -617,23 +632,29 @@ async def stage1_collect_responses(
     stage1_results = []
     for model, response in responses.items():
         if response is not None:
-            stage1_results.append({
-                "model": model,
-                "response": response.get('content', ''),
-                "failed": False
-            })
+            stage1_results.append(
+                {
+                    "model": model,
+                    "response": response.get("content", ""),
+                    "failed": False,
+                }
+            )
         else:
             # Include failed models with indicator for transparency
-            stage1_results.append({
-                "model": model,
-                "response": "[Model failed to respond]",
-                "failed": True
-            })
+            stage1_results.append(
+                {
+                    "model": model,
+                    "response": "[Model failed to respond]",
+                    "failed": True,
+                }
+            )
 
     # Check minimum success threshold (at least 50% must succeed)
     success_count = len([r for r in stage1_results if not r.get("failed")])
     if success_count < len(stage1_results) / 2:
-        print(f"Warning: Only {success_count}/{len(stage1_results)} models responded successfully")
+        print(
+            f"Warning: Only {success_count}/{len(stage1_results)} models responded successfully"
+        )
 
     return stage1_results
 
@@ -724,15 +745,11 @@ def _coerce_prompt_refinement_payload(
         raw_questions = payload.get("clarifying_questions")
         if isinstance(raw_questions, list):
             clarifying_questions = [
-                str(item).strip()
-                for item in raw_questions
-                if str(item).strip()
+                str(item).strip() for item in raw_questions if str(item).strip()
             ]
         elif isinstance(raw_questions, str):
             clarifying_questions = [
-                line.strip(" -")
-                for line in raw_questions.splitlines()
-                if line.strip()
+                line.strip(" -") for line in raw_questions.splitlines() if line.strip()
             ]
 
         refined_candidate = payload.get("refined_prompt")
@@ -811,9 +828,7 @@ async def generate_prompt_refinement(
         refinement_prompt += f"\n\n{context_block}\n"
 
     if iteration > 1:
-        refinement_prompt += (
-            "\nFollow-up round: ask up to 3 new clarifying questions only if essential.\n"
-        )
+        refinement_prompt += "\nFollow-up round: ask up to 3 new clarifying questions only if essential.\n"
 
     refinement_prompt += "\nReturn only JSON."
 
@@ -855,7 +870,7 @@ def extract_json_object(text: str) -> Optional[dict]:
     import re
 
     # Strategy 1: Look for ```json code blocks (common in LLM responses)
-    json_block = re.search(r'```json\s*([\s\S]*?)\s*```', text)
+    json_block = re.search(r"```json\s*([\s\S]*?)\s*```", text)
     if json_block:
         try:
             return json.loads(json_block.group(1))
@@ -869,14 +884,14 @@ def extract_json_object(text: str) -> Optional[dict]:
     candidates = []
 
     for i, char in enumerate(text):
-        if char == '{':
+        if char == "{":
             if depth == 0:
                 start = i
             depth += 1
-        elif char == '}':
+        elif char == "}":
             depth -= 1
             if depth == 0 and start != -1:
-                candidates.append(text[start:i + 1])
+                candidates.append(text[start : i + 1])
                 start = -1
 
     # Try candidates from last to first (JSON is usually at the end)
@@ -889,7 +904,9 @@ def extract_json_object(text: str) -> Optional[dict]:
     return None
 
 
-def parse_negative_scores(text: str, peer_labels: Optional[List[str]] = None) -> Dict[str, Any]:
+def parse_negative_scores(
+    text: str, peer_labels: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """
     Parse scores and summaries from a model's negative evaluation text.
 
@@ -939,7 +956,9 @@ def parse_negative_scores(text: str, peer_labels: Optional[List[str]] = None) ->
 
     # Regex fallback for self score
     if scores["self"] is None:
-        match = re.search(r"self[_\s-]*score[^0-9]*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE)
+        match = re.search(
+            r"self[_\s-]*score[^0-9]*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE
+        )
         if match:
             scores["self"] = float(match.group(1))
 
@@ -958,7 +977,9 @@ def parse_negative_scores(text: str, peer_labels: Optional[List[str]] = None) ->
 
     # Legacy single-peer regex fallback
     if "peer" not in scores and not scores["peers"]:
-        match = re.search(r"peer[_\s-]*score[^0-9]*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE)
+        match = re.search(
+            r"peer[_\s-]*score[^0-9]*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE
+        )
         if match:
             scores["peer"] = float(match.group(1))
 
@@ -967,9 +988,9 @@ def parse_negative_scores(text: str, peer_labels: Optional[List[str]] = None) ->
     if scores["self"] is None and not scores["peers"] and "peer" not in scores:
         # Try patterns that indicate a score with context
         score_patterns = [
-            r'(?:score|rating|grade)[:\s]*(\d+(?:\.\d+)?)',  # "score: 7"
-            r'(\d+(?:\.\d+)?)\s*(?:out of|\/)\s*10',          # "7 out of 10" or "7/10"
-            r'(?:gave|assign|rate)[^\d]*(\d+(?:\.\d+)?)',     # "gave it a 7"
+            r"(?:score|rating|grade)[:\s]*(\d+(?:\.\d+)?)",  # "score: 7"
+            r"(\d+(?:\.\d+)?)\s*(?:out of|\/)\s*10",  # "7 out of 10" or "7/10"
+            r"(?:gave|assign|rate)[^\d]*(\d+(?:\.\d+)?)",  # "gave it a 7"
         ]
         for pattern in score_patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -1033,7 +1054,9 @@ async def stage_negative_evaluations(
 
         # Build JSON example with actual peer labels
         peer_scores_example = ", ".join([f'"{lbl}": <0-10>' for lbl in peer_labels])
-        peer_summaries_example = ", ".join([f'"{lbl}": "gaps summary"' for lbl in peer_labels])
+        peer_summaries_example = ", ".join(
+            [f'"{lbl}": "gaps summary"' for lbl in peer_labels]
+        )
 
         prompt = f"""You will act as a rigorous reviewer using the NEGATIVE PROMPT below.
 
@@ -1042,8 +1065,8 @@ Original user request: {user_query}
 NEGATIVE PROMPT (use this to judge the responses):
 {negative_prompt}
 
-YOUR RESPONSE (you are {self_label} / {result['model']}):
-{result['response']}
+YOUR RESPONSE (you are {self_label} / {result["model"]}):
+{result["response"]}
 
 PEER RESPONSES TO EVALUATE:
 {peers_section}
@@ -1079,7 +1102,9 @@ After the JSON you may add brief notes if helpful."""
             },
         )
         if progress:
-            await progress(result["model"], "complete" if response is not None else "failed")
+            await progress(
+                result["model"], "complete" if response is not None else "failed", None
+            )
         evaluation_text = response.get("content", "") if response else ""
         parsed = parse_negative_scores(evaluation_text, peer_labels=peer_labels)
 
@@ -1121,10 +1146,12 @@ async def stage2_collect_rankings(
         labels, label_to_model = build_label_mapping(stage1_results)
 
     # Build the ranking prompt
-    responses_text = "\n\n".join([
-        f"{label}:\n{result['response']}"
-        for label, result in zip(labels, stage1_results)
-    ])
+    responses_text = "\n\n".join(
+        [
+            f"{label}:\n{result['response']}"
+            for label, result in zip(labels, stage1_results)
+        ]
+    )
 
     ranking_prompt = f"""You are evaluating different responses to the following question:
 
@@ -1170,7 +1197,7 @@ FINAL RANKING:
 
     async def query_with_progress(model: str) -> Tuple[str, Optional[Dict[str, Any]]]:
         if progress:
-            await progress(model, "running")
+            await progress(model, "running", None)
         response = await query_model(
             model,
             messages,
@@ -1179,7 +1206,9 @@ FINAL RANKING:
             trace_context={"kind": "rankings"},
         )
         if progress:
-            await progress(model, "complete" if response is not None else "failed")
+            await progress(
+                model, "complete" if response is not None else "failed", None
+            )
         return model, response
 
     tasks = [query_with_progress(model) for model in COUNCIL_MODELS]
@@ -1192,7 +1221,7 @@ FINAL RANKING:
 
     for model, response in responses.items():
         if response is not None:
-            full_text = response.get('content', '')
+            full_text = response.get("content", "")
             parsed = parse_ranking_from_text(full_text, expected_labels)
 
             # Validate the parsed ranking
@@ -1213,13 +1242,15 @@ FINAL RANKING:
                     missing = set(expected_labels) - set(seen)
                     validation_error = f"missing labels: {', '.join(sorted(missing))}"
 
-            stage2_results.append({
-                "model": model,
-                "ranking": full_text,
-                "parsed_ranking": parsed,
-                "validation_status": "invalid" if validation_error else "valid",
-                "validation_error": validation_error
-            })
+            stage2_results.append(
+                {
+                    "model": model,
+                    "ranking": full_text,
+                    "parsed_ranking": parsed,
+                    "validation_status": "invalid" if validation_error else "valid",
+                    "validation_error": validation_error,
+                }
+            )
 
     return stage2_results, label_to_model
 
@@ -1298,7 +1329,9 @@ async def stage_deliberation(
             part for part in [peer_feedback, gap_text.strip()] if part
         )
         if not feedback_text:
-            feedback_text = "No specific peer-ranking or gap-finding feedback was available."
+            feedback_text = (
+                "No specific peer-ranking or gap-finding feedback was available."
+            )
 
         # Build the deliberation prompt (anonymized - no label references to preserve blind review)
         prompt = f"""You previously answered this question:
@@ -1333,7 +1366,9 @@ Provide your REVISED response to the original question. If you believe your orig
             },
         )
         if progress:
-            await progress(model, "complete" if response is not None else "failed")
+            await progress(
+                model, "complete" if response is not None else "failed", None
+            )
 
         revised_text = response.get("content", "") if response else original_response
 
@@ -1477,7 +1512,9 @@ async def stage3_synthesize_final(
             summary_limit = policy["gap_summaries_per_response"]
             for gap_data in aggregate_gap_scores:
                 for summary_item in gap_data.get("gap_summaries", [])[:summary_limit]:
-                    common_gaps.append(f"- {gap_data['label']}: {summary_item['summary']}")
+                    common_gaps.append(
+                        f"- {gap_data['label']}: {summary_item['summary']}"
+                    )
 
             negative_text = f"""
 {negative_heading}:
@@ -1485,13 +1522,13 @@ async def stage3_synthesize_final(
 {negative_instruction}
 
 Negative prompt used:
-{negative_context.get('prompt', '')}
+{negative_context.get("prompt", "")}
 
 AGGREGATE GAP SCORES (higher = addresses concerns better, sorted best to worst):
 {chr(10).join(gap_rankings)}
 
 KEY GAPS IDENTIFIED BY PEER REVIEWERS:
-{chr(10).join(common_gaps[:10]) if common_gaps else 'No specific gaps extracted.'}
+{chr(10).join(common_gaps[:10]) if common_gaps else "No specific gaps extracted."}
 """
         else:
             # Fallback to old format if no aggregate scores
@@ -1504,7 +1541,9 @@ KEY GAPS IDENTIFIED BY PEER REVIEWERS:
                 peer_scores = scores.get("peers", {})
                 peer_summaries = summaries.get("peers", {})
                 if peer_scores:
-                    peer_text = ", ".join([f"{lbl}: {s}" for lbl, s in peer_scores.items()])
+                    peer_text = ", ".join(
+                        [f"{lbl}: {s}" for lbl, s in peer_scores.items()]
+                    )
                 else:
                     peer_text = f"{scores.get('peer', 'n/a')}"
 
@@ -1520,13 +1559,13 @@ KEY GAPS IDENTIFIED BY PEER REVIEWERS:
 {negative_instruction}
 
 Negative prompt used:
-{negative_context.get('prompt', '')}
+{negative_context.get("prompt", "")}
 
 Peer/self evaluations (scores 0-10, higher = addresses concerns better):
 {chr(10).join(eval_texts)}
 """
 
-    chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.{ ' Negative mode is enabled with gap-finding analysis from full peer coverage.' if negative_context and negative_context.get('enabled') else '' }
+    chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.{" Negative mode is enabled with gap-finding analysis from full peer coverage." if negative_context and negative_context.get("enabled") else ""}
 
 Original Question: {user_query}
 
@@ -1571,7 +1610,7 @@ make the synthesis thorough enough to stand alone.
 
     # Query the chairman model
     if progress:
-        await progress(CHAIRMAN_MODEL, "running")
+        await progress(CHAIRMAN_MODEL, "running", None)
 
     response = await query_model(
         CHAIRMAN_MODEL,
@@ -1582,7 +1621,9 @@ make the synthesis thorough enough to stand alone.
     )
 
     if progress:
-        await progress(CHAIRMAN_MODEL, "complete" if response is not None else "failed")
+        await progress(
+            CHAIRMAN_MODEL, "complete" if response is not None else "failed", None
+        )
 
     if response is None:
         raise RuntimeError("Chairman model failed to generate final synthesis.")
@@ -1604,7 +1645,9 @@ make the synthesis thorough enough to stand alone.
     }
 
 
-def parse_ranking_from_text(ranking_text: str, expected_labels: Optional[List[str]] = None) -> List[str]:
+def parse_ranking_from_text(
+    ranking_text: str, expected_labels: Optional[List[str]] = None
+) -> List[str]:
     """
     Parse the FINAL RANKING section from the model's response.
 
@@ -1630,29 +1673,30 @@ def parse_ranking_from_text(ranking_text: str, expected_labels: Optional[List[st
             # If we have expected labels, build a precise pattern
             if expected_labels:
                 escaped = [re.escape(lbl) for lbl in expected_labels]
-                pattern = r'\d+\.\s*(' + '|'.join(escaped) + r')'
+                pattern = r"\d+\.\s*(" + "|".join(escaped) + r")"
                 matches = re.findall(pattern, ranking_section)
                 if matches:
                     return matches
 
             # Try to extract numbered list format with flexible labels
             # Supports: Response A, Response AA, Response A1, Response 1, etc.
-            numbered_matches = re.findall(r'\d+\.\s*(Response\s+[A-Za-z0-9]+)', ranking_section)
+            numbered_matches = re.findall(
+                r"\d+\.\s*(Response\s+[A-Za-z0-9]+)", ranking_section
+            )
             if numbered_matches:
                 return [m.strip() for m in numbered_matches]
 
             # Fallback: Extract all "Response X" patterns in order (flexible)
-            matches = re.findall(r'Response\s+[A-Za-z0-9]+', ranking_section)
+            matches = re.findall(r"Response\s+[A-Za-z0-9]+", ranking_section)
             return matches
 
     # Ultimate fallback: try to find any "Response X" patterns in order
-    matches = re.findall(r'Response\s+[A-Za-z0-9]+', ranking_text)
+    matches = re.findall(r"Response\s+[A-Za-z0-9]+", ranking_text)
     return matches
 
 
 def calculate_aggregate_rankings(
-    stage2_results: List[Dict[str, Any]],
-    label_to_model: Dict[str, str]
+    stage2_results: List[Dict[str, Any]], label_to_model: Dict[str, str]
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     """
     Calculate aggregate rankings across all models.
@@ -1697,10 +1741,7 @@ def calculate_aggregate_rankings(
 
         normalized, error = normalize_ranking(parsed_ranking)
         if error:
-            invalid_rankings.append({
-                "model": ranking["model"],
-                "reason": error
-            })
+            invalid_rankings.append({"model": ranking["model"], "reason": error})
             continue
 
         for position, label in enumerate(normalized, start=1):
@@ -1713,21 +1754,22 @@ def calculate_aggregate_rankings(
     for model, positions in model_positions.items():
         if positions:
             avg_rank = sum(positions) / len(positions)
-            aggregate.append({
-                "model": model,
-                "average_rank": round(avg_rank, 2),
-                "rankings_count": len(positions)
-            })
+            aggregate.append(
+                {
+                    "model": model,
+                    "average_rank": round(avg_rank, 2),
+                    "rankings_count": len(positions),
+                }
+            )
 
     # Sort by average rank (lower is better)
-    aggregate.sort(key=lambda x: x['average_rank'])
+    aggregate.sort(key=lambda x: x["average_rank"])
 
     return aggregate, invalid_rankings
 
 
 def calculate_pairwise_rankings(
-    stage2_results: List[Dict[str, Any]],
-    label_to_model: Dict[str, str]
+    stage2_results: List[Dict[str, Any]], label_to_model: Dict[str, str]
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
     """
     Calculate aggregate rankings using the Schulze method (Condorcet voting).
@@ -1743,7 +1785,6 @@ def calculate_pairwise_rankings(
     Returns:
         Tuple of (aggregate rankings list, invalid rankings list)
     """
-    from collections import defaultdict
 
     expected_labels = list(label_to_model.keys())
     num_candidates = len(expected_labels)
@@ -1786,10 +1827,7 @@ def calculate_pairwise_rankings(
         normalized, error = normalize_ranking(parsed_ranking)
 
         if error:
-            invalid_rankings.append({
-                "model": ranking["model"],
-                "reason": error
-            })
+            invalid_rankings.append({"model": ranking["model"], "reason": error})
             continue
 
         valid_ranking_count += 1
@@ -1839,30 +1877,33 @@ def calculate_pairwise_rankings(
         idx = label_to_idx[label]
         model = label_to_model[label]
         pairwise_wins = wins[idx]
-        win_percentage = pairwise_wins / (num_candidates - 1) if num_candidates > 1 else 1.0
+        win_percentage = (
+            pairwise_wins / (num_candidates - 1) if num_candidates > 1 else 1.0
+        )
 
-        aggregate.append({
-            "model": model,
-            "pairwise_wins": pairwise_wins,
-            "win_percentage": round(win_percentage, 3),
-            "rankings_count": valid_ranking_count,
-        })
+        aggregate.append(
+            {
+                "model": model,
+                "pairwise_wins": pairwise_wins,
+                "win_percentage": round(win_percentage, 3),
+                "rankings_count": valid_ranking_count,
+            }
+        )
 
     # Sort by pairwise wins (descending), then model name for deterministic ties
-    aggregate.sort(key=lambda x: (-x['pairwise_wins'], x['model']))
+    aggregate.sort(key=lambda x: (-x["pairwise_wins"], x["model"]))
 
     # Add schulze_rank after sorting
     for rank, item in enumerate(aggregate, start=1):
-        item['schulze_rank'] = rank
+        item["schulze_rank"] = rank
         # Also include average_rank for backward compatibility with frontend
-        item['average_rank'] = rank
+        item["average_rank"] = rank
 
     return aggregate, invalid_rankings
 
 
 def calculate_aggregate_gap_scores(
-    evaluations: List[Dict[str, Any]],
-    label_to_model: Dict[str, str]
+    evaluations: List[Dict[str, Any]], label_to_model: Dict[str, str]
 ) -> List[Dict[str, Any]]:
     """
     Calculate aggregate gap-finding scores across all peer evaluations.
@@ -1896,23 +1937,27 @@ def calculate_aggregate_gap_scores(
 
         for label, score in peer_scores.items():
             if score is not None and label in label_to_model:
-                scores_by_label[label].append({
-                    "score": score,
-                    "evaluator": evaluator_model,
-                    "summary": peer_summaries.get(label),
-                })
+                scores_by_label[label].append(
+                    {
+                        "score": score,
+                        "evaluator": evaluator_model,
+                        "summary": peer_summaries.get(label),
+                    }
+                )
 
         # Also track self-scores separately for bias detection
         self_label = evaluation.get("self_label")
         self_score = scores.get("self")
         if self_label and self_score is not None:
             # Mark as self-evaluation for later analysis
-            scores_by_label[self_label].append({
-                "score": self_score,
-                "evaluator": evaluator_model,
-                "summary": summaries.get("self"),
-                "is_self": True,
-            })
+            scores_by_label[self_label].append(
+                {
+                    "score": self_score,
+                    "evaluator": evaluator_model,
+                    "summary": summaries.get("self"),
+                    "is_self": True,
+                }
+            )
 
     # Calculate aggregates for each response
     aggregates = []
@@ -1944,22 +1989,26 @@ def calculate_aggregate_gap_scores(
         for entry in peer_entries:
             summary = entry.get("summary")
             if summary and summary not in seen_summaries:
-                gap_summaries.append({
-                    "summary": summary,
-                    "evaluator": entry["evaluator"],
-                })
+                gap_summaries.append(
+                    {
+                        "summary": summary,
+                        "evaluator": entry["evaluator"],
+                    }
+                )
                 seen_summaries.add(summary)
 
-        aggregates.append({
-            "label": label,
-            "model": label_to_model[label],
-            "avg_gap_score": round(avg_peer_score, 2),
-            "std_gap_score": round(std_peer_score, 2),
-            "peer_evaluation_count": len(peer_scores),
-            "self_score": self_score,
-            "self_bias": self_bias,
-            "gap_summaries": gap_summaries,
-        })
+        aggregates.append(
+            {
+                "label": label,
+                "model": label_to_model[label],
+                "avg_gap_score": round(avg_peer_score, 2),
+                "std_gap_score": round(std_peer_score, 2),
+                "peer_evaluation_count": len(peer_scores),
+                "self_score": self_score,
+                "self_bias": self_bias,
+                "gap_summaries": gap_summaries,
+            }
+        )
 
     # Sort by average gap score (descending - higher is better)
     aggregates.sort(key=lambda x: -x["avg_gap_score"])
@@ -2002,10 +2051,10 @@ Title:"""
         # Fallback to a generic title
         return "New Conversation"
 
-    title = response.get('content', 'New Conversation').strip()
+    title = response.get("content", "New Conversation").strip()
 
     # Clean up the title - remove quotes, limit length
-    title = title.strip('"\'')
+    title = title.strip("\"'")
 
     # Truncate if too long
     if len(title) > 50:
@@ -2041,15 +2090,25 @@ async def run_full_council(
         result for result in stage1_results if not result.get("failed")
     ]
     if not active_stage1_results:
-        return [], None, [], {
-            "model": "error",
-            "response": "All models failed to respond. Please try again."
-        }, {}
+        return (
+            [],
+            None,
+            [],
+            {
+                "model": "error",
+                "response": "All models failed to respond. Please try again.",
+            },
+            {},
+        )
 
     labels, label_to_model = build_label_mapping(active_stage1_results)
 
     # Optional negative evaluation stage
-    negative_context: Dict[str, Any] = {"enabled": False, "prompt": negative_prompt, "evaluations": []}
+    negative_context: Dict[str, Any] = {
+        "enabled": False,
+        "prompt": negative_prompt,
+        "evaluations": [],
+    }
     if NEGATIVE_MODE_ENABLED:
         if trace:
             trace.begin_stage("negative", label="Negative Mode")
@@ -2069,7 +2128,7 @@ async def run_full_council(
         negative_context = {
             "enabled": True,
             "prompt": resolved_negative_prompt,
-            "evaluations": negative_evaluations
+            "evaluations": negative_evaluations,
         }
 
     # Stage 2: Collect rankings
@@ -2099,8 +2158,7 @@ async def run_full_council(
     aggregate_gap_scores = None
     if negative_context.get("enabled"):
         aggregate_gap_scores = calculate_aggregate_gap_scores(
-            negative_context.get("evaluations", []),
-            label_to_model
+            negative_context.get("evaluations", []), label_to_model
         )
 
     # Optional deliberation round
@@ -2158,7 +2216,9 @@ async def run_full_council(
         "deliberation": {
             "enabled": DELIBERATION_ENABLED,
             "results": deliberation_results,
-        } if deliberation_results else {"enabled": False, "results": None},
+        }
+        if deliberation_results
+        else {"enabled": False, "results": None},
         "pairwise_ranking_enabled": PAIRWISE_RANKING_ENABLED,
         "feature_flags": {
             "negative_mode": NEGATIVE_MODE_ENABLED,
