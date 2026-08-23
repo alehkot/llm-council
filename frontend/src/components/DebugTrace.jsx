@@ -10,6 +10,7 @@ const STAGE_LABELS = {
   negative_eval: 'Negative Eval',
   title: 'Title',
   prompt_refinement: 'Prompt Refinement',
+  skill_references: 'Skill References',
 };
 
 const KIND_LABELS = {
@@ -23,6 +24,7 @@ const KIND_LABELS = {
   prompt_refinement_timeout: 'Refinement Timeout',
   prompt_refinement_skipped: 'Refinement Skipped',
   prompt_finalized: 'Final Prompt',
+  skills_resolved: 'Skills Resolved',
   error: 'Error',
 };
 

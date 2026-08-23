@@ -1,8 +1,9 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useMemo, useState } from "react";
 import { produce } from "immer";
 import Sidebar from "./components/Sidebar";
 import ChatInterface from "./components/ChatInterface";
 import ApiKeyModal from "./components/ApiKeyModal";
+import SkillsModal from "./components/SkillsModal";
 import { Sheet, SheetContent } from "./components/ui/sheet";
 import {
 	AlertDialog,
@@ -16,6 +17,7 @@ import {
 } from "./components/ui/alert-dialog";
 import { api, API_AUTH_ERROR_EVENT } from "./api";
 import { apiKeyStorage } from "./utils/apiKeyStorage";
+import { skillSelectionStorage } from "./utils/skillSelectionStorage";
 import { useNotifications } from "./hooks/useNotifications";
 import {
 	mergeConversation,
@@ -85,11 +87,63 @@ function isActiveConsultationStatus(status) {
 	);
 }
 
+const EMPTY_SKILL_IDS = [];
+
+// Drop unknown/duplicate ids so a deleted skill silently leaves the draft
+// selection instead of failing validation on send.
+function normalizeSkillIds(candidateIds, availableIds) {
+	if (!Array.isArray(candidateIds)) {
+		return [];
+	}
+	const seen = new Set();
+	const normalized = [];
+	for (const skillId of candidateIds) {
+		if (typeof skillId !== "string") continue;
+		if (seen.has(skillId) || !availableIds.has(skillId)) continue;
+		seen.add(skillId);
+		normalized.push(skillId);
+	}
+	return normalized;
+}
+
+function sameSkillIds(left, right) {
+	if (left === right) return true;
+	if (!Array.isArray(left) || !Array.isArray(right)) return false;
+	if (left.length !== right.length) return false;
+	return left.every((value, index) => value === right[index]);
+}
+
+function collectAvailableSkillIds(skills) {
+	const availableIds = new Set();
+	if (!Array.isArray(skills)) return availableIds;
+	for (const skill of skills) {
+		// Disabled skills are rejected by the backend on send, so treat them exactly
+		// like deleted ones and let them drop out of the draft silently.
+		if (skill?.id && skill.enabled !== false) availableIds.add(skill.id);
+	}
+	return availableIds;
+}
+
+// The read-only applied record on a finished message seeds the next draft.
+function findLastRequestedSkillIds(messages) {
+	if (!Array.isArray(messages)) return EMPTY_SKILL_IDS;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role !== "assistant") continue;
+		const requested = message.metadata?.skills?.requested;
+		if (Array.isArray(requested)) {
+			return requested;
+		}
+	}
+	return EMPTY_SKILL_IDS;
+}
+
 function App() {
 	const {
 		conversations,
 		setConversations,
 		currentConversationId,
+		conversationsById,
 		isLoading,
 		setCurrentConversationId,
 		setConversationsById,
@@ -119,7 +173,17 @@ function App() {
 		setShowApiKeyModal,
 		apiKeyError,
 		setApiKeyError,
+		skills,
+		setSkills,
+		skillsLoaded,
+		setSkillsLoaded,
+		selectedSkillIdsByConversation,
+		setSelectedSkillIdsByConversation,
+		isSkillsModalOpen,
+		setIsSkillsModalOpen,
 	} = useAppStore();
+
+	const [skillsModalFocusId, setSkillsModalFocusId] = useState(null);
 
 	// Notifications
 	const { requestPermission, notifyInputNeeded } = useNotifications();
@@ -460,6 +524,7 @@ function App() {
 					negative_mode_enabled: false,
 					deliberation_enabled: false,
 					interactive_mode_enabled: false,
+					skills_enabled: false,
 					prompt_max_chars: null,
 					negative_prompt_max_chars: null,
 					synthesis_context_max_chars: null,
@@ -471,13 +536,176 @@ function App() {
 		}
 	}, [handleApiError, setConfig]);
 
+	const loadSkills = useCallback(async () => {
+		try {
+			const data = await api.listSkills();
+			setSkills(Array.isArray(data?.skills) ? data.skills : []);
+		} catch (err) {
+			// Skills are disabled server-side (404) or unreachable; the picker
+			// simply stays hidden instead of blocking the console.
+			console.error("Failed to load skills:", err);
+			handleApiError(err);
+			setSkills([]);
+		} finally {
+			setSkillsLoaded(true);
+		}
+	}, [handleApiError, setSkills, setSkillsLoaded]);
+
 	// Load conversations on mount (only if API key exists)
 	useEffect(() => {
 		if (hasApiKey) {
 			loadConversations();
 			loadConfig();
+			loadSkills();
 		}
-	}, [hasApiKey, loadConfig, loadConversations]);
+	}, [hasApiKey, loadConfig, loadConversations, loadSkills]);
+
+	const availableSkillIds = useMemo(
+		() => collectAvailableSkillIds(skills),
+		[skills],
+	);
+
+	const currentConversationMessages = currentConversationId
+		? conversationsById[currentConversationId]?.messages
+		: null;
+
+	// The draft (pre-send) skill selection: restored from localStorage, seeded
+	// from the last assistant message when there is no draft, and always
+	// filtered against the installed skills.
+	useEffect(() => {
+		if (!currentConversationId || !skillsLoaded) return;
+
+		const existing =
+			useAppStore.getState().selectedSkillIdsByConversation[
+				currentConversationId
+			];
+
+		let source;
+		if (Array.isArray(existing)) {
+			source = existing;
+		} else {
+			const stored = skillSelectionStorage.get(currentConversationId);
+			source = stored.length
+				? stored
+				: findLastRequestedSkillIds(currentConversationMessages);
+		}
+
+		const normalized = normalizeSkillIds(source, availableSkillIds);
+		if (Array.isArray(existing) && sameSkillIds(existing, normalized)) {
+			return;
+		}
+
+		setSelectedSkillIdsByConversation((prev) => ({
+			...prev,
+			[currentConversationId]: normalized,
+		}));
+		skillSelectionStorage.set(currentConversationId, normalized);
+	}, [
+		availableSkillIds,
+		currentConversationId,
+		currentConversationMessages,
+		setSelectedSkillIdsByConversation,
+		skillsLoaded,
+	]);
+
+	const selectedSkillIds =
+		(currentConversationId &&
+			selectedSkillIdsByConversation[currentConversationId]) ||
+		EMPTY_SKILL_IDS;
+
+	const handleSkillIdsChange = useCallback(
+		(nextIds) => {
+			if (!currentConversationId) return;
+			const normalized = normalizeSkillIds(nextIds, availableSkillIds);
+			setSelectedSkillIdsByConversation((prev) => ({
+				...prev,
+				[currentConversationId]: normalized,
+			}));
+			skillSelectionStorage.set(currentConversationId, normalized);
+		},
+		[availableSkillIds, currentConversationId, setSelectedSkillIdsByConversation],
+	);
+
+	const handleOpenSkillsModal = useCallback(
+		(focusSkillId) => {
+			setSkillsModalFocusId(
+				typeof focusSkillId === "string" ? focusSkillId : null,
+			);
+			setIsSkillsModalOpen(true);
+		},
+		[setIsSkillsModalOpen],
+	);
+
+	const handleCloseSkillsModal = useCallback(() => {
+		setIsSkillsModalOpen(false);
+		setSkillsModalFocusId(null);
+	}, [setIsSkillsModalOpen]);
+
+	// A 409 means the skill id is already installed: confirm, then retry with
+	// replace=true. Returning null on a declined replace keeps the modal quiet.
+	const handleUploadSkill = useCallback(
+		async (file) => {
+			try {
+				const result = await api.uploadSkill(file);
+				await loadSkills();
+				return result;
+			} catch (err) {
+				if (err?.status === 409) {
+					const existingId = err.existing?.id || "That skill";
+					const existingVersion = err.existing?.version;
+					const confirmed = window.confirm(
+						`${existingId} is already installed${
+							existingVersion ? ` (v${existingVersion})` : ""
+						}. Replace it with the uploaded bundle?`,
+					);
+					if (!confirmed) {
+						return null;
+					}
+					try {
+						const replacedResult = await api.uploadSkill(file, {
+							replace: true,
+						});
+						await loadSkills();
+						return replacedResult;
+					} catch (replaceErr) {
+						handleApiError(replaceErr);
+						throw replaceErr;
+					}
+				}
+				handleApiError(err);
+				throw err;
+			}
+		},
+		[handleApiError, loadSkills],
+	);
+
+	const handleDeleteSkill = useCallback(
+		async (skillId) => {
+			try {
+				const result = await api.deleteSkill(skillId);
+				await loadSkills();
+				return result;
+			} catch (err) {
+				handleApiError(err);
+				throw err;
+			}
+		},
+		[handleApiError, loadSkills],
+	);
+
+	const handleToggleSkillEnabled = useCallback(
+		async (skillId, enabled) => {
+			try {
+				const result = await api.setSkillEnabled(skillId, enabled);
+				await loadSkills();
+				return result;
+			} catch (err) {
+				handleApiError(err);
+				throw err;
+			}
+		},
+		[handleApiError, loadSkills],
+	);
 
 	useEffect(() => {
 		if (!hasApiKey) return;
@@ -1074,7 +1302,7 @@ function App() {
 		selectConversation(id);
 	};
 
-	const handleSendMessage = async (content, negativePrompt) => {
+	const handleSendMessage = async (content, negativePrompt, skillIds) => {
 		if (!currentConversationId) return;
 
 		// Request notification permission on first message
@@ -1086,6 +1314,10 @@ function App() {
 
 		try {
 			const conversationId = currentConversationId;
+			const requestedSkillIds = normalizeSkillIds(
+				skillIds === undefined ? selectedSkillIds : skillIds,
+				availableSkillIds,
+			);
 			const userMessage = { role: "user", content };
 			const assistantMessage = {
 				role: "assistant",
@@ -1160,6 +1392,7 @@ function App() {
 					conversationId,
 					content,
 					negativePrompt,
+					requestedSkillIds,
 				);
 
 				if (result.status === "queued") {
@@ -1271,6 +1504,15 @@ function App() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+			<SkillsModal
+				isOpen={isSkillsModalOpen}
+				onClose={handleCloseSkillsModal}
+				skills={skills}
+				onUpload={handleUploadSkill}
+				onDelete={handleDeleteSkill}
+				onToggleEnabled={handleToggleSkillEnabled}
+				focusSkillId={skillsModalFocusId}
+			/>
 			<Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
 				<SheetContent side="left" className="p-0">
 					<Sidebar
@@ -1312,6 +1554,9 @@ function App() {
 							onCancelConsultation={handleCancelConsultation}
 							onVersionAdded={handleVersionAdded}
 							onCurrentChanged={handleCurrentChanged}
+							selectedSkillIds={selectedSkillIds}
+							onSkillIdsChange={handleSkillIdsChange}
+							onOpenSkillsModal={handleOpenSkillsModal}
 						/>
 					</div>
 				</main>

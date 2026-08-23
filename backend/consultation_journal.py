@@ -7,7 +7,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from .config import DATA_DIR
 from .storage import validate_storage_id
@@ -51,6 +51,7 @@ def create_job(
     negative_prompt: Optional[str],
     status: str,
     assistant_index: Optional[int] = None,
+    skill_ids: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """Create a durable consultation record."""
     validate_storage_id(conversation_id, "conversation_id")
@@ -60,6 +61,7 @@ def create_job(
         "conversation_id": conversation_id,
         "content": content,
         "negative_prompt": negative_prompt,
+        "skill_ids": list(skill_ids or []),
         "status": status,
         "assistant_index": assistant_index,
         "created_at": timestamp,

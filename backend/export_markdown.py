@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 import re
 from typing import Any, Dict, List, Optional
 
+from . import skills
+from .config import SKILLS_CONTEXT_MAX_CHARS
+
 
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -150,6 +153,234 @@ def _append_export_prompt_section(
         lines.append("")
 
 
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _format_skill_id_list(values: Any) -> str:
+    ids = [_normalize_text(value) for value in (values or [])]
+    ids = [value for value in ids if value]
+    if not ids:
+        return "none"
+    return ", ".join(f"`{value}`" for value in ids)
+
+
+def _load_current_skills(skill_ids: List[str]) -> Dict[str, skills.Skill]:
+    """Look up the skills as they exist on disk right now (never persisted text)."""
+    if not skill_ids:
+        return {}
+    try:
+        found, _missing = skills.load_skills(skill_ids)
+    except Exception:
+        return {}
+    return {skill.id: skill for skill in found}
+
+
+def _skills_export_caveats(
+    resolved: List[Dict[str, Any]],
+    current_by_id: Dict[str, skills.Skill],
+) -> List[str]:
+    """Italic notes for skills whose on-disk state drifted from the stored plan."""
+    caveats: List[str] = []
+    for entry in resolved:
+        skill_id = _normalize_text(entry.get("id"))
+        if not skill_id:
+            continue
+        stored_version = _as_int(entry.get("version"))
+        current = current_by_id.get(skill_id)
+        if current is None:
+            caveats.append(
+                f"_Skill `{skill_id}` (v{stored_version}) is no longer installed, so its "
+                "instructions are missing from the block below._"
+            )
+            continue
+        if current.version != stored_version:
+            caveats.append(
+                f"_Skill `{skill_id}` ran at v{stored_version} but is now v{current.version}; "
+                "the block below is re-rendered from the current version._"
+            )
+    return caveats
+
+
+def _render_skills_export_block(
+    resolved: List[Dict[str, Any]],
+    current_by_id: Dict[str, skills.Skill],
+    max_chars: int,
+) -> Optional[str]:
+    """Re-render the ``<skills>`` block from the current manifests at export time."""
+    ordered: List[skills.Skill] = []
+    selected_reference_paths: Dict[str, List[str]] = {}
+    reasons: Dict[str, Dict[str, str]] = {}
+    for entry in resolved:
+        skill_id = _normalize_text(entry.get("id"))
+        current = current_by_id.get(skill_id)
+        if current is None:
+            continue
+        ordered.append(current)
+        paths: List[str] = []
+        skill_reasons: Dict[str, str] = {}
+        for reference in entry.get("references") or []:
+            if not isinstance(reference, dict):
+                continue
+            path = _normalize_text(reference.get("path"))
+            if not path:
+                continue
+            paths.append(path)
+            reason = _normalize_text(reference.get("reason"))
+            if reason:
+                skill_reasons[path] = reason
+        selected_reference_paths[skill_id] = paths
+        reasons[skill_id] = skill_reasons
+
+    if not ordered:
+        return None
+    try:
+        block, _report = skills.render_skills_context(
+            ordered,
+            selected_reference_paths,
+            max_chars,
+            reasons,
+        )
+    except Exception:
+        return None
+    return block
+
+
+def _append_skills_section(lines: List[str], skills_metadata: Dict[str, Any]) -> None:
+    """Render the Agent Skills section for one assistant response."""
+    resolved = [
+        entry
+        for entry in (skills_metadata.get("resolved") or [])
+        if isinstance(entry, dict)
+    ]
+    selection = skills_metadata.get("reference_selection") or {}
+    budget = skills_metadata.get("budget") or {}
+    resolved_ids = [
+        _normalize_text(entry.get("id")) for entry in resolved if entry.get("id")
+    ]
+    current_by_id = _load_current_skills([value for value in resolved_ids if value])
+
+    lines.extend(["## Agent Skills", ""])
+    lines.append(f"- Requested: {_format_skill_id_list(skills_metadata.get('requested'))}")
+    missing = [value for value in (skills_metadata.get("missing") or []) if value]
+    if missing:
+        lines.append(f"- Unavailable at run time: {_format_skill_id_list(missing)}")
+    if skills_metadata.get("drift"):
+        lines.append("- Skill version drift detected during this run: yes")
+    lines.append("")
+
+    for entry in resolved:
+        skill_id = _normalize_text(entry.get("id")) or "unknown"
+        version = _as_int(entry.get("version"))
+        lines.append(f"### Skill: {skill_id} (v{version})")
+        lines.append("")
+        current = current_by_id.get(skill_id)
+        description = _normalize_text(current.description) if current else ""
+        lines.append(description if description else "_Description unavailable._")
+        lines.append("")
+
+        skill_md_chars = _as_int(entry.get("skill_md_chars"))
+        skill_md_line = f"- SKILL.md: {skill_md_chars} chars"
+        if entry.get("truncated"):
+            skill_md_line += " (truncated to fit the budget)"
+        lines.append(skill_md_line)
+
+        bundled_unused = entry.get("bundled_unused") or {}
+        bundled_parts = [
+            f"scripts {_as_int(bundled_unused.get('scripts'))}",
+            f"assets {_as_int(bundled_unused.get('assets'))}",
+            f"evals {_as_int(bundled_unused.get('evals'))}",
+        ]
+        other_unused = _as_int(bundled_unused.get("other"))
+        if other_unused:
+            bundled_parts.append(f"other {other_unused}")
+        lines.append(f"- Bundled files not injected: {', '.join(bundled_parts)}")
+        lines.append("")
+
+        references = [
+            reference
+            for reference in (entry.get("references") or [])
+            if isinstance(reference, dict)
+        ]
+        lines.extend(["References inlined:", ""])
+        if references:
+            for reference in references:
+                path = _normalize_text(reference.get("path")) or "unknown"
+                chars = _as_int(reference.get("chars"))
+                reason = _normalize_text(reference.get("reason"))
+                suffix = f" - {reason}" if reason else ""
+                lines.append(f"- `{path}` ({chars} chars){suffix}")
+        else:
+            lines.append("_None._")
+        lines.append("")
+
+        skipped = [
+            reference
+            for reference in (entry.get("references_skipped") or [])
+            if isinstance(reference, dict)
+        ]
+        if skipped:
+            lines.extend(["References skipped:", ""])
+            for reference in skipped:
+                path = _normalize_text(reference.get("path")) or "unknown"
+                chars = _as_int(reference.get("chars"))
+                lines.append(f"- `{path}` ({chars} chars)")
+            lines.append("")
+
+    lines.extend(["### Reference Selection", ""])
+    router_enabled = "enabled" if selection.get("enabled") else "disabled"
+    lines.append(f"- Router: {router_enabled}")
+    selection_model = _normalize_text(selection.get("model"))
+    lines.append(f"- Model: `{selection_model}`" if selection_model else "- Model: n/a")
+    lines.append(
+        f"- Candidates: {_as_int(selection.get('candidate_count'))}; "
+        f"selected: {_as_int(selection.get('selected_count'))}"
+    )
+    fallback = _normalize_text(selection.get("fallback"))
+    if fallback:
+        lines.append(f"- Fallback: {fallback}")
+    lines.append("")
+
+    stage1_max = _as_int(budget.get("stage1_max"), SKILLS_CONTEXT_MAX_CHARS)
+    lines.extend(["### Context Budget", ""])
+    lines.append(f"- Stage 1: {_as_int(budget.get('stage1_chars'))} / {stage1_max} chars")
+    lines.append(
+        f"- Stage 3: {_as_int(budget.get('stage3_chars'))} / "
+        f"{_as_int(budget.get('stage3_max'))} chars"
+    )
+    dropped = [
+        _normalize_text(value)
+        for value in (budget.get("stage3_dropped_references") or [])
+    ]
+    dropped = [value for value in dropped if value]
+    if dropped:
+        joined = ", ".join(f"`{value}`" for value in dropped)
+        lines.append(f"- References dropped from synthesis: {joined}")
+    lines.append("")
+
+    if not resolved:
+        lines.extend(["_No skill instructions were injected into this response._", ""])
+        return
+
+    for caveat in _skills_export_caveats(resolved, current_by_id):
+        lines.extend([caveat, ""])
+
+    block = _render_skills_export_block(
+        resolved,
+        current_by_id,
+        stage1_max if stage1_max > 0 else SKILLS_CONTEXT_MAX_CHARS,
+    )
+    _append_fenced_markdown_section(
+        lines,
+        "Injected Skills Context",
+        block,
+        empty_state="_Skills context could not be re-rendered from the installed skills._",
+    )
+
+
 def build_export_filename(title: Optional[str], request_number: Optional[int]) -> str:
     """Build a filesystem-safe export filename."""
     base = (title or "conversation").strip().lower()
@@ -179,6 +410,10 @@ def build_markdown_export(
     aggregate_gap_scores = metadata.get("aggregate_gap_scores") or []
     deliberation = metadata.get("deliberation") or {}
     prompt_refinement = metadata.get("prompt_refinement") or {}
+    raw_skills_metadata = metadata.get("skills")
+    skills_metadata: Optional[Dict[str, Any]] = (
+        raw_skills_metadata if isinstance(raw_skills_metadata, dict) else None
+    )
     excluded_models = set(metadata.get("excluded_models") or [])
 
     label_by_model: Dict[str, str] = {}
@@ -200,6 +435,9 @@ def build_markdown_export(
     lines.append("")
 
     _append_export_prompt_section(lines, prompt_refinement, user_query)
+
+    if skills_metadata is not None:
+        _append_skills_section(lines, skills_metadata)
 
     if label_to_model:
         lines.extend(

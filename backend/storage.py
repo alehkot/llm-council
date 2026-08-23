@@ -722,6 +722,9 @@ def list_incomplete_assistant_messages() -> List[Dict[str, Any]]:
                         "negative_prompt": (
                             (metadata.get("resume") or {}).get("negative_prompt")
                         ),
+                        "skill_ids": list(
+                            (metadata.get("resume") or {}).get("skill_ids") or []
+                        ),
                         "consultation_id": metadata.get("consultation_id"),
                         "status": status,
                     }

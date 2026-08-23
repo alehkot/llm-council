@@ -11,6 +11,7 @@ export const API_AUTH_ERROR_EVENT = "llm-council:api-auth-error";
 const pathSegment = (value) => encodeURIComponent(String(value));
 const conversationPath = (conversationId) =>
 	`/api/conversations/${pathSegment(conversationId)}`;
+const skillPath = (skillId) => `/api/skills/${pathSegment(skillId)}`;
 
 const notifyApiAuthError = (message, detail = {}) => {
 	if (
@@ -201,11 +202,142 @@ export const api = {
 	},
 
 	/**
+	 * List installed agent skills.
+	 * @returns {Promise<{skills: object[]}>}
+	 */
+	async listSkills() {
+		const response = await apiFetch("/api/skills");
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to list skills"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Upload an agent skill as a .zip archive.
+	 * The File is sent as the raw request body (no multipart).
+	 * A 409 (skill id already exists) throws an Error carrying `status` 409 and
+	 * `existing` (the existing skill summary) so the caller can offer to replace.
+	 * @param {File|Blob} file - The .zip archive
+	 * @param {{filename?: string, replace?: boolean}} [options]
+	 * @returns {Promise<{skill: object, replaced: boolean}>}
+	 */
+	async uploadSkill(file, { filename, replace = false } = {}) {
+		const params = new URLSearchParams();
+		const resolvedFilename = filename || file?.name;
+		if (resolvedFilename) {
+			params.set("filename", resolvedFilename);
+		}
+		if (replace) {
+			params.set("replace", "true");
+		}
+		const query = params.toString();
+		const response = await apiFetch(`/api/skills${query ? `?${query}` : ""}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/zip",
+			},
+			body: file,
+		});
+
+		if (response.status === 409) {
+			const payload = await response.json().catch(() => null);
+			const detail = payload?.detail;
+			const error = new Error(
+				typeof detail === "string" && detail.trim()
+					? detail
+					: "A skill with this name already exists",
+			);
+			error.status = 409;
+			error.existing = payload?.existing || null;
+			throw error;
+		}
+
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to upload skill"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Get the detail record for one skill.
+	 * @param {string} skillId - The skill id
+	 */
+	async getSkill(skillId) {
+		const response = await apiFetch(skillPath(skillId));
+		if (!response.ok) {
+			throw new Error(await parseErrorDetail(response, "Failed to get skill"));
+		}
+		return response.json();
+	},
+
+	/**
+	 * Get the raw SKILL.md text for one skill.
+	 * @param {string} skillId - The skill id
+	 * @returns {Promise<{markdown: string}>}
+	 */
+	async getSkillMarkdown(skillId) {
+		const response = await apiFetch(`${skillPath(skillId)}/markdown`);
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to get skill markdown"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Enable or disable a skill.
+	 * @param {string} skillId - The skill id
+	 * @param {boolean} enabled - Whether the skill can be selected
+	 */
+	async setSkillEnabled(skillId, enabled) {
+		const response = await apiFetch(skillPath(skillId), {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ enabled }),
+		});
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to update skill"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Delete a skill and its stored bundle.
+	 * @param {string} skillId - The skill id
+	 * @returns {Promise<{status: string, deleted: boolean}>}
+	 */
+	async deleteSkill(skillId) {
+		const response = await apiFetch(skillPath(skillId), {
+			method: "DELETE",
+		});
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to delete skill"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
 	 * Send a message in a conversation.
 	 * Returns immediately with consultation_id and status (started/queued).
 	 * Use getConsultationStatus to poll for results.
+	 * @param {string} conversationId - The conversation ID
+	 * @param {string} content - The message text
+	 * @param {string} [negativePrompt] - Optional negative-mode prompt
+	 * @param {string[]} [skillIds] - Optional agent skill ids to apply
 	 */
-	async sendMessage(conversationId, content, negativePrompt) {
+	async sendMessage(conversationId, content, negativePrompt, skillIds) {
 		const response = await apiFetch(
 			`${conversationPath(conversationId)}/message`,
 			{
@@ -216,6 +348,8 @@ export const api = {
 				body: JSON.stringify({
 					content,
 					negative_prompt: negativePrompt || undefined,
+					skill_ids:
+						Array.isArray(skillIds) && skillIds.length ? skillIds : undefined,
 				}),
 			},
 		);

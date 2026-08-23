@@ -39,6 +39,10 @@ export const useAppStore = create((set) => ({
   hasApiKey: initialHasApiKey,
   showApiKeyModal: !initialHasApiKey,
   apiKeyError: null,
+  skills: [],
+  skillsLoaded: false,
+  selectedSkillIdsByConversation: {},
+  isSkillsModalOpen: false,
 
   setConversations: (next) => set((state) => ({
     conversations: applyUpdate(state.conversations, next),
@@ -99,5 +103,20 @@ export const useAppStore = create((set) => ({
   })),
   setApiKeyError: (next) => set((state) => ({
     apiKeyError: applyUpdate(state.apiKeyError, next),
+  })),
+  setSkills: (next) => set((state) => ({
+    skills: applyUpdate(state.skills, next),
+  })),
+  setSkillsLoaded: (next) => set((state) => ({
+    skillsLoaded: applyUpdate(state.skillsLoaded, next),
+  })),
+  setSelectedSkillIdsByConversation: (next) => set((state) => ({
+    selectedSkillIdsByConversation: applyUpdate(
+      state.selectedSkillIdsByConversation,
+      next,
+    ),
+  })),
+  setIsSkillsModalOpen: (next) => set((state) => ({
+    isSkillsModalOpen: applyUpdate(state.isSkillsModalOpen, next),
   })),
 }));

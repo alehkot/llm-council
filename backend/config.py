@@ -156,6 +156,62 @@ if MAX_NEGATIVE_PROMPT_CHARS <= 0:
 if SYNTHESIS_CONTEXT_MAX_CHARS <= 0:
     raise ValueError("SYNTHESIS_CONTEXT_MAX_CHARS must be > 0")
 
+# -----------------------------------------------------------------------------
+# Agent skills
+# -----------------------------------------------------------------------------
+# Uploadable Agent Skills (a SKILL.md bundle plus optional references/*.md)
+# injected into the Stage 1 council prompts and the Stage 3 chairman prompt.
+# Enabled by default - unlike the feature flags above, skills cost nothing until
+# one is uploaded *and* selected for a consultation.
+SKILLS_ENABLED = _get_bool_env("SKILLS_ENABLED", "true")
+
+# Zip upload hardening limits (see backend/skills.py inspect_archive).
+SKILLS_UPLOAD_MAX_BYTES = _get_int_env("SKILLS_UPLOAD_MAX_BYTES", 5_242_880)  # 5 MiB
+SKILLS_MAX_ENTRIES = _get_int_env("SKILLS_MAX_ENTRIES", 500)
+SKILLS_MAX_UNCOMPRESSED_BYTES = _get_int_env("SKILLS_MAX_UNCOMPRESSED_BYTES", 20_971_520)
+SKILLS_MAX_COMPRESSION_RATIO = _get_int_env("SKILLS_MAX_COMPRESSION_RATIO", 100)
+
+# How many skills a single consultation may select, and how many references the
+# two-pass selector may inline across all of them.
+SKILLS_MAX_SELECTED = _get_int_env("SKILLS_MAX_SELECTED", 5)
+SKILLS_MAX_REFERENCES = _get_int_env("SKILLS_MAX_REFERENCES", 4)
+
+# Character budgets for the rendered <skills> block, per stage.
+SKILLS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_CONTEXT_MAX_CHARS", 48000)
+SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS", 24000)
+
+# Two-pass reference selection: a cheap model picks which references/*.md the
+# query actually needs. When disabled, a deterministic keyword-overlap fallback
+# runs instead (no extra model call).
+SKILLS_REFERENCE_SELECTION_ENABLED = _get_bool_env("SKILLS_REFERENCE_SELECTION_ENABLED", "true")
+SKILLS_REFERENCE_SELECTION_MODEL = (
+    os.getenv("SKILLS_REFERENCE_SELECTION_MODEL") or PROMPT_REFINEMENT_MODEL
+)
+
+# Max length of a skill's frontmatter description (not an env knob).
+SKILL_DESCRIPTION_MAX_CHARS = 1024
+
+if SKILLS_UPLOAD_MAX_BYTES <= 0:
+    raise ValueError("SKILLS_UPLOAD_MAX_BYTES must be > 0")
+if SKILLS_MAX_ENTRIES <= 0:
+    raise ValueError("SKILLS_MAX_ENTRIES must be > 0")
+if SKILLS_MAX_UNCOMPRESSED_BYTES <= 0:
+    raise ValueError("SKILLS_MAX_UNCOMPRESSED_BYTES must be > 0")
+if SKILLS_MAX_COMPRESSION_RATIO <= 0:
+    raise ValueError("SKILLS_MAX_COMPRESSION_RATIO must be > 0")
+if SKILLS_MAX_SELECTED <= 0:
+    raise ValueError("SKILLS_MAX_SELECTED must be > 0")
+if SKILLS_MAX_REFERENCES <= 0:
+    raise ValueError("SKILLS_MAX_REFERENCES must be > 0")
+if SKILLS_CONTEXT_MAX_CHARS <= 0:
+    raise ValueError("SKILLS_CONTEXT_MAX_CHARS must be > 0")
+if SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS <= 0:
+    raise ValueError("SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS must be > 0")
+if SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS > SKILLS_CONTEXT_MAX_CHARS:
+    raise ValueError(
+        "SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS must be <= SKILLS_CONTEXT_MAX_CHARS"
+    )
+
 # Consultation thread pool size
 CONSULTATION_POOL_SIZE = _get_int_env("CONSULTATION_POOL_SIZE", 4)
 if CONSULTATION_POOL_SIZE < 1:

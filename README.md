@@ -66,6 +66,8 @@ Final Answer
 - **Conversation history**: Persistent JSON storage with full deliberation records.
 - **Markdown Export**: Export full conversation context and reasoning to Markdown.
 - **Focus View**: Dedicated modal for deep reading of the synthesized answer.
+- **Agent Skills**: Upload a skill as a `.zip` and have its instructions
+  steer the council's answers and the final synthesis.
 
 ### Advanced Features (Optional)
 
@@ -157,6 +159,59 @@ All configuration is managed via `.env`. See `.env.sample` for full options.
 | `INTERACTIVE_MODE_ENABLED` | Enable inline user prompts     | false   |
 | `PROMPT_REFINEMENT_ENABLED`| Enable query refinement stage  | false   |
 
+### Skills
+
+Uploaded skills live in `data/skills/`. Unlike the feature flags above,
+`SKILLS_ENABLED` defaults to `true` — skills cost nothing until one is
+uploaded *and* selected for a consultation.
+
+| Variable                             | Description                | Default |
+|--------------------------------------|----------------------------|---------|
+| `SKILLS_ENABLED`                     | Master switch              | true    |
+| `SKILLS_MAX_SELECTED`                | Skills per consultation    | 5       |
+| `SKILLS_MAX_REFERENCES`              | References inlined per run | 4       |
+| `SKILLS_CONTEXT_MAX_CHARS`           | Stage 1 skill budget       | 48000   |
+| `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` | Stage 3 skill budget       | 24000   |
+| `SKILLS_REFERENCE_SELECTION_ENABLED` | Model-picked references    | true    |
+| `SKILLS_UPLOAD_MAX_BYTES`            | Max upload size            | 5 MiB   |
+
+See `.env.sample` for the remaining ingest limits.
+
+## Agent Skills
+
+An **Agent Skill** is a `.zip` containing a `SKILL.md` with YAML frontmatter
+(`name` and `description`) plus optional `references/*.md`. This is the same
+format Claude Code and Codex use, so existing skills work here unchanged.
+
+Upload one from the **Skills** button in the console header, then tick it in
+the composer before sending. Its instructions are injected into **Stage 1**
+(every council model's system prompt) and **Stage 3** (the chairman's
+synthesis prompt).
+
+Because council models have no tools, they cannot open a skill's
+`references/*.md` on demand. Instead a cheap model is asked once per
+consultation which reference files the question actually needs, and only
+those are inlined. Set `SKILLS_REFERENCE_SELECTION_ENABLED=false` to use a
+deterministic keyword-overlap picker instead and skip the extra model call.
+
+Only `SKILL.md` and `references/*.md` ever reach a prompt. Anything else in
+the bundle — `scripts/`, `assets/`, `evals/` — is stored for fidelity but
+never executed and never injected. `evals/` in particular is an answer key,
+and three independent layers keep it out of every prompt.
+
+### Caveats
+
+- **Stage 2 ranks skill-shaped answers without seeing the skill's rules.**
+  Peer review is deliberately not skill-aware, so a model that correctly
+  followed a terse house-style skill can be ranked down *for being terse*.
+- **Verbose skills raise the odds of a truncated synthesis.** A larger prompt
+  plus instructions encouraging long output makes Stage 3 more likely to hit
+  `OPENROUTER_MAX_TOKENS` (default 10000), which fails the run rather than
+  truncating silently. Lower `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` or raise
+  `OPENROUTER_MAX_TOKENS` if you hit it.
+- **Skill text is untrusted input that reaches every council model.** Only
+  upload bundles you trust.
+
 ## Project Structure
 
 ```text
@@ -167,6 +222,7 @@ llm-council/
 │   ├── council.py          # Deliberation & Synthesis logic
 │   ├── langgraph_flow.py   # LangGraph workflow orchestration
 │   ├── consultation_manager.py # Async task orchestration
+│   ├── skills.py           # Agent Skill ingest, storage & prompt rendering
 │   └── storage.py          # JSON conversation persistence
 ├── frontend/               # React + Vite + Tailwind
 │   ├── src/
@@ -176,7 +232,8 @@ llm-council/
 │   │   └── components/     # UI components (Stage1-3, etc.)
 │   └── package.json
 ├── data/                   # Conversation storage
-│   └── conversations/      # JSON files per conversation
+│   ├── conversations/      # JSON files per conversation
+│   └── skills/             # Uploaded Agent Skill bundles
 ├── AGENTS.md               # Development guidelines
 ├── start.sh                # Combined startup script
 └── pyproject.toml          # Python dependencies
@@ -203,6 +260,17 @@ llm-council/
 | `/api/consultations/status`        | GET    | Global system status    |
 | `.../consultation/status`          | GET    | Check processing status |
 | `.../consultation/cancel`          | POST   | Cancel consultation     |
+
+### Skill Library
+
+| Endpoint                    | Method | Description                  |
+|-----------------------------|--------|------------------------------|
+| `/api/skills`               | GET    | List installed skills        |
+| `/api/skills`               | POST   | Upload a `.zip` (raw body)   |
+| `/api/skills/{id}`          | GET    | Skill detail                 |
+| `/api/skills/{id}/markdown` | GET    | Raw `SKILL.md`               |
+| `/api/skills/{id}`          | PATCH  | Enable/disable               |
+| `/api/skills/{id}`          | DELETE | Remove a skill               |
 
 ### Config & Interactive
 
