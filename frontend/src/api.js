@@ -38,6 +38,78 @@ const isSecureContext = () => {
 };
 
 /**
+ * Auth failure latch. Once the backend rejects the key (401/403), rate-limits it
+ * (429), or no key is stored, we remember the failure and short-circuit every
+ * subsequent request without touching the network. This stops polling loops from
+ * hammering the backend and tripping the server-side brute-force lockout. The
+ * latch clears when the user submits a new key (or, for 429, once the lockout
+ * window expires).
+ */
+let authFailure = null;
+
+const makeAuthError = (type, retryAfterSeconds) => {
+	const error = new Error(type);
+	if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+		error.retryAfterSeconds = retryAfterSeconds;
+	}
+	return error;
+};
+
+const throwAuthError = (type, retryAfterSeconds) => {
+	const error = makeAuthError(type, retryAfterSeconds);
+	notifyApiAuthError(type, {
+		retryAfterSeconds: error.retryAfterSeconds,
+	});
+	throw error;
+};
+
+/**
+ * Single-flight auth probe. The first request of a session is sent alone (as a
+ * cheap GET /api/config) and every concurrent request waits for it instead of
+ * firing in parallel. A wrong key therefore costs the backend exactly one
+ * failed attempt, not a burst of many that could trip the brute-force lockout.
+ * The probe is cached for the session and cleared whenever the auth latch is
+ * cleared.
+ */
+let authProbe = null;
+
+const probeAuth = () => {
+	if (authProbe) return authProbe;
+	authProbe = (async () => {
+		const apiKey = apiKeyStorage.get();
+		if (!apiKey) {
+			authFailure = { type: "NO_API_KEY" };
+			throwAuthError("NO_API_KEY");
+		}
+
+		const response = await fetch(`${API_BASE}/api/config`, {
+			headers: { [API_KEY_HEADER]: apiKey },
+		});
+
+		if (response.status === 429) {
+			const retryAfter = response.headers.get("Retry-After");
+			const retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
+			authFailure = {
+				type: "API_KEY_RATE_LIMITED",
+				retryAfterSeconds,
+				expiresAt:
+					Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+						? Date.now() + retryAfterSeconds * 1000
+						: undefined,
+			};
+			throwAuthError("API_KEY_RATE_LIMITED", retryAfterSeconds);
+		}
+
+		if (response.status === 401 || response.status === 403) {
+			apiKeyStorage.clear();
+			authFailure = { type: "INVALID_API_KEY" };
+			throwAuthError("INVALID_API_KEY");
+		}
+	})();
+	return authProbe;
+};
+
+/**
  * Make an API request with the stored API key.
  * Throws typed errors for the UI to handle:
  * - 'NO_API_KEY' - No API key in storage
@@ -51,10 +123,23 @@ const apiFetch = async (path, options = {}) => {
 		throw new Error("INSECURE_CONTEXT");
 	}
 
+	// Don't hit the network again once we know auth is broken.
+	if (authFailure) {
+		if (authFailure.expiresAt && Date.now() >= authFailure.expiresAt) {
+			authFailure = null;
+			authProbe = null;
+		} else {
+			throwAuthError(authFailure.type, authFailure.retryAfterSeconds);
+		}
+	}
+
+	// Collapse parallel requests behind one auth check.
+	await probeAuth();
+
 	const apiKey = apiKeyStorage.get();
 	if (!apiKey) {
-		notifyApiAuthError("NO_API_KEY");
-		throw new Error("NO_API_KEY");
+		authFailure = { type: "NO_API_KEY" };
+		throwAuthError("NO_API_KEY");
 	}
 
 	const response = await fetch(`${API_BASE}${path}`, {
@@ -68,21 +153,22 @@ const apiFetch = async (path, options = {}) => {
 	if (response.status === 429) {
 		const retryAfter = response.headers.get("Retry-After");
 		const retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
-		const error = new Error("API_KEY_RATE_LIMITED");
-		if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
-			error.retryAfterSeconds = retryAfterSeconds;
-		}
-		notifyApiAuthError("API_KEY_RATE_LIMITED", {
-			retryAfterSeconds: error.retryAfterSeconds,
-		});
-		throw error;
+		authFailure = {
+			type: "API_KEY_RATE_LIMITED",
+			retryAfterSeconds,
+			expiresAt:
+				Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+					? Date.now() + retryAfterSeconds * 1000
+					: undefined,
+		};
+		throwAuthError("API_KEY_RATE_LIMITED", retryAfterSeconds);
 	}
 
 	// Auto-clear on auth failure and throw typed error
 	if (response.status === 401 || response.status === 403) {
 		apiKeyStorage.clear();
-		notifyApiAuthError("INVALID_API_KEY");
-		throw new Error("INVALID_API_KEY");
+		authFailure = { type: "INVALID_API_KEY" };
+		throwAuthError("INVALID_API_KEY");
 	}
 
 	return response;
@@ -616,5 +702,14 @@ export const api = {
 			throw new Error("Failed to cancel consultation");
 		}
 		return response.json();
+	},
+
+	/**
+	 * Clear any remembered auth failure so the next request retries the backend.
+	 * Call this after the user submits a new API key.
+	 */
+	resetAuthState() {
+		authFailure = null;
+		authProbe = null;
 	},
 };

@@ -743,7 +743,7 @@ function App() {
 
 	// Poll for consultation status
 	useEffect(() => {
-		if (!currentConversationId || !consultationStatus) {
+		if (!hasApiKey || !currentConversationId || !consultationStatus) {
 			return;
 		}
 
@@ -869,6 +869,7 @@ function App() {
 		consultationStatus,
 		currentConversationId,
 		handleApiError,
+		hasApiKey,
 		loadConversation,
 		loadConversations,
 		setConsultationStatus,
@@ -882,7 +883,7 @@ function App() {
 
 	// Check for active consultation when switching conversations
 	useEffect(() => {
-		if (!currentConversationId) {
+		if (!hasApiKey || !currentConversationId) {
 			setConsultationStatus(null);
 			setMessageQueue([]);
 			setIsLoading(false);
@@ -925,6 +926,7 @@ function App() {
 		clearStreamingConsultation,
 		currentConversationId,
 		handleApiError,
+		hasApiKey,
 		setConsultationStatus,
 		setError,
 		setIsLoading,
@@ -1229,6 +1231,7 @@ function App() {
 	// API key handlers
 	const handleApiKeySubmit = (key) => {
 		apiKeyStorage.set(key);
+		api.resetAuthState();
 		setHasApiKey(true);
 		setShowApiKeyModal(false);
 		setApiKeyError(null);

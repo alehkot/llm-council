@@ -4,6 +4,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { api } from '../api';
+import { useAppStore } from '../store/useAppStore';
 
 function StatusRow({ label, value, isEnabled }) {
   return (
@@ -36,9 +37,10 @@ function ModelList({ models }) {
 
 export default function StatusModal({ config, isOpen, onClose }) {
   const [consultationStatus, setConsultationStatus] = useState(null);
+  const hasApiKey = useAppStore((state) => state.hasApiKey);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !hasApiKey) return;
 
     const fetchStatus = async () => {
       try {
@@ -52,7 +54,7 @@ export default function StatusModal({ config, isOpen, onClose }) {
     fetchStatus();
     const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
-  }, [isOpen]);
+  }, [isOpen, hasApiKey]);
 
   if (!config) return null;
 
