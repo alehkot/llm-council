@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from .config import DATA_DIR
 from .storage import validate_storage_id
 
-
 _CONSULTATION_DIR = Path(DATA_DIR).parent / "consultations"
 
 
@@ -93,7 +92,9 @@ def get_job(consultation_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def update_job(consultation_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def update_job(
+    consultation_id: str, updates: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
     """Update a persisted consultation record."""
     current = get_job(consultation_id)
     if current is None:

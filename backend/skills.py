@@ -89,15 +89,86 @@ _TRUNCATION_MARKER = "[... skill instructions truncated to fit the context budge
 
 _STOPWORDS = frozenset(
     {
-        "the", "and", "for", "are", "but", "not", "you", "your", "with", "this",
-        "that", "have", "has", "from", "was", "were", "will", "would", "should",
-        "can", "could", "into", "about", "them", "they", "our", "out", "all",
-        "any", "how", "what", "when", "which", "who", "why", "its", "it's", "his",
-        "her", "their", "there", "here", "than", "then", "some", "such", "only",
-        "just", "more", "most", "other", "over", "also", "been", "being", "does",
-        "did", "done", "get", "got", "let", "make", "made", "may", "might", "must",
-        "need", "needs", "one", "two", "use", "used", "using", "very", "want",
-        "way", "well", "were", "write", "written",
+        "the",
+        "and",
+        "for",
+        "are",
+        "but",
+        "not",
+        "you",
+        "your",
+        "with",
+        "this",
+        "that",
+        "have",
+        "has",
+        "from",
+        "was",
+        "were",
+        "will",
+        "would",
+        "should",
+        "can",
+        "could",
+        "into",
+        "about",
+        "them",
+        "they",
+        "our",
+        "out",
+        "all",
+        "any",
+        "how",
+        "what",
+        "when",
+        "which",
+        "who",
+        "why",
+        "its",
+        "it's",
+        "his",
+        "her",
+        "their",
+        "there",
+        "here",
+        "than",
+        "then",
+        "some",
+        "such",
+        "only",
+        "just",
+        "more",
+        "most",
+        "other",
+        "over",
+        "also",
+        "been",
+        "being",
+        "does",
+        "did",
+        "done",
+        "get",
+        "got",
+        "let",
+        "make",
+        "made",
+        "may",
+        "might",
+        "must",
+        "need",
+        "needs",
+        "one",
+        "two",
+        "use",
+        "used",
+        "using",
+        "very",
+        "want",
+        "way",
+        "well",
+        "were",
+        "write",
+        "written",
     }
 )
 
@@ -494,9 +565,7 @@ def _read_member(
             f"Archive member '{info.filename}' could not be extracted: {exc}"
         ) from exc
     if total > int(info.file_size):
-        raise SkillError(
-            "Archive expands beyond the allowed uncompressed size.", 413
-        )
+        raise SkillError("Archive expands beyond the allowed uncompressed size.", 413)
     return b"".join(chunks)
 
 
@@ -529,9 +598,7 @@ def inspect_archive(data: bytes) -> Dict[str, bytes]:
             # mode == 0 (and bare permission bits without a type) means the zip
             # carries no Unix file type - typical of Windows-made archives.
             if mode != 0 and file_type not in (0, stat.S_IFREG, stat.S_IFDIR):
-                raise SkillError(
-                    "Archive contains a symlink or other special file."
-                )
+                raise SkillError("Archive contains a symlink or other special file.")
 
             _check_entry_name(name, info)
 
@@ -719,9 +786,7 @@ def _categorize(relpath: str) -> str:
 
 def _is_reference_path(relpath: str) -> bool:
     """``references/*.md`` only - never ``references/*.png``, never ``evals/``."""
-    return relpath.startswith(_REFERENCE_PREFIX) and relpath.endswith(
-        _REFERENCE_SUFFIX
-    )
+    return relpath.startswith(_REFERENCE_PREFIX) and relpath.endswith(_REFERENCE_SUFFIX)
 
 
 def _sanitize_source_filename(source_filename: Optional[str]) -> Optional[str]:
@@ -738,7 +803,9 @@ def _read_frontmatter_fields(text: str) -> Tuple[str, str, Dict[str, Any], List[
     """Step 6: validate the SKILL.md frontmatter, return (id, description, extra, body)."""
     frontmatter, body = parse_frontmatter(text)
     if not frontmatter:
-        raise SkillError("SKILL.md is missing YAML frontmatter with 'name' and 'description'.")
+        raise SkillError(
+            "SKILL.md is missing YAML frontmatter with 'name' and 'description'."
+        )
 
     raw_name = frontmatter.get("name")
     if not isinstance(raw_name, str) or not raw_name.strip():
@@ -831,8 +898,7 @@ def _skill_from_manifest(payload: Dict[str, Any]) -> Skill:
         for item in payload.get("bundled_files", []) or []
     ]
     counts = {
-        str(key): int(value)
-        for key, value in (payload.get("counts") or {}).items()
+        str(key): int(value) for key, value in (payload.get("counts") or {}).items()
     }
     return Skill(
         id=skill_id,
@@ -946,9 +1012,7 @@ def install_skill(
                     f"{relpath} is not valid UTF-8 text and will not be injected."
                 )
                 bundled_files.append(
-                    BundledFile(
-                        path=relpath, size_bytes=len(payload), category="other"
-                    )
+                    BundledFile(path=relpath, size_bytes=len(payload), category="other")
                 )
                 continue
             references.append(

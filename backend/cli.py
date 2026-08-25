@@ -17,9 +17,7 @@ def _clear_conversations(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="LLM Council maintenance CLI."
-    )
+    parser = argparse.ArgumentParser(description="LLM Council maintenance CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     clear_parser = subparsers.add_parser(

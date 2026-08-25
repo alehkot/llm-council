@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-import uuid
 
 
 def _utc_iso() -> str:

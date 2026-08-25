@@ -1146,7 +1146,8 @@ class ConsultationManager:
                             id=job["consultation_id"],
                             content=job.get("content", ""),
                             negative_prompt=job.get("negative_prompt"),
-                            skill_ids=self._coerce_skill_ids(job.get("skill_ids")) or [],
+                            skill_ids=self._coerce_skill_ids(job.get("skill_ids"))
+                            or [],
                             created_at=self._parse_datetime(job.get("created_at")),
                         )
                         for job in queued_jobs

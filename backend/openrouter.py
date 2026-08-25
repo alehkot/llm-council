@@ -1,18 +1,18 @@
 """OpenRouter API client for making LLM requests."""
 
 import asyncio
-from datetime import datetime
 import random
 import time
-from typing import List, Dict, Any, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import httpx
 
 from .config import (
     OPENROUTER_API_KEY,
     OPENROUTER_API_URL,
-    OPENROUTER_MAX_TOKENS,
     OPENROUTER_MAX_RETRIES,
+    OPENROUTER_MAX_TOKENS,
     OPENROUTER_RETRY_BASE_SECONDS,
     OPENROUTER_RETRY_JITTER,
     OPENROUTER_RETRY_MAX_SECONDS,

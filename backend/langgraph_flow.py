@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
-from datetime import datetime
 import inspect
+from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import (
     Any,
     Awaitable,
@@ -21,8 +21,9 @@ from typing import (
     cast,
 )
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 
+from . import skills, storage
 from .config import (
     CHAIRMAN_MODEL,
     COUNCIL_MODELS,
@@ -36,27 +37,26 @@ from .config import (
     SKILLS_AUTO_SELECT_MODEL,
     SKILLS_CONTEXT_MAX_CHARS,
     SKILLS_ENABLED,
-    SKILLS_MAX_REFERENCES,
     SKILLS_MAX_REFERENCE_SECTIONS,
+    SKILLS_MAX_REFERENCES,
     SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_ENABLED,
     SKILLS_REFERENCE_SELECTION_MODEL,
     SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
 )
-from . import skills, storage
 from .council import (
-    build_label_mapping,
+    SKILL_REFERENCE_ERROR_UNPARSEABLE,
     _normalize_synthesis_mode,
+    build_label_mapping,
     build_responses_for_synthesis,
     calculate_aggregate_gap_scores,
     calculate_aggregate_rankings,
     calculate_pairwise_rankings,
-    generate_prompt_refinement,
     generate_conversation_title,
     generate_negative_prompt,
+    generate_prompt_refinement,
     select_skill_references,
     select_skills,
-    SKILL_REFERENCE_ERROR_UNPARSEABLE,
     stage1_collect_responses,
     stage2_collect_rankings,
     stage3_synthesize_final,
@@ -64,13 +64,13 @@ from .council import (
     stage_negative_evaluations,
 )
 from .interactive import (
+    InteractiveConfig,
+    InteractivePrompt,
+    PromptResponse,
     get_pre_query_prompt,
     get_prompt_refinement_prompt,
     get_response_review_prompt,
     get_synthesis_prefs_prompt,
-    InteractiveConfig,
-    InteractivePrompt,
-    PromptResponse,
     serialize_prompt_responses,
 )
 from .trace import TraceCollector
@@ -413,9 +413,7 @@ def _persisted_skills_plan(
             return None
         if entry.get("version") != skill.version:
             drift = True
-        by_path = {
-            reference.path: reference for reference in skill.references
-        }
+        by_path = {reference.path: reference for reference in skill.references}
         selections: List[skills.SectionSelection] = []
         skill_reasons: Dict[str, str] = {}
         seen_paths: Set[str] = set()
@@ -467,8 +465,7 @@ def _persisted_skills_plan(
                     continue
             elif isinstance(raw_ids, list):
                 available = {
-                    section.section_id
-                    for section in skills.reference_sections(current)
+                    section.section_id for section in skills.reference_sections(current)
                 }
                 section_ids = tuple(
                     str(section_id)
@@ -492,7 +489,6 @@ def _persisted_skills_plan(
             reasons[skill.id] = skill_reasons
 
     return selected_sections, reasons, drift
-
 
 
 def _reference_selection_from_persisted(persisted: Any) -> Optional[Dict[str, Any]]:
@@ -562,7 +558,10 @@ async def _resolve_reference_selection(
                     if candidate is None:
                         continue
                     file_key = f"{candidate.skill_id}/{candidate.path}"
-                    if file_key not in used_files and len(used_files) >= SKILLS_MAX_REFERENCES:
+                    if (
+                        file_key not in used_files
+                        and len(used_files) >= SKILLS_MAX_REFERENCES
+                    ):
                         continue
                     kept_ids.append(candidate_id)
                     used_files.add(file_key)
@@ -712,8 +711,8 @@ async def _resolve_skill_selection(
                     reason = str(reasons_by_id.get(candidate_id) or "").strip()
                     if reason:
                         selection_meta["reasons"][by_index[candidate_id]] = reason
-                selection_meta["model"] = (
-                    router.get("model") or selection_meta.get("model")
+                selection_meta["model"] = router.get("model") or selection_meta.get(
+                    "model"
                 )
             elif router.get("error") == SKILL_REFERENCE_ERROR_UNPARSEABLE:
                 fallback = "router_failed"

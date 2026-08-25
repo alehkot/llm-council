@@ -1,9 +1,9 @@
 """3-stage LLM Council orchestration with optional negative evaluations."""
 
-from typing import List, Dict, Any, Set, Tuple, Optional, Callable, Awaitable, Sequence
 import asyncio
 import json
-from .openrouter import query_model
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set, Tuple
+
 from .config import (
     CHAIRMAN_MODEL,
     COUNCIL_MODELS,
@@ -13,17 +13,17 @@ from .config import (
     PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
     PROMPT_REFINEMENT_MODEL,
-    SKILLS_MAX_REFERENCES,
-    SKILLS_MAX_REFERENCE_SECTIONS,
-    SKILLS_MAX_SELECTED,
     SKILLS_AUTO_SELECT_MODEL,
+    SKILLS_MAX_REFERENCE_SECTIONS,
+    SKILLS_MAX_REFERENCES,
+    SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_MODEL,
     SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
+from .openrouter import query_model
 from .skills import ReferenceCandidate, Skill
 from .trace import TraceCollector
-
 
 ProgressCallback = Optional[
     Callable[[str, str, Optional[Dict[str, Any]]], Awaitable[None]]
@@ -1157,9 +1157,7 @@ async def select_skills(
         return result
 
     payload = extract_json_object(response.get("content", ""))
-    coerced = _coerce_skill_reference_selection(
-        payload, valid_ids, SKILLS_MAX_SELECTED
-    )
+    coerced = _coerce_skill_reference_selection(payload, valid_ids, SKILLS_MAX_SELECTED)
     result.update(coerced)
     if not coerced["parsed"]:
         result["error"] = SKILL_REFERENCE_ERROR_UNPARSEABLE
@@ -1856,7 +1854,6 @@ KEY GAPS IDENTIFIED BY PEER REVIEWERS:
                 summaries = evaluation.get("summaries", {})
                 # Handle new multi-peer format
                 peer_scores = scores.get("peers", {})
-                peer_summaries = summaries.get("peers", {})
                 if peer_scores:
                     peer_text = ", ".join(
                         [f"{lbl}: {s}" for lbl, s in peer_scores.items()]
@@ -2243,8 +2240,8 @@ def calculate_aggregate_gap_scores(
         List of aggregate gap score dicts, sorted by average score (descending).
         Higher scores indicate better gap coverage.
     """
-    from collections import defaultdict
     import statistics
+    from collections import defaultdict
 
     # Collect all peer scores for each response label
     scores_by_label: Dict[str, List[Dict[str, Any]]] = defaultdict(list)

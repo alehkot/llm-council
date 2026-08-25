@@ -1,21 +1,21 @@
 """FastAPI backend for LLM Council."""
 
+import asyncio
+import re
+import uuid
+from collections import deque
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from time import monotonic
+from typing import Any, Deque, Dict, List, Optional, Set
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Deque, Set
-from collections import deque
-from dataclasses import dataclass
-from datetime import datetime
-from time import monotonic
-import re
-import uuid
-import asyncio
 
-from . import skills
-from . import storage
+from . import skills, storage
 from .config import (
     API_AUTH_KEY,
     API_KEY_BRUTEFORCE_LOCKOUT_SECONDS,
@@ -26,18 +26,18 @@ from .config import (
     COUNCIL_MODELS,
     DELIBERATION_ENABLED,
     INTERACTIVE_MODE_ENABLED,
-    NEGATIVE_MODE_ENABLED,
     MAX_NEGATIVE_PROMPT_CHARS,
     MAX_PROMPT_CHARS,
+    NEGATIVE_MODE_ENABLED,
+    OPENROUTER_MAX_TOKENS,
     PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
     PROMPT_REFINEMENT_MODEL,
-    OPENROUTER_MAX_TOKENS,
+    SKILLS_AUTO_SELECT_ENABLED,
     SKILLS_CONTEXT_MAX_CHARS,
     SKILLS_ENABLED,
-    SKILLS_AUTO_SELECT_ENABLED,
-    SKILLS_MAX_REFERENCES,
     SKILLS_MAX_REFERENCE_SECTIONS,
+    SKILLS_MAX_REFERENCES,
     SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_ENABLED,
     SKILLS_REFERENCE_SELECTION_MODEL,
@@ -49,12 +49,12 @@ from .config import (
     SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
-from .council import build_responses_for_synthesis, stage3_synthesize_final
 from .consultation_manager import consultation_manager
+from .council import build_responses_for_synthesis, stage3_synthesize_final
+from .export_markdown import build_export_filename, build_markdown_export
 from .interactive import (
     PromptResponse,
 )
-from .export_markdown import build_markdown_export, build_export_filename
 from .openrouter import query_model
 from .side_chat import (
     build_side_chat_messages,

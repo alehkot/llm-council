@@ -592,9 +592,10 @@ function App() {
 		if (!skillsLoaded || rawSelectedSkillIds !== null) return;
 
 		const stored = skillSelectionStorage.getDefault();
-		const source = stored !== null
-			? stored
-			: findLastRequestedSkillIds(conversations, conversationsById);
+		const source =
+			stored !== null
+				? stored
+				: findLastRequestedSkillIds(conversations, conversationsById);
 
 		const normalized = normalizeSkillIds(source, availableSkillIds);
 		setSelectedSkillIds(normalized);
@@ -611,18 +612,26 @@ function App() {
 	// A deleted or disabled skill silently drops out of the default.
 	useEffect(() => {
 		if (!skillsLoaded || rawSelectedSkillIds === null) return;
-		const normalized = normalizeSkillIds(rawSelectedSkillIds, availableSkillIds);
+		const normalized = normalizeSkillIds(
+			rawSelectedSkillIds,
+			availableSkillIds,
+		);
 		if (sameSkillIds(rawSelectedSkillIds, normalized)) return;
 		setSelectedSkillIds(normalized);
 		skillSelectionStorage.setDefault(normalized);
-	}, [availableSkillIds, rawSelectedSkillIds, setSelectedSkillIds, skillsLoaded]);
+	}, [
+		availableSkillIds,
+		rawSelectedSkillIds,
+		setSelectedSkillIds,
+		skillsLoaded,
+	]);
 
 	// The effective per-chat selection: the global default minus this chat's
 	// toggled-off skills.
 	const currentExclusions = new Set(
-		(currentConversationId
-			&& excludedSkillIdsByConversation[currentConversationId])
-		|| EMPTY_SKILL_IDS,
+		(currentConversationId &&
+			excludedSkillIdsByConversation[currentConversationId]) ||
+			EMPTY_SKILL_IDS,
 	);
 	const selectedSkillIds = (rawSelectedSkillIds || EMPTY_SKILL_IDS).filter(
 		(id) => !currentExclusions.has(id),
@@ -831,14 +840,12 @@ function App() {
 
 				// Update conversation with partial results
 				updateConversationById(currentConversationId, (draft) => {
-					if (!draft || !draft.messages || draft.messages.length === 0)
-						return;
+					if (!draft || !draft.messages || draft.messages.length === 0) return;
 					const targetIndex = findAssistantMessageIndexForStatus(
 						draft.messages,
 						status,
 					);
-					const lastMsg =
-						targetIndex >= 0 ? draft.messages[targetIndex] : null;
+					const lastMsg = targetIndex >= 0 ? draft.messages[targetIndex] : null;
 					if (!lastMsg || lastMsg.role !== "assistant") return;
 
 					if (status.stage1) lastMsg.stage1 = status.stage1;

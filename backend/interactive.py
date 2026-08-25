@@ -1,8 +1,8 @@
 """Interactive prompts for user input during council processing."""
 
-from enum import Enum
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class PromptType(str, Enum):

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import skills
 from .config import SKILLS_CONTEXT_MAX_CHARS
-
 
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -69,7 +68,9 @@ def _normalize_stage3(stage3: Optional[Dict[str, Any]]) -> Optional[Dict[str, An
     return {"current": version, "versions": [version]}
 
 
-def _append_markdown_section(lines: List[str], title: str, content: Optional[str]) -> None:
+def _append_markdown_section(
+    lines: List[str], title: str, content: Optional[str]
+) -> None:
     lines.append(f"### {title}")
     lines.append("")
     text = _normalize_text(content)
@@ -272,7 +273,9 @@ def _append_skills_section(lines: List[str], skills_metadata: Dict[str, Any]) ->
     current_by_id = _load_current_skills([value for value in resolved_ids if value])
 
     lines.extend(["## Agent Skills", ""])
-    lines.append(f"- Requested: {_format_skill_id_list(skills_metadata.get('requested'))}")
+    lines.append(
+        f"- Requested: {_format_skill_id_list(skills_metadata.get('requested'))}"
+    )
     missing = [value for value in (skills_metadata.get("missing") or []) if value]
     if missing:
         lines.append(f"- Unavailable at run time: {_format_skill_id_list(missing)}")
@@ -379,7 +382,9 @@ def _append_skills_section(lines: List[str], skills_metadata: Dict[str, Any]) ->
 
     stage1_max = _as_int(budget.get("stage1_max"), SKILLS_CONTEXT_MAX_CHARS)
     lines.extend(["### Context Budget", ""])
-    lines.append(f"- Stage 1: {_as_int(budget.get('stage1_chars'))} / {stage1_max} chars")
+    lines.append(
+        f"- Stage 1: {_as_int(budget.get('stage1_chars'))} / {stage1_max} chars"
+    )
     lines.append(
         f"- Stage 3: {_as_int(budget.get('stage3_chars'))} / "
         f"{_as_int(budget.get('stage3_max'))} chars"
@@ -512,7 +517,10 @@ def build_markdown_export(
             if status_flags:
                 lines.append(f"_Status: {', '.join(status_flags)}._")
                 lines.append("")
-            lines.append((response.get("response") or "").strip() or "_No response content captured._")
+            lines.append(
+                (response.get("response") or "").strip()
+                or "_No response content captured._"
+            )
             lines.append("")
     else:
         lines.extend(["_Stage 1 data is not available yet._", ""])
@@ -539,7 +547,10 @@ def build_markdown_export(
                 if peer_labels:
                     lines.append(f"- Peer Labels: {', '.join(peer_labels)}")
                 lines.append("")
-                lines.append((evaluation.get("evaluation") or "").strip() or "_No evaluation text captured._")
+                lines.append(
+                    (evaluation.get("evaluation") or "").strip()
+                    or "_No evaluation text captured._"
+                )
                 lines.append("")
 
         if aggregate_gap_scores:
@@ -574,7 +585,9 @@ def build_markdown_export(
                 lines.append(f"- Validation Error: {validation_error}")
             if validation_status or validation_error:
                 lines.append("")
-            lines.append((ranking.get("ranking") or "").strip() or "_No ranking text captured._")
+            lines.append(
+                (ranking.get("ranking") or "").strip() or "_No ranking text captured._"
+            )
             lines.append("")
 
             parsed_ranking = ranking.get("parsed_ranking") or []
@@ -608,7 +621,9 @@ def build_markdown_export(
             if item.get("win_percentage") is not None:
                 win_pct = item.get("win_percentage", 0) * 100
                 pairwise_wins = item.get("pairwise_wins", "n/a")
-                lines.append(f"| {index} | `{model}` | {win_pct:.1f}% | {pairwise_wins} | {votes} |")
+                lines.append(
+                    f"| {index} | `{model}` | {win_pct:.1f}% | {pairwise_wins} | {votes} |"
+                )
             else:
                 average_rank = item.get("average_rank", "n/a")
                 lines.append(f"| {index} | `{model}` | {average_rank} | {votes} |")
@@ -639,7 +654,9 @@ def build_markdown_export(
                     lines.append("_No deliberation revision captured._")
                     lines.append("")
         else:
-            lines.extend(["_Deliberation was enabled, but no revisions were captured._", ""])
+            lines.extend(
+                ["_Deliberation was enabled, but no revisions were captured._", ""]
+            )
 
     lines.extend(["## Stage 3: Synthesis", ""])
     if stage3:
@@ -654,7 +671,9 @@ def build_markdown_export(
         if current_finish_reason:
             lines.append(f"- Current Finish Reason: {current_finish_reason}")
         lines.append("")
-        lines.append((current.get("response") or "").strip() or "_Current synthesis is empty._")
+        lines.append(
+            (current.get("response") or "").strip() or "_Current synthesis is empty._"
+        )
         lines.append("")
 
         versions = stage3.get("versions") or []
@@ -671,7 +690,9 @@ def build_markdown_export(
                 if finish_reason:
                     lines.append(f"_Finish Reason: {finish_reason}_")
                 lines.append("")
-                lines.append((version.get("response") or "").strip() or "_No response captured._")
+                lines.append(
+                    (version.get("response") or "").strip() or "_No response captured._"
+                )
                 lines.append("")
     else:
         lines.extend(["_Stage 3 synthesis is not available yet._", ""])

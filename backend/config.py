@@ -55,14 +55,17 @@ if not OPENROUTER_API_KEY:
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 if not API_AUTH_KEY:
     raise ValueError(
-        "API_AUTH_KEY environment variable not set. "
-        "Please add it to your .env file."
+        "API_AUTH_KEY environment variable not set. Please add it to your .env file."
     )
 
 # Basic brute-force protection for API auth key
 API_KEY_BRUTEFORCE_MAX_ATTEMPTS = _get_int_env("API_KEY_BRUTEFORCE_MAX_ATTEMPTS", 8)
-API_KEY_BRUTEFORCE_WINDOW_SECONDS = _get_int_env("API_KEY_BRUTEFORCE_WINDOW_SECONDS", 300)
-API_KEY_BRUTEFORCE_LOCKOUT_SECONDS = _get_int_env("API_KEY_BRUTEFORCE_LOCKOUT_SECONDS", 300)
+API_KEY_BRUTEFORCE_WINDOW_SECONDS = _get_int_env(
+    "API_KEY_BRUTEFORCE_WINDOW_SECONDS", 300
+)
+API_KEY_BRUTEFORCE_LOCKOUT_SECONDS = _get_int_env(
+    "API_KEY_BRUTEFORCE_LOCKOUT_SECONDS", 300
+)
 if API_KEY_BRUTEFORCE_MAX_ATTEMPTS < 0:
     raise ValueError("API_KEY_BRUTEFORCE_MAX_ATTEMPTS must be >= 0")
 if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
@@ -100,8 +103,7 @@ PAIRWISE_RANKING_ENABLED = _get_bool_env("PAIRWISE_RANKING_ENABLED")
 
 # OpenRouter API endpoint
 OPENROUTER_API_URL = (
-    os.getenv("OPENROUTER_API_URL")
-    or "https://openrouter.ai/api/v1/chat/completions"
+    os.getenv("OPENROUTER_API_URL") or "https://openrouter.ai/api/v1/chat/completions"
 )
 
 # OpenRouter response length limit
@@ -121,7 +123,9 @@ if OPENROUTER_RETRY_BASE_SECONDS <= 0:
 if OPENROUTER_RETRY_MAX_SECONDS <= 0:
     raise ValueError("OPENROUTER_RETRY_MAX_SECONDS must be > 0")
 if OPENROUTER_RETRY_MAX_SECONDS < OPENROUTER_RETRY_BASE_SECONDS:
-    raise ValueError("OPENROUTER_RETRY_MAX_SECONDS must be >= OPENROUTER_RETRY_BASE_SECONDS")
+    raise ValueError(
+        "OPENROUTER_RETRY_MAX_SECONDS must be >= OPENROUTER_RETRY_BASE_SECONDS"
+    )
 if OPENROUTER_RETRY_JITTER < 0:
     raise ValueError("OPENROUTER_RETRY_JITTER must be >= 0")
 
@@ -149,7 +153,9 @@ if STREAM_TIMEOUT_SECONDS <= 0:
 # the server to hold a status request open (up to the max wait) until the
 # snapshot changes from the cursor it last saw; the server re-checks the
 # snapshot at the check interval while holding.
-STATUS_LONGPOLL_MAX_WAIT_SECONDS = _get_float_env("STATUS_LONGPOLL_MAX_WAIT_SECONDS", 30.0)
+STATUS_LONGPOLL_MAX_WAIT_SECONDS = _get_float_env(
+    "STATUS_LONGPOLL_MAX_WAIT_SECONDS", 30.0
+)
 STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS = _get_float_env(
     "STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS", 0.25
 )
@@ -181,7 +187,9 @@ SKILLS_ENABLED = _get_bool_env("SKILLS_ENABLED", "true")
 # Zip upload hardening limits (see backend/skills.py inspect_archive).
 SKILLS_UPLOAD_MAX_BYTES = _get_int_env("SKILLS_UPLOAD_MAX_BYTES", 5_242_880)  # 5 MiB
 SKILLS_MAX_ENTRIES = _get_int_env("SKILLS_MAX_ENTRIES", 500)
-SKILLS_MAX_UNCOMPRESSED_BYTES = _get_int_env("SKILLS_MAX_UNCOMPRESSED_BYTES", 20_971_520)
+SKILLS_MAX_UNCOMPRESSED_BYTES = _get_int_env(
+    "SKILLS_MAX_UNCOMPRESSED_BYTES", 20_971_520
+)
 SKILLS_MAX_COMPRESSION_RATIO = _get_int_env("SKILLS_MAX_COMPRESSION_RATIO", 100)
 
 # How many skills a single consultation may select, how many reference
@@ -195,12 +203,16 @@ SKILLS_MAX_REFERENCE_SECTIONS = _get_int_env("SKILLS_MAX_REFERENCE_SECTIONS", 12
 
 # Character budgets for the rendered <skills> block, per stage.
 SKILLS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_CONTEXT_MAX_CHARS", 48000)
-SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS", 24000)
+SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS = _get_int_env(
+    "SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS", 24000
+)
 
 # Two-pass reference selection: a cheap model picks which references/*.md the
 # query actually needs. When disabled, a deterministic keyword-overlap fallback
 # runs instead (no extra model call).
-SKILLS_REFERENCE_SELECTION_ENABLED = _get_bool_env("SKILLS_REFERENCE_SELECTION_ENABLED", "true")
+SKILLS_REFERENCE_SELECTION_ENABLED = _get_bool_env(
+    "SKILLS_REFERENCE_SELECTION_ENABLED", "true"
+)
 SKILLS_REFERENCE_SELECTION_MODEL = (
     os.getenv("SKILLS_REFERENCE_SELECTION_MODEL") or PROMPT_REFINEMENT_MODEL
 )

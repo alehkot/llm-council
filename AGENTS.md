@@ -72,6 +72,13 @@ uv run python -m backend.main
 
 # Run utility scripts
 uv run python scripts/generate_api_key.py
+
+# Format & lint (Ruff)
+uv run ruff format .
+uv run ruff check --fix .
+
+# Run tests
+uv run python -m unittest discover tests
 ```
 
 ### Frontend
@@ -88,19 +95,28 @@ npm run dev
 # Lint & Build
 npm run lint
 npm run build
+
+# Format (Biome)
+npm run format        # write fixes
+npm run format:check  # verify only
 ```
 
 ## 5. Code Style Guidelines
 
 ### Python (Backend)
 
--   **Imports**: Relative imports within the `backend` package (e.g., `from .config import ...`).
+-   **Formatting/Linting**: Ruff is the source of truth (`uv run ruff format .` and
+    `uv run ruff check --fix .`); config lives in `pyproject.toml` (rules: E, F, I).
+-   **Imports**: Relative imports within the `backend` package (e.g., `from .config import ...`);
+    Ruff keeps import blocks sorted.
 -   **Typing**: Mandatory type hints for all function signatures.
--   **Formatting**: 4-space indentation, 88-100 char line length.
 -   **Async**: All route handlers and external I/O must be `async`.
 
 ### JavaScript/React (Frontend)
 
+-   **Formatting**: Biome is the source of truth (`npm run format`); config lives in
+    `frontend/biome.json` (tabs, double quotes). CSS is excluded - Tailwind 4 syntax
+    is not standard CSS. ESLint remains the linter (`npm run lint`).
 -   **Components**: Functional components with Hooks.
 -   **State**: Prefer Zustand for global state, `useState` for local component state.
 -   **Styling**: Tailwind CSS utility classes. Avoid complex inline styles.
@@ -126,11 +142,13 @@ After modifying code, you **MUST** execute the following:
 
 **Frontend:**
 ```bash
-cd frontend && npm run lint && npm run build
+cd frontend && npm run format:check && npm run lint && npm run build
 ```
 
 **Backend:**
 ```bash
+uv run ruff format --check . && uv run ruff check .
+uv run python -m unittest discover tests
 uv run python -m backend.main  # Run briefly to check for startup errors
 ```
 
