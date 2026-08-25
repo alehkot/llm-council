@@ -145,6 +145,19 @@ STREAM_TIMEOUT_SECONDS = _get_float_env("STREAM_TIMEOUT_SECONDS", 1200.0)
 if STREAM_TIMEOUT_SECONDS <= 0:
     raise ValueError("STREAM_TIMEOUT_SECONDS must be > 0")
 
+# Long-poll settings for the consultation status endpoints. A client may ask
+# the server to hold a status request open (up to the max wait) until the
+# snapshot changes from the cursor it last saw; the server re-checks the
+# snapshot at the check interval while holding.
+STATUS_LONGPOLL_MAX_WAIT_SECONDS = _get_float_env("STATUS_LONGPOLL_MAX_WAIT_SECONDS", 30.0)
+STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS = _get_float_env(
+    "STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS", 0.25
+)
+if STATUS_LONGPOLL_MAX_WAIT_SECONDS <= 0:
+    raise ValueError("STATUS_LONGPOLL_MAX_WAIT_SECONDS must be > 0")
+if STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS <= 0:
+    raise ValueError("STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS must be > 0")
+
 # Prompt length limits (characters)
 MAX_PROMPT_CHARS = _get_int_env("MAX_PROMPT_CHARS", 15000)
 MAX_NEGATIVE_PROMPT_CHARS = _get_int_env("MAX_NEGATIVE_PROMPT_CHARS", 15000)

@@ -788,132 +788,158 @@ function App() {
 		setInteractiveSessionId,
 	]);
 
-	// Poll for consultation status
+	// Gate the status loop on a boolean so per-snapshot state updates don't tear
+	// down and restart the long-poll request.
+	const isConsultationActive = isActiveConsultationStatus(consultationStatus);
+
+	// Long-poll for consultation status. Each response is a full snapshot (status
+	// plus queue) with a change cursor; the server holds the request until the
+	// snapshot differs from the cursor we last saw, so updates arrive near-instantly
+	// while idle waits cost one request per wait window. A dropped request loses
+	// nothing - the next poll returns the complete current state.
 	useEffect(() => {
-		if (!hasApiKey || !currentConversationId || !consultationStatus) {
+		if (!hasApiKey || !currentConversationId || !isConsultationActive) {
 			return;
 		}
 
-		// Don't poll if consultation is done
-		if (!isActiveConsultationStatus(consultationStatus)) {
-			return;
-		}
+		const controller = new AbortController();
+		let stopped = false;
+		let cursor = null;
 
-		const interval = setInterval(async () => {
-			try {
-				const status = await api.getConsultationStatus(currentConversationId);
-				const queueData = await api.getConversationQueue(currentConversationId);
-				const queuedMessages = queueData.queue || [];
-				setMessageQueue(queuedMessages);
+		const applySnapshot = async (status) => {
+			const queuedMessages = status.queue || [];
+			setMessageQueue(queuedMessages);
 
-				if (status.status === "none") {
-					setIsLoading(false);
-					setConsultationStatus(null);
-					clearStreamingConsultation(currentConversationId);
-				} else {
-					if (Number.isInteger(status.assistant_index)) {
-						const localConversation =
-							useAppStore.getState().conversationsById[currentConversationId];
-						if (
-							localConversation?.messages?.[status.assistant_index]?.role !==
-							"assistant"
-						) {
-							await loadConversation(currentConversationId);
-						}
-					}
-
-					setConsultationStatus(status);
-					applyConsultationStatusSnapshot(currentConversationId, status);
-
-					// Update conversation with partial results
-					updateConversationById(currentConversationId, (draft) => {
-						if (!draft || !draft.messages || draft.messages.length === 0)
-							return;
-						const targetIndex = findAssistantMessageIndexForStatus(
-							draft.messages,
-							status,
-						);
-						const lastMsg =
-							targetIndex >= 0 ? draft.messages[targetIndex] : null;
-						if (!lastMsg || lastMsg.role !== "assistant") return;
-
-						if (status.stage1) lastMsg.stage1 = status.stage1;
-						if (status.negative) lastMsg.negative = status.negative;
-						if (status.stage2) {
-							lastMsg.stage2 = status.stage2;
-						}
-						if (status.stage3) lastMsg.stage3 = status.stage3;
-						if (status.metadata) {
-							lastMsg.metadata = {
-								...(lastMsg.metadata || {}),
-								...status.metadata,
-							};
-
-							const interactivePrompt = status.metadata.interactive_prompt;
-							if (interactivePrompt) {
-								if (interactivePrompt.session_id) {
-									setInteractiveSessionId(interactivePrompt.session_id);
-								}
-								setCurrentInteractivePrompt(interactivePrompt);
-							} else if (interactivePrompt === null) {
-								setCurrentInteractivePrompt(null);
-								setInteractiveSessionId(null);
-							}
-						}
-
-						const loading = ensureLoadingState(lastMsg);
-						loading.stage1 = status.status === "stage1";
-						loading.negative = status.status === "negative";
-						loading.stage2 = status.status === "stage2";
-						loading.deliberation = status.status === "deliberation";
-						loading.stage3 = status.status === "stage3";
-					});
-
-					// Handle completion
-					if (status.status === "complete") {
-						clearStreamingConsultation(currentConversationId);
-						loadConversations(); // Refresh list for title update
-						if (queuedMessages.length > 0) {
-							setIsLoading(true);
-							setConsultationStatus({
-								status: "pending",
-								consultation_id: queuedMessages[0].id,
-							});
-						} else {
-							setIsLoading(false);
-							setConsultationStatus(null);
-						}
-					} else if (status.status === "failed") {
-						clearStreamingConsultation(currentConversationId);
-						if (status.error !== "Cancelled") {
-							setError({
-								message: "Consultation failed",
-								details: status.error,
-							});
-						}
-						if (queuedMessages.length > 0) {
-							setIsLoading(true);
-							setConsultationStatus({
-								status: "pending",
-								consultation_id: queuedMessages[0].id,
-							});
-						} else {
-							setIsLoading(false);
-							setConsultationStatus(null);
-						}
+			if (status.status === "none") {
+				setIsLoading(false);
+				setConsultationStatus(null);
+				clearStreamingConsultation(currentConversationId);
+			} else {
+				if (Number.isInteger(status.assistant_index)) {
+					const localConversation =
+						useAppStore.getState().conversationsById[currentConversationId];
+					if (
+						localConversation?.messages?.[status.assistant_index]?.role !==
+						"assistant"
+					) {
+						await loadConversation(currentConversationId);
 					}
 				}
-			} catch (err) {
-				console.error("Failed to poll consultation status:", err);
-				handleApiError(err);
-			}
-		}, 2000);
 
-		return () => clearInterval(interval);
+				setConsultationStatus(status);
+				applyConsultationStatusSnapshot(currentConversationId, status);
+
+				// Update conversation with partial results
+				updateConversationById(currentConversationId, (draft) => {
+					if (!draft || !draft.messages || draft.messages.length === 0)
+						return;
+					const targetIndex = findAssistantMessageIndexForStatus(
+						draft.messages,
+						status,
+					);
+					const lastMsg =
+						targetIndex >= 0 ? draft.messages[targetIndex] : null;
+					if (!lastMsg || lastMsg.role !== "assistant") return;
+
+					if (status.stage1) lastMsg.stage1 = status.stage1;
+					if (status.negative) lastMsg.negative = status.negative;
+					if (status.stage2) {
+						lastMsg.stage2 = status.stage2;
+					}
+					if (status.stage3) lastMsg.stage3 = status.stage3;
+					if (status.metadata) {
+						lastMsg.metadata = {
+							...(lastMsg.metadata || {}),
+							...status.metadata,
+						};
+
+						const interactivePrompt = status.metadata.interactive_prompt;
+						if (interactivePrompt) {
+							if (interactivePrompt.session_id) {
+								setInteractiveSessionId(interactivePrompt.session_id);
+							}
+							setCurrentInteractivePrompt(interactivePrompt);
+						} else if (interactivePrompt === null) {
+							setCurrentInteractivePrompt(null);
+							setInteractiveSessionId(null);
+						}
+					}
+
+					const loading = ensureLoadingState(lastMsg);
+					loading.stage1 = status.status === "stage1";
+					loading.negative = status.status === "negative";
+					loading.stage2 = status.status === "stage2";
+					loading.deliberation = status.status === "deliberation";
+					loading.stage3 = status.status === "stage3";
+				});
+
+				// Handle completion
+				if (status.status === "complete") {
+					clearStreamingConsultation(currentConversationId);
+					loadConversations(); // Refresh list for title update
+					if (queuedMessages.length > 0) {
+						setIsLoading(true);
+						setConsultationStatus({
+							status: "pending",
+							consultation_id: queuedMessages[0].id,
+						});
+					} else {
+						setIsLoading(false);
+						setConsultationStatus(null);
+					}
+				} else if (status.status === "failed") {
+					clearStreamingConsultation(currentConversationId);
+					if (status.error !== "Cancelled") {
+						setError({
+							message: "Consultation failed",
+							details: status.error,
+						});
+					}
+					if (queuedMessages.length > 0) {
+						setIsLoading(true);
+						setConsultationStatus({
+							status: "pending",
+							consultation_id: queuedMessages[0].id,
+						});
+					} else {
+						setIsLoading(false);
+						setConsultationStatus(null);
+					}
+				}
+			}
+		};
+
+		const runLoop = async () => {
+			while (!stopped) {
+				try {
+					const status = await api.getConsultationStatus(
+						currentConversationId,
+						{ wait: 25, cursor, signal: controller.signal },
+					);
+					if (stopped) break;
+					cursor = status.cursor || null;
+					await applySnapshot(status);
+				} catch (err) {
+					if (stopped || err?.name === "AbortError") break;
+					console.error("Failed to poll consultation status:", err);
+					handleApiError(err);
+					// Back off before retrying so transient failures (server restart,
+					// network blip, auth latch) don't spin the loop.
+					await new Promise((resolve) => setTimeout(resolve, 2000));
+				}
+			}
+		};
+
+		runLoop();
+
+		return () => {
+			stopped = true;
+			controller.abort();
+		};
 	}, [
 		applyConsultationStatusSnapshot,
 		clearStreamingConsultation,
-		consultationStatus,
+		isConsultationActive,
 		currentConversationId,
 		handleApiError,
 		hasApiKey,
@@ -959,8 +985,7 @@ function App() {
 					setIsLoading(true);
 				}
 
-				const queueData = await api.getConversationQueue(currentConversationId);
-				setMessageQueue(queueData.queue);
+				setMessageQueue(status.queue || []);
 			} catch (err) {
 				console.error("Failed to check consultation status:", err);
 				handleApiError(err);
@@ -981,27 +1006,44 @@ function App() {
 		setStreamingConsultations,
 	]);
 
-	// Poll for global consultation status (for sidebar indicators)
+	// Long-poll for global consultation status (for sidebar indicators)
 	useEffect(() => {
 		if (!hasApiKey) return;
 
-		const fetchGlobalStatus = async () => {
-			try {
-				const status = await api.getGlobalConsultationStatus();
-				const consultations = {};
-				for (const active of status.active) {
-					consultations[active.conversation_id] = active.status;
+		const controller = new AbortController();
+		let stopped = false;
+		let cursor = null;
+
+		const runLoop = async () => {
+			while (!stopped) {
+				try {
+					const status = await api.getGlobalConsultationStatus({
+						wait: 25,
+						cursor,
+						signal: controller.signal,
+					});
+					if (stopped) break;
+					cursor = status.cursor || null;
+					const consultations = {};
+					for (const active of status.active) {
+						consultations[active.conversation_id] = active.status;
+					}
+					setBackendConsultations(consultations);
+				} catch (err) {
+					if (stopped || err?.name === "AbortError") break;
+					console.error("Failed to fetch global consultation status:", err);
+					handleApiError(err);
+					await new Promise((resolve) => setTimeout(resolve, 5000));
 				}
-				setBackendConsultations(consultations);
-			} catch (err) {
-				console.error("Failed to fetch global consultation status:", err);
-				handleApiError(err);
 			}
 		};
 
-		fetchGlobalStatus();
-		const interval = setInterval(fetchGlobalStatus, 5000);
-		return () => clearInterval(interval);
+		runLoop();
+
+		return () => {
+			stopped = true;
+			controller.abort();
+		};
 	}, [handleApiError, hasApiKey, setBackendConsultations]);
 
 	// Notify when interactive prompt arrives

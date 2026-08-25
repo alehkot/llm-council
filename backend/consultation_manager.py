@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -98,6 +100,13 @@ class ConsultationState:
         if self.error is not None:
             result["error"] = self.error
         return result
+
+
+def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
+    """Stable digest of a snapshot used as a long-poll change cursor."""
+
+    serialized = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
 
 
 class ConsultationManager:
@@ -559,19 +568,47 @@ class ConsultationManager:
                 return None
             return state.to_dict()
 
+    def _queue_payload_locked(self, conversation_id: str) -> List[Dict[str, Any]]:
+        """Serialize the queued messages for a conversation. Caller holds the lock."""
+
+        return [
+            {
+                "id": msg.id,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+            }
+            for msg in self._queues.get(conversation_id, [])
+        ]
+
     def get_queue(self, conversation_id: str) -> List[Dict[str, Any]]:
         """Get queued messages for a conversation."""
 
         with self._lock:
-            queue = self._queues.get(conversation_id, [])
-            return [
-                {
-                    "id": msg.id,
-                    "content": msg.content,
-                    "created_at": msg.created_at.isoformat(),
-                }
-                for msg in queue
-            ]
+            return self._queue_payload_locked(conversation_id)
+
+    def get_sync_snapshot(self, conversation_id: str) -> Dict[str, Any]:
+        """Combined status-plus-queue snapshot with a change cursor.
+
+        The cursor is a digest of the snapshot itself, so any observable change
+        (stage transition, partial results, queue mutation) yields a new cursor
+        without relying on mutation sites remembering to bump a counter.
+        """
+
+        with self._lock:
+            state = self._consultations.get(conversation_id)
+            payload: Dict[str, Any] = (
+                state.to_dict() if state is not None else {"status": "none"}
+            )
+            payload["queue"] = self._queue_payload_locked(conversation_id)
+        payload["cursor"] = _snapshot_fingerprint(payload)
+        return payload
+
+    def get_global_snapshot(self) -> Dict[str, Any]:
+        """Global status snapshot with a change cursor for long-polling."""
+
+        payload = self.get_global_status()
+        payload["cursor"] = _snapshot_fingerprint(payload)
+        return payload
 
     def get_global_status(self) -> Dict[str, Any]:
         """Get global system status including feature flags and pool status."""

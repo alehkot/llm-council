@@ -43,6 +43,8 @@ from .config import (
     SKILLS_REFERENCE_SELECTION_MODEL,
     SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
     SKILLS_UPLOAD_MAX_BYTES,
+    STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS,
+    STATUS_LONGPOLL_MAX_WAIT_SECONDS,
     STREAM_TIMEOUT_SECONDS,
     SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
@@ -1237,18 +1239,58 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     return result
 
 
+async def _hold_for_change(
+    request: Request,
+    fetch_snapshot,
+    cursor: Optional[str],
+    wait: float,
+) -> Dict[str, Any]:
+    """Return the current snapshot, long-polling when the client sent a cursor.
+
+    Holds the request (up to the clamped wait) until the snapshot's cursor
+    differs from the one the client last saw, then returns the full snapshot.
+    On timeout the unchanged snapshot is returned; the client simply re-polls,
+    so a dropped or timed-out request never loses state.
+    """
+
+    snapshot = fetch_snapshot()
+    if not (wait > 0) or cursor is None or snapshot.get("cursor") != cursor:
+        return snapshot
+
+    deadline = monotonic() + min(wait, STATUS_LONGPOLL_MAX_WAIT_SECONDS)
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0 or await request.is_disconnected():
+            return snapshot
+        await asyncio.sleep(min(STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS, remaining))
+        snapshot = fetch_snapshot()
+        if snapshot.get("cursor") != cursor:
+            return snapshot
+
+
 @app.get("/api/conversations/{conversation_id}/consultation/status")
-async def get_consultation_status(conversation_id: str):
-    """Get current consultation status for a conversation."""
+async def get_consultation_status(
+    conversation_id: str,
+    request: Request,
+    wait: float = 0,
+    cursor: Optional[str] = None,
+):
+    """Get consultation status plus queue for a conversation.
+
+    With ``wait`` and ``cursor`` query params the request long-polls: it is held
+    until the snapshot changes from ``cursor`` or the wait window lapses.
+    """
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    status = consultation_manager.get_status(conversation_id)
-    if status is None:
-        return {"status": "none"}
-    return status
+    return await _hold_for_change(
+        request,
+        lambda: consultation_manager.get_sync_snapshot(conversation_id),
+        cursor,
+        wait,
+    )
 
 
 @app.post("/api/conversations/{conversation_id}/consultation/cancel")
@@ -1276,9 +1318,18 @@ async def get_conversation_queue(conversation_id: str):
 
 
 @app.get("/api/consultations/status")
-async def get_global_consultation_status():
-    """Get global consultation system status."""
-    return consultation_manager.get_global_status()
+async def get_global_consultation_status(
+    request: Request,
+    wait: float = 0,
+    cursor: Optional[str] = None,
+):
+    """Get global consultation system status, long-polling when a cursor is sent."""
+    return await _hold_for_change(
+        request,
+        consultation_manager.get_global_snapshot,
+        cursor,
+        wait,
+    )
 
 
 if __name__ == "__main__":

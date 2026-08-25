@@ -302,7 +302,8 @@ llm-council/
 - **Workflow**: LangGraph for complex 3-stage deliberation state management.
 - **Frontend**: React 19, Vite 7, Tailwind CSS 4, and Zustand.
 - **Storage**: Lightweight JSON file persistence in `data/conversations/`.
-- **Sync**: Robust polling mechanism replaces SSE for state consistency.
+- **Sync**: Cursor-based long-polling replaces SSE - full state snapshots with
+  near-instant updates and nothing lost on dropped connections.
 
 ## Documentation
 

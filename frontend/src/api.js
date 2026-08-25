@@ -652,11 +652,21 @@ export const api = {
 	},
 
 	/**
-	 * Get consultation status for a conversation.
+	 * Get consultation status (including the message queue) for a conversation.
+	 * Pass {wait, cursor} to long-poll: the server holds the request until the
+	 * snapshot changes from `cursor` or the wait window lapses, then returns
+	 * the full snapshot with a fresh `cursor`.
+	 * @param {string} conversationId - The conversation ID
+	 * @param {{wait?: number, cursor?: string, signal?: AbortSignal}} [options]
 	 */
-	async getConsultationStatus(conversationId) {
+	async getConsultationStatus(conversationId, { wait, cursor, signal } = {}) {
+		const params = new URLSearchParams();
+		if (wait) params.set("wait", String(wait));
+		if (cursor) params.set("cursor", cursor);
+		const query = params.toString();
 		const response = await apiFetch(
-			`${conversationPath(conversationId)}/consultation/status`,
+			`${conversationPath(conversationId)}/consultation/status${query ? `?${query}` : ""}`,
+			{ signal },
 		);
 		if (!response.ok) {
 			throw new Error("Failed to get consultation status");
@@ -665,23 +675,19 @@ export const api = {
 	},
 
 	/**
-	 * Get message queue for a conversation.
-	 */
-	async getConversationQueue(conversationId) {
-		const response = await apiFetch(
-			`${conversationPath(conversationId)}/queue`,
-		);
-		if (!response.ok) {
-			throw new Error("Failed to get conversation queue");
-		}
-		return response.json();
-	},
-
-	/**
 	 * Get global consultation system status.
+	 * Supports the same {wait, cursor} long-poll options as getConsultationStatus.
+	 * @param {{wait?: number, cursor?: string, signal?: AbortSignal}} [options]
 	 */
-	async getGlobalConsultationStatus() {
-		const response = await apiFetch("/api/consultations/status");
+	async getGlobalConsultationStatus({ wait, cursor, signal } = {}) {
+		const params = new URLSearchParams();
+		if (wait) params.set("wait", String(wait));
+		if (cursor) params.set("cursor", cursor);
+		const query = params.toString();
+		const response = await apiFetch(
+			`/api/consultations/status${query ? `?${query}` : ""}`,
+			{ signal },
+		);
 		if (!response.ok) {
 			throw new Error("Failed to get consultation status");
 		}

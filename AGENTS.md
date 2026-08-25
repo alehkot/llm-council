@@ -31,7 +31,10 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 -   **Build Tool**: Vite 7.x
 -   **Styling**: Tailwind CSS 4.x
 -   **State Management**: Zustand (`store/useAppStore.js`) + React Hooks
--   **Communication**: Polling-based state synchronization (SSE removed).
+-   **Communication**: Long-poll state synchronization (SSE removed). The status
+    endpoints return full snapshots with a change cursor; clients send the cursor
+    back and the server holds the request until the snapshot changes or the wait
+    window lapses, so a dropped request never loses state.
 
 ## 3. Project Structure
 
