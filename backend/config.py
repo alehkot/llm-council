@@ -171,10 +171,14 @@ SKILLS_MAX_ENTRIES = _get_int_env("SKILLS_MAX_ENTRIES", 500)
 SKILLS_MAX_UNCOMPRESSED_BYTES = _get_int_env("SKILLS_MAX_UNCOMPRESSED_BYTES", 20_971_520)
 SKILLS_MAX_COMPRESSION_RATIO = _get_int_env("SKILLS_MAX_COMPRESSION_RATIO", 100)
 
-# How many skills a single consultation may select, and how many references the
-# two-pass selector may inline across all of them.
+# How many skills a single consultation may select, how many reference
+# documents the two-pass selector may draw from, and how many reference sections
+# it may inline across all of them. A "section" is one heading-delimited chunk of
+# a references/*.md file; selecting every section of a document equals the whole
+# file, so whole-file selections remain expressible.
 SKILLS_MAX_SELECTED = _get_int_env("SKILLS_MAX_SELECTED", 5)
 SKILLS_MAX_REFERENCES = _get_int_env("SKILLS_MAX_REFERENCES", 4)
+SKILLS_MAX_REFERENCE_SECTIONS = _get_int_env("SKILLS_MAX_REFERENCE_SECTIONS", 12)
 
 # Character budgets for the rendered <skills> block, per stage.
 SKILLS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_CONTEXT_MAX_CHARS", 48000)
@@ -186,6 +190,17 @@ SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_SYNTHESIS_CONTEXT_MAX_
 SKILLS_REFERENCE_SELECTION_ENABLED = _get_bool_env("SKILLS_REFERENCE_SELECTION_ENABLED", "true")
 SKILLS_REFERENCE_SELECTION_MODEL = (
     os.getenv("SKILLS_REFERENCE_SELECTION_MODEL") or PROMPT_REFINEMENT_MODEL
+)
+
+# Automatic skill selection: when a consultation is sent with no skills ticked in
+# the composer, pick up to SKILLS_MAX_SELECTED enabled skills whose description
+# matches the question. Explicit selections always win over auto-selection. Off by
+# default so existing deployments keep the operator-driven behavior. The same
+# SKILLS_REFERENCE_SELECTION_ENABLED switch gates the router: when it is off, a
+# deterministic keyword-overlap fallback runs instead.
+SKILLS_AUTO_SELECT_ENABLED = _get_bool_env("SKILLS_AUTO_SELECT_ENABLED", "false")
+SKILLS_AUTO_SELECT_MODEL = (
+    os.getenv("SKILLS_AUTO_SELECT_MODEL") or SKILLS_REFERENCE_SELECTION_MODEL
 )
 
 # Max length of a skill's frontmatter description (not an env knob).
@@ -203,6 +218,8 @@ if SKILLS_MAX_SELECTED <= 0:
     raise ValueError("SKILLS_MAX_SELECTED must be > 0")
 if SKILLS_MAX_REFERENCES <= 0:
     raise ValueError("SKILLS_MAX_REFERENCES must be > 0")
+if SKILLS_MAX_REFERENCE_SECTIONS <= 0:
+    raise ValueError("SKILLS_MAX_REFERENCE_SECTIONS must be > 0")
 if SKILLS_CONTEXT_MAX_CHARS <= 0:
     raise ValueError("SKILLS_CONTEXT_MAX_CHARS must be > 0")
 if SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS <= 0:

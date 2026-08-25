@@ -72,7 +72,9 @@ export default function ChatInterface({
 	onVersionAdded,
 	onCurrentChanged,
 	selectedSkillIds,
+	defaultSkillIds,
 	onSkillIdsChange,
+	onResetSkillOverrides,
 	onOpenSkillsModal,
 }) {
 	const {
@@ -1039,8 +1041,11 @@ export default function ChatInterface({
 							<SkillPicker
 								skills={skills}
 								selectedIds={skillDraftIds}
+								defaultSkillIds={defaultSkillIds}
 								onChange={onSkillIdsChange}
+								onResetToDefault={onResetSkillOverrides}
 								maxSelected={config?.skills_max_selected}
+								autoSelectEnabled={Boolean(config?.skills_auto_select_enabled)}
 								disabled={isCancelling}
 								onManage={onOpenSkillsModal}
 							/>

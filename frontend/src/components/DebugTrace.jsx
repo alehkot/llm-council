@@ -11,6 +11,7 @@ const STAGE_LABELS = {
   title: 'Title',
   prompt_refinement: 'Prompt Refinement',
   skill_references: 'Skill References',
+  skill_selection: 'Skill Selection',
 };
 
 const KIND_LABELS = {

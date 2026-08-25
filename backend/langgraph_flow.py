@@ -15,6 +15,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Set,
     Tuple,
     TypedDict,
     cast,
@@ -31,9 +32,13 @@ from .config import (
     NEGATIVE_MODE_ENABLED,
     PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
+    SKILLS_AUTO_SELECT_ENABLED,
+    SKILLS_AUTO_SELECT_MODEL,
     SKILLS_CONTEXT_MAX_CHARS,
     SKILLS_ENABLED,
     SKILLS_MAX_REFERENCES,
+    SKILLS_MAX_REFERENCE_SECTIONS,
+    SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_ENABLED,
     SKILLS_REFERENCE_SELECTION_MODEL,
     SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
@@ -50,6 +55,7 @@ from .council import (
     generate_conversation_title,
     generate_negative_prompt,
     select_skill_references,
+    select_skills,
     SKILL_REFERENCE_ERROR_UNPARSEABLE,
     stage1_collect_responses,
     stage2_collect_rankings,
@@ -376,13 +382,16 @@ def _skills_stage3_block(context: FlowContext) -> Optional[str]:
 def _persisted_skills_plan(
     persisted: Any,
     loaded: List[skills.Skill],
-) -> Optional[Tuple[Dict[str, List[str]], Dict[str, Dict[str, str]], bool]]:
+) -> Optional[
+    Tuple[Dict[str, List[skills.SectionSelection]], Dict[str, Dict[str, str]], bool]
+]:
     """Rebuild a stored reference selection so a resume re-renders it router-free.
 
-    Returns ``(selected_reference_paths, reasons, drift)``, or ``None`` when the
-    persisted plan cannot be trusted and the selection must be resolved from scratch.
-    A skill whose version moved keeps only the persisted paths that still exist in the
-    current manifest and flags drift.
+    Returns `(selected_sections, reasons, drift)`, or `None` when the persisted
+    plan cannot be trusted and the selection must be resolved from scratch. A skill
+    whose version moved keeps only the persisted sections that still exist in the
+    current manifest and flags drift. Legacy plans without `section_ids` keep
+    whole-file semantics.
     """
     if not isinstance(persisted, dict):
         return None
@@ -395,7 +404,7 @@ def _persisted_skills_plan(
         if isinstance(entry, dict) and entry.get("id"):
             by_id[str(entry.get("id"))] = entry
 
-    selected_paths: Dict[str, List[str]] = {}
+    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
     reasons: Dict[str, Dict[str, str]] = {}
     drift = False
     for skill in loaded:
@@ -404,27 +413,86 @@ def _persisted_skills_plan(
             return None
         if entry.get("version") != skill.version:
             drift = True
-        available = set(skill.reference_paths())
-        paths: List[str] = []
+        by_path = {
+            reference.path: reference for reference in skill.references
+        }
+        selections: List[skills.SectionSelection] = []
         skill_reasons: Dict[str, str] = {}
+        seen_paths: Set[str] = set()
         for reference in entry.get("references") or []:
             if not isinstance(reference, dict):
                 continue
             path = str(reference.get("path") or "")
-            if not path or path in paths:
+            if not path or path in seen_paths:
                 continue
-            if path not in available:
+            seen_paths.add(path)
+            current = by_path.get(path)
+            if current is None:
                 drift = True
                 continue
-            paths.append(path)
+            stored_sections = reference.get("sections")
+            raw_ids = reference.get("section_ids")
+            # A legacy manifest has no sections of its own: its synthetic section
+            # means whole file, so stored section ids cannot be validated - and
+            # must not shrink the selection on resume.
+            if not current.sections:
+                section_ids = ()
+            elif isinstance(stored_sections, list):
+                # Positional ids alone are unstable across version bumps: an
+                # inserted heading shifts every later position. Require the stored
+                # id+heading pair to match the current manifest, so a resume can
+                # shrink the selection (flagged as drift) but never silently
+                # inline different content under an old position.
+                current_by_id = {
+                    section.section_id: section.heading
+                    for section in skills.reference_sections(current)
+                }
+                kept: List[str] = []
+                for stored in stored_sections:
+                    if not isinstance(stored, dict):
+                        drift = True
+                        continue
+                    section_id = str(stored.get("id") or "")
+                    heading = str(stored.get("heading") or "")
+                    if (
+                        section_id
+                        and section_id in current_by_id
+                        and current_by_id[section_id] == heading
+                    ):
+                        kept.append(section_id)
+                    else:
+                        drift = True
+                section_ids = tuple(kept)
+                if stored_sections and not section_ids:
+                    continue
+            elif isinstance(raw_ids, list):
+                available = {
+                    section.section_id
+                    for section in skills.reference_sections(current)
+                }
+                section_ids = tuple(
+                    str(section_id)
+                    for section_id in raw_ids
+                    if str(section_id) in available
+                )
+                if len(section_ids) != len(raw_ids):
+                    drift = True
+                if raw_ids and not section_ids:
+                    continue
+            else:
+                section_ids = ()
+            selections.append(
+                skills.SectionSelection(path=path, section_ids=section_ids)
+            )
             reason = str(reference.get("reason") or "").strip()
             if reason:
                 skill_reasons[path] = reason
-        selected_paths[skill.id] = paths
+        selected_sections[skill.id] = selections
         if skill_reasons:
             reasons[skill.id] = skill_reasons
 
-    return selected_paths, reasons, drift
+    return selected_sections, reasons, drift
+
 
 
 def _reference_selection_from_persisted(persisted: Any) -> Optional[Dict[str, Any]]:
@@ -482,6 +550,28 @@ async def _resolve_reference_selection(
                     int(key): str(value)
                     for key, value in (router.get("reasons") or {}).items()
                 }
+                # Coercion capped the section count; enforce the distinct-document
+                # cap here, in the router's stated order (most important first).
+                by_candidate = {
+                    candidate.candidate_id: candidate for candidate in candidates
+                }
+                kept_ids: List[int] = []
+                used_files: Set[str] = set()
+                for candidate_id in selected_ids:
+                    candidate = by_candidate.get(candidate_id)
+                    if candidate is None:
+                        continue
+                    file_key = f"{candidate.skill_id}/{candidate.path}"
+                    if file_key not in used_files and len(used_files) >= SKILLS_MAX_REFERENCES:
+                        continue
+                    kept_ids.append(candidate_id)
+                    used_files.add(file_key)
+                selected_ids = kept_ids
+                reason_by_id = {
+                    candidate_id: reason
+                    for candidate_id, reason in reason_by_id.items()
+                    if candidate_id in selected_ids
+                }
             elif router.get("error") == SKILL_REFERENCE_ERROR_UNPARSEABLE:
                 fallback = "router_failed"
             else:
@@ -500,12 +590,143 @@ async def _resolve_reference_selection(
             candidates,
             user_query,
             SKILLS_MAX_REFERENCES,
+            SKILLS_MAX_REFERENCE_SECTIONS,
             reference_budget,
         )
         reason_by_id = {}
         selection_meta["fallback"] = fallback
 
     return selected_ids, reason_by_id
+
+
+def _count_selected_sections(
+    loaded: Sequence[skills.Skill],
+    selected_sections: Dict[str, List[skills.SectionSelection]],
+) -> int:
+    """Sections actually selected and inlined, including whole-file selections.
+
+    Whole-file selections count the re-chunked sections the renderer will inline -
+    not the manifest's synthetic single section a legacy manifest carries.
+    """
+    total = 0
+    for skill in loaded:
+        by_path = {reference.path: reference for reference in skill.references}
+        for selection in selected_sections.get(skill.id, []):
+            if selection.path not in by_path:
+                continue
+            if selection.section_ids:
+                total += len(selection.section_ids)
+            else:
+                pairs = skills.read_reference_sections(skill.id, selection.path, [])
+                total += len(pairs or [])
+    return total
+
+
+def _persisted_skill_ids(state: CouncilState) -> Optional[List[str]]:
+    """Skill ids of a stored selection, for a router-free resume.
+
+    Returns None when the stored plan carries no usable resolved entries, so the
+    caller falls through to auto-selection (or to an empty runtime).
+    """
+    persisted = (state.get("metadata") or {}).get("skills")
+    if not isinstance(persisted, dict):
+        return None
+    resolved = persisted.get("resolved")
+    if not isinstance(resolved, list) or not resolved:
+        return None
+    skill_ids: List[str] = []
+    for entry in resolved:
+        if isinstance(entry, dict) and entry.get("id"):
+            skill_id = str(entry.get("id")).strip().lower()
+            if skill_id and skill_id not in skill_ids:
+                skill_ids.append(skill_id)
+    return skill_ids or None
+
+
+def _skill_selection_from_persisted(state: CouncilState) -> Optional[Dict[str, Any]]:
+    """Carry the stored skill-selection decision forward when a plan is reused."""
+    persisted = (state.get("metadata") or {}).get("skills")
+    if not isinstance(persisted, dict):
+        return None
+    stored = persisted.get("skill_selection")
+    if not isinstance(stored, dict):
+        return None
+    return {
+        "mode": str(stored.get("mode") or "manual"),
+        "enabled": bool(stored.get("enabled")),
+        "model": stored.get("model"),
+        "candidate_count": int(stored.get("candidate_count") or 0),
+        "selected_count": int(stored.get("selected_count") or 0),
+        "fallback": stored.get("fallback"),
+        "reasons": dict(stored.get("reasons") or {}),
+    }
+
+
+async def _resolve_skill_selection(
+    context: FlowContext,
+    state: CouncilState,
+    selection_meta: Dict[str, Any],
+) -> List[str]:
+    """Pick which enabled skills this question needs: two-pass router + fallback.
+
+    Mutates `selection_meta` with model/fallback/reasons. Mirrors
+    `_resolve_reference_selection`: the deterministic fallback runs when the
+    router is disabled, fails, times out, or returns an unusable answer.
+    """
+    user_query = str(state.get("user_query") or "")
+    candidates = [skill for skill in skills.list_skills() if skill.enabled]
+    selection_meta["candidate_count"] = len(candidates)
+    selected_ids: List[str] = []
+    fallback: Optional[str] = None
+
+    if not candidates:
+        return []
+
+    if not SKILLS_REFERENCE_SELECTION_ENABLED:
+        fallback = "router_disabled"
+    else:
+        try:
+            router = await select_skills(user_query, candidates, trace=context.trace)
+        except asyncio.TimeoutError:
+            fallback = "router_timeout"
+        except Exception:
+            # Skills must never kill a run; degrade to the deterministic scorer.
+            fallback = "router_error"
+        else:
+            if router.get("parsed"):
+                by_index = {
+                    index: candidate.id
+                    for index, candidate in enumerate(candidates, start=1)
+                }
+                selected_ids = sorted(
+                    {
+                        by_index[candidate_id]
+                        for candidate_id in router.get("selected") or []
+                        if candidate_id in by_index
+                    }
+                )
+                reasons_by_id = router.get("reasons") or {}
+                for candidate_id in router.get("selected") or []:
+                    if candidate_id not in by_index:
+                        continue
+                    reason = str(reasons_by_id.get(candidate_id) or "").strip()
+                    if reason:
+                        selection_meta["reasons"][by_index[candidate_id]] = reason
+                selection_meta["model"] = (
+                    router.get("model") or selection_meta.get("model")
+                )
+            elif router.get("error") == SKILL_REFERENCE_ERROR_UNPARSEABLE:
+                fallback = "router_failed"
+            else:
+                fallback = "router_error"
+
+    if fallback:
+        selected_ids = skills.fallback_skill_ids(
+            candidates, user_query, SKILLS_MAX_SELECTED
+        )
+        selection_meta["fallback"] = fallback
+
+    return selected_ids
 
 
 async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> None:
@@ -517,6 +738,11 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
     When ``state`` already carries a usable persisted plan the selection is re-rendered
     deterministically with zero router calls, so a resume cannot silently swap the
     reference set Stage 1 ran under.
+
+    When the consultation carries no explicit skill ids and
+    ``SKILLS_AUTO_SELECT_ENABLED``, the enabled skill library is routed once here
+    (same two-pass pattern as references), and the stored plan makes the resume
+    replay that exact selection router-free.
     """
     if context.skills_runtime is not None:
         return
@@ -526,7 +752,42 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
         for skill_id in (context.skill_ids or [])
         if str(skill_id).strip()
     ]
-    if not SKILLS_ENABLED or not requested:
+    if not SKILLS_ENABLED:
+        context.skills_runtime = SkillsRuntime(
+            stage1_block=None, stage3_block=None, metadata={}
+        )
+        return
+
+    skill_selection_meta: Dict[str, Any] = {
+        "mode": "manual" if requested else "none",
+        "enabled": bool(SKILLS_AUTO_SELECT_ENABLED),
+        "model": SKILLS_AUTO_SELECT_MODEL if SKILLS_AUTO_SELECT_ENABLED else None,
+        "candidate_count": 0,
+        "selected_count": 0,
+        "fallback": None,
+        "reasons": {},
+    }
+
+    if not requested:
+        # No explicit selection: replay the stored auto-selection on resume, or run
+        # the auto-selector when enabled. Explicit picks always win either way.
+        persisted_ids = _persisted_skill_ids(state)
+        if persisted_ids is not None:
+            requested = persisted_ids
+            stored = _skill_selection_from_persisted(state)
+            if stored is not None:
+                skill_selection_meta = stored
+            if skill_selection_meta.get("mode") == "auto":
+                skill_selection_meta["mode"] = "auto_resumed"
+            skill_selection_meta["selected_count"] = len(requested)
+        elif SKILLS_AUTO_SELECT_ENABLED:
+            requested = await _resolve_skill_selection(
+                context, state, skill_selection_meta
+            )
+            skill_selection_meta["mode"] = "auto"
+            skill_selection_meta["selected_count"] = len(requested)
+
+    if not requested:
         context.skills_runtime = SkillsRuntime(
             stage1_block=None, stage3_block=None, metadata={}
         )
@@ -546,7 +807,7 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
         "selected_count": 0,
         "fallback": None,
     }
-    selected_paths: Dict[str, List[str]] = {}
+    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
     reasons: Dict[str, Dict[str, str]] = {}
     drift = False
     reused_plan = False
@@ -558,7 +819,7 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
         # separately by skills.load_skills.
         plan = _persisted_skills_plan(persisted, loaded)
         if plan is not None:
-            selected_paths, reasons, drift = plan
+            selected_sections, reasons, drift = plan
             reused_plan = True
             stored_selection = _reference_selection_from_persisted(persisted)
             if stored_selection is not None:
@@ -567,8 +828,8 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
                 selection_meta["candidate_count"] = len(
                     skills.build_reference_candidates(loaded)
                 )
-            selection_meta["selected_count"] = sum(
-                len(paths) for paths in selected_paths.values()
+            selection_meta["selected_count"] = _count_selected_sections(
+                loaded, selected_sections
             )
         else:
             candidates = skills.build_reference_candidates(loaded)
@@ -583,34 +844,50 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
             by_candidate = {
                 candidate.candidate_id: candidate for candidate in candidates
             }
+            # Group the flat candidate ids back into (skill, path) selections,
+            # preserving the router's order inside each document. Whole-file
+            # selections stay explicit: every section id is listed.
+            pending: Dict[str, Dict[str, List[str]]] = {}
             for candidate_id in selected_ids:
                 candidate = by_candidate.get(candidate_id)
                 if candidate is None:
                     continue
-                paths = selected_paths.setdefault(candidate.skill_id, [])
-                if candidate.path in paths:
-                    continue
-                paths.append(candidate.path)
+                ids = pending.setdefault(candidate.skill_id, {}).setdefault(
+                    candidate.path, []
+                )
+                if candidate.section_id not in ids:
+                    ids.append(candidate.section_id)
                 reason = str(reason_by_id.get(candidate_id) or "").strip()
                 if reason:
-                    reasons.setdefault(candidate.skill_id, {})[candidate.path] = reason
-            selection_meta["selected_count"] = sum(
-                len(paths) for paths in selected_paths.values()
+                    reasons.setdefault(candidate.skill_id, {})[
+                        f"{candidate.path}::{candidate.section_id}"
+                    ] = reason
+            selected_sections = {
+                skill_id: [
+                    skills.SectionSelection(path=path, section_ids=tuple(ids))
+                    for path, ids in by_path.items()
+                ]
+                for skill_id, by_path in pending.items()
+            }
+            selection_meta["selected_count"] = _count_selected_sections(
+                loaded, selected_sections
             )
 
     # Rendered twice from the SAME selection: the chairman gets a tighter budget
     # because it already carries the Stage 1 evidence those answers were written under.
     stage1_block, stage1_report = skills.render_skills_context(
-        loaded, selected_paths, SKILLS_CONTEXT_MAX_CHARS, reasons
+        loaded, selected_sections, SKILLS_CONTEXT_MAX_CHARS, reasons
     )
+
     stage3_block, stage3_report = skills.render_skills_context(
-        loaded, selected_paths, SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS, reasons
+        loaded, selected_sections, SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS, reasons
     )
 
     metadata: Dict[str, Any] = {
         "requested": requested,
         "resolved": list(stage1_report.get("resolved") or []),
         "missing": list(missing),
+        "skill_selection": skill_selection_meta,
         "reference_selection": selection_meta,
         "budget": {
             "stage1_chars": int(stage1_report.get("chars") or 0),
@@ -636,6 +913,7 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
         requested=requested,
         resolved=[entry.get("id") for entry in metadata["resolved"]],
         missing=list(missing),
+        skill_selection=skill_selection_meta,
         reused_persisted_plan=reused_plan,
         candidate_count=selection_meta.get("candidate_count", 0),
         selected_count=selection_meta.get("selected_count", 0),

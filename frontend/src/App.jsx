@@ -124,15 +124,31 @@ function collectAvailableSkillIds(skills) {
 	return availableIds;
 }
 
-// The read-only applied record on a finished message seeds the next draft.
-function findLastRequestedSkillIds(messages) {
-	if (!Array.isArray(messages)) return EMPTY_SKILL_IDS;
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const message = messages[index];
-		if (message?.role !== "assistant") continue;
-		const requested = message.metadata?.skills?.requested;
-		if (Array.isArray(requested)) {
-			return requested;
+// The read-only applied record on the most recent assistant message seeds the
+// first-ever shared draft (and absorbs legacy per-chat drafts). Auto-selected
+// runs store the picked skills under "resolved", so fall back to that when
+// "requested" is empty.
+function findLastRequestedSkillIds(conversations, conversationsById) {
+	if (!Array.isArray(conversations)) return EMPTY_SKILL_IDS;
+	for (let c = conversations.length - 1; c >= 0; c--) {
+		const conversationId = conversations[c]?.id;
+		const messages = conversationsById[conversationId]?.messages;
+		if (!Array.isArray(messages)) continue;
+		for (let m = messages.length - 1; m >= 0; m--) {
+			const message = messages[m];
+			if (message?.role !== "assistant") continue;
+			const skillsMeta = message.metadata?.skills;
+			const requested = skillsMeta?.requested;
+			if (Array.isArray(requested) && requested.length) {
+				return requested;
+			}
+			const resolved = skillsMeta?.resolved;
+			if (Array.isArray(resolved)) {
+				const ids = resolved
+					.map((entry) => entry?.id)
+					.filter((id) => typeof id === "string" && id);
+				if (ids.length) return ids;
+			}
 		}
 	}
 	return EMPTY_SKILL_IDS;
@@ -149,6 +165,7 @@ function App() {
 		setConversationsById,
 		setIsLoading,
 		setError,
+		config,
 		setConfig,
 		isSidebarOpen,
 		setIsSidebarOpen,
@@ -177,8 +194,10 @@ function App() {
 		setSkills,
 		skillsLoaded,
 		setSkillsLoaded,
-		selectedSkillIdsByConversation,
-		setSelectedSkillIdsByConversation,
+		selectedSkillIds: rawSelectedSkillIds,
+		setSelectedSkillIds,
+		excludedSkillIdsByConversation,
+		setExcludedSkillIdsByConversation,
 		isSkillsModalOpen,
 		setIsSkillsModalOpen,
 	} = useAppStore();
@@ -565,66 +584,94 @@ function App() {
 		[skills],
 	);
 
-	const currentConversationMessages = currentConversationId
-		? conversationsById[currentConversationId]?.messages
-		: null;
-
-	// The draft (pre-send) skill selection: restored from localStorage, seeded
-	// from the last assistant message when there is no draft, and always
-	// filtered against the installed skills.
+	// The GLOBAL DEFAULT skill selection: seeded once from localStorage - or from
+	// the last applied assistant message when nothing was ever stored - and
+	// always filtered against the installed skills. Per-chat toggles only ever
+	// subtract from this default (see handleSkillIdsChange).
 	useEffect(() => {
-		if (!currentConversationId || !skillsLoaded) return;
+		if (!skillsLoaded || rawSelectedSkillIds !== null) return;
 
-		const existing =
-			useAppStore.getState().selectedSkillIdsByConversation[
-				currentConversationId
-			];
-
-		let source;
-		if (Array.isArray(existing)) {
-			source = existing;
-		} else {
-			const stored = skillSelectionStorage.get(currentConversationId);
-			source = stored.length
-				? stored
-				: findLastRequestedSkillIds(currentConversationMessages);
-		}
+		const stored = skillSelectionStorage.getDefault();
+		const source = stored !== null
+			? stored
+			: findLastRequestedSkillIds(conversations, conversationsById);
 
 		const normalized = normalizeSkillIds(source, availableSkillIds);
-		if (Array.isArray(existing) && sameSkillIds(existing, normalized)) {
-			return;
-		}
-
-		setSelectedSkillIdsByConversation((prev) => ({
-			...prev,
-			[currentConversationId]: normalized,
-		}));
-		skillSelectionStorage.set(currentConversationId, normalized);
+		setSelectedSkillIds(normalized);
+		skillSelectionStorage.setDefault(normalized);
 	}, [
 		availableSkillIds,
-		currentConversationId,
-		currentConversationMessages,
-		setSelectedSkillIdsByConversation,
+		conversations,
+		conversationsById,
+		rawSelectedSkillIds,
+		setSelectedSkillIds,
 		skillsLoaded,
 	]);
 
-	const selectedSkillIds =
-		(currentConversationId &&
-			selectedSkillIdsByConversation[currentConversationId]) ||
-		EMPTY_SKILL_IDS;
+	// A deleted or disabled skill silently drops out of the default.
+	useEffect(() => {
+		if (!skillsLoaded || rawSelectedSkillIds === null) return;
+		const normalized = normalizeSkillIds(rawSelectedSkillIds, availableSkillIds);
+		if (sameSkillIds(rawSelectedSkillIds, normalized)) return;
+		setSelectedSkillIds(normalized);
+		skillSelectionStorage.setDefault(normalized);
+	}, [availableSkillIds, rawSelectedSkillIds, setSelectedSkillIds, skillsLoaded]);
 
+	// The effective per-chat selection: the global default minus this chat's
+	// toggled-off skills.
+	const currentExclusions = new Set(
+		(currentConversationId
+			&& excludedSkillIdsByConversation[currentConversationId])
+		|| EMPTY_SKILL_IDS,
+	);
+	const selectedSkillIds = (rawSelectedSkillIds || EMPTY_SKILL_IDS).filter(
+		(id) => !currentExclusions.has(id),
+	);
+
+	// Composer toggles write per-chat exclusions, never the default itself:
+	// unchecking a default skill turns it off for this chat only.
 	const handleSkillIdsChange = useCallback(
 		(nextIds) => {
 			if (!currentConversationId) return;
 			const normalized = normalizeSkillIds(nextIds, availableSkillIds);
-			setSelectedSkillIdsByConversation((prev) => ({
+			const defaultIds = rawSelectedSkillIds || EMPTY_SKILL_IDS;
+			const exclusions = defaultIds.filter((id) => !normalized.includes(id));
+			setExcludedSkillIdsByConversation((prev) => ({
 				...prev,
-				[currentConversationId]: normalized,
+				[currentConversationId]: exclusions,
 			}));
-			skillSelectionStorage.set(currentConversationId, normalized);
+			skillSelectionStorage.setExclusions(currentConversationId, exclusions);
 		},
-		[availableSkillIds, currentConversationId, setSelectedSkillIdsByConversation],
+		[
+			availableSkillIds,
+			currentConversationId,
+			rawSelectedSkillIds,
+			setExcludedSkillIdsByConversation,
+		],
 	);
+
+	// The Skills modal edits the global default, capped at the backend's
+	// per-consultation limit so an oversized default can never fail on send.
+	const handleDefaultSkillIdsChange = useCallback(
+		(nextIds) => {
+			const normalized = normalizeSkillIds(nextIds, availableSkillIds);
+			const cap = Number(config?.skills_max_selected);
+			const capped = cap > 0 ? normalized.slice(0, cap) : normalized;
+			setSelectedSkillIds(capped);
+			skillSelectionStorage.setDefault(capped);
+		},
+		[availableSkillIds, config?.skills_max_selected, setSelectedSkillIds],
+	);
+
+	const handleResetSkillOverrides = useCallback(() => {
+		if (!currentConversationId) return;
+		setExcludedSkillIdsByConversation((prev) => {
+			const next = { ...prev };
+			delete next[currentConversationId];
+			return next;
+		});
+		skillSelectionStorage.setExclusions(currentConversationId, []);
+	}, [currentConversationId, setExcludedSkillIdsByConversation]);
 
 	const handleOpenSkillsModal = useCallback(
 		(focusSkillId) => {
@@ -1515,6 +1562,8 @@ function App() {
 				onDelete={handleDeleteSkill}
 				onToggleEnabled={handleToggleSkillEnabled}
 				focusSkillId={skillsModalFocusId}
+				defaultSkillIds={rawSelectedSkillIds || EMPTY_SKILL_IDS}
+				onDefaultSkillIdsChange={handleDefaultSkillIdsChange}
 			/>
 			<Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
 				<SheetContent side="left" className="p-0">
@@ -1558,7 +1607,9 @@ function App() {
 							onVersionAdded={handleVersionAdded}
 							onCurrentChanged={handleCurrentChanged}
 							selectedSkillIds={selectedSkillIds}
+							defaultSkillIds={rawSelectedSkillIds || EMPTY_SKILL_IDS}
 							onSkillIdsChange={handleSkillIdsChange}
+							onResetSkillOverrides={handleResetSkillOverrides}
 							onOpenSkillsModal={handleOpenSkillsModal}
 						/>
 					</div>

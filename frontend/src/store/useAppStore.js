@@ -41,7 +41,8 @@ export const useAppStore = create((set) => ({
   apiKeyError: null,
   skills: [],
   skillsLoaded: false,
-  selectedSkillIdsByConversation: {},
+  selectedSkillIds: null,
+  excludedSkillIdsByConversation: {},
   isSkillsModalOpen: false,
 
   setConversations: (next) => set((state) => ({
@@ -110,9 +111,12 @@ export const useAppStore = create((set) => ({
   setSkillsLoaded: (next) => set((state) => ({
     skillsLoaded: applyUpdate(state.skillsLoaded, next),
   })),
-  setSelectedSkillIdsByConversation: (next) => set((state) => ({
-    selectedSkillIdsByConversation: applyUpdate(
-      state.selectedSkillIdsByConversation,
+  setSelectedSkillIds: (next) => set((state) => ({
+    selectedSkillIds: applyUpdate(state.selectedSkillIds, next),
+  })),
+  setExcludedSkillIdsByConversation: (next) => set((state) => ({
+    excludedSkillIdsByConversation: applyUpdate(
+      state.excludedSkillIdsByConversation,
       next,
     ),
   })),

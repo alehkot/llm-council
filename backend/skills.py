@@ -64,6 +64,9 @@ _STALE_TEMP_SECONDS = 3600.0
 
 _MAX_HEADINGS = 12
 _MAX_MENTIONS = 3
+# Bound on heading-delimited sections per reference. Keeps the router candidate
+# list bounded; headings beyond the cap stay inside the final section.
+_MAX_SECTIONS_PER_REFERENCE = 20
 _MENTION_MAX_CHARS = 300
 _SUMMARY_MAX_CHARS = 200
 
@@ -126,14 +129,47 @@ class SkillError(ValueError):
 
 
 @dataclass(frozen=True)
+class ReferenceSection:
+    """One heading-delimited chunk of a ``references/*.md`` file, indexed at ingest.
+
+    ``section_id`` is the 1-based manifest-order position, kept as a string so it
+    round-trips through JSON unchanged. ``heading`` is the ``#``/``##`` heading that
+    opens the section; it is ``""`` for the intro chunk that precedes the first
+    heading.
+    """
+
+    section_id: str
+    heading: str
+    chars: int
+    summary: str
+
+
+@dataclass(frozen=True)
 class SkillReference:
-    """An injectable ``references/*.md`` file, indexed once at ingest."""
+    """An injectable ``references/*.md`` file, indexed once at ingest.
+
+    ``sections`` is never empty for a manifest built by this module: old manifests
+    without it are backfilled to one whole-file section by ``reference_sections``.
+    """
 
     path: str
     chars: int
     headings: List[str]
     mentions: List[str]
     summary: str
+    sections: List[ReferenceSection] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SectionSelection:
+    """The sections of one reference selected for injection into a prompt.
+
+    ``section_ids`` empty means the whole file - the shape legacy persisted plans
+    carry, and the natural whole-document selection.
+    """
+
+    path: str
+    section_ids: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -207,6 +243,15 @@ class Skill:
                         "chars": reference.chars,
                         "headings": list(reference.headings),
                         "summary": reference.summary,
+                        "sections": [
+                            {
+                                "id": section.section_id,
+                                "heading": section.heading,
+                                "chars": section.chars,
+                                "summary": section.summary,
+                            }
+                            for section in reference_sections(reference)
+                        ],
                     }
                     for reference in self.references
                 ],
@@ -242,6 +287,15 @@ class Skill:
                     "headings": list(reference.headings),
                     "mentions": list(reference.mentions),
                     "summary": reference.summary,
+                    "sections": [
+                        {
+                            "id": section.section_id,
+                            "heading": section.heading,
+                            "chars": section.chars,
+                            "summary": section.summary,
+                        }
+                        for section in reference_sections(reference)
+                    ],
                 }
                 for reference in self.references
             ],
@@ -261,15 +315,24 @@ class Skill:
 
 @dataclass(frozen=True)
 class ReferenceCandidate:
-    """One numbered choice offered to the reference-selection router."""
+    """One numbered choice offered to the reference-selection router.
+
+    The unit of selection is a single heading-delimited section of a reference
+    file; selecting every section of a document expresses whole-file selection.
+    ``mentions`` and ``file_summary`` are file-level context carried on every
+    section candidate of that file.
+    """
 
     candidate_id: int
     skill_id: str
     skill_description: str
     path: str
+    section_id: str
+    heading: str
+    summary: str
     chars: int
-    headings: List[str]
     mentions: List[str]
+    file_summary: str
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +650,65 @@ def _extract_mentions(body: str, reference_path: str) -> List[str]:
     return mentions
 
 
+def _split_reference_sections(text: str) -> List[Tuple[str, str]]:
+    """Split a reference body into ``(heading, section_text)`` pairs.
+
+    Boundaries are the ``#``/``##`` heading lines ``_HEADING_PATTERN`` also feeds the
+    manifest index. Each section text starts at its heading line and runs to the
+    line before the next heading, so every section is self-contained - a selected
+    section never relies on text it does not carry. Headings beyond
+    ``_MAX_SECTIONS_PER_REFERENCE`` stay inside the final section, keeping the
+    router candidate list bounded. A body with no headings yields one intro section
+    with an empty heading; a heading-only section is kept (it is still
+    self-contained).
+    """
+    lines = str(text or "").split("\n")
+    headings: List[Tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        match = _HEADING_PATTERN.match(line)
+        if match:
+            headings.append((index, match.group(2).strip()))
+
+    if not headings:
+        return [("", "\n".join(lines).strip())]
+
+    # Cap the section count: only the first MAX-1 heading boundaries cut.
+    cuts = [index for index, _heading in headings[: _MAX_SECTIONS_PER_REFERENCE - 1]]
+
+    sections: List[Tuple[str, str]] = []
+    first_heading_index = headings[0][0]
+    if first_heading_index > 0:
+        intro = "\n".join(lines[:first_heading_index]).strip()
+        if intro:
+            sections.append(("", intro))
+
+    ends = cuts[1:] + [len(lines)]
+    for position, (start, end) in enumerate(zip(cuts, ends)):
+        chunk = "\n".join(lines[start:end]).strip()
+        sections.append((headings[position][1], chunk))
+    return sections
+
+
+def reference_sections(reference: SkillReference) -> List[ReferenceSection]:
+    """The reference's sections, backfilled to one whole-file section for old manifests.
+
+    The single synthetic section carries the file-level heading list's first entry
+    (or ``""``) so legacy selections render identically to whole-file selection on a
+    freshly indexed manifest.
+    """
+    if reference.sections:
+        return list(reference.sections)
+    heading = reference.headings[0] if reference.headings else ""
+    return [
+        ReferenceSection(
+            section_id="1",
+            heading=heading,
+            chars=reference.chars,
+            summary=reference.summary,
+        )
+    ]
+
+
 def _categorize(relpath: str) -> str:
     """Bundle category for a non-injectable file."""
     for prefix, category in _BUNDLED_CATEGORIES:
@@ -687,6 +809,16 @@ def _skill_from_manifest(payload: Dict[str, Any]) -> Skill:
             headings=[str(value) for value in item.get("headings", []) or []],
             mentions=[str(value) for value in item.get("mentions", []) or []],
             summary=str(item.get("summary", "") or ""),
+            sections=[
+                ReferenceSection(
+                    section_id=str(section.get("id", "")),
+                    heading=str(section.get("heading", "") or ""),
+                    chars=int(section.get("chars", 0) or 0),
+                    summary=str(section.get("summary", "") or ""),
+                )
+                for section in item.get("sections", []) or []
+                if isinstance(section, dict) and str(section.get("id", ""))
+            ],
         )
         for item in payload.get("references", []) or []
     ]
@@ -826,6 +958,17 @@ def install_skill(
                     headings=_extract_headings(text),
                     mentions=_extract_mentions(body, relpath),
                     summary=_extract_summary(text),
+                    sections=[
+                        ReferenceSection(
+                            section_id=str(index),
+                            heading=heading,
+                            chars=len(chunk),
+                            summary=_extract_summary(chunk),
+                        )
+                        for index, (heading, chunk) in enumerate(
+                            _split_reference_sections(text), start=1
+                        )
+                    ],
                 )
             )
         else:
@@ -958,6 +1101,30 @@ def load_skills(skill_ids: Sequence[str]) -> Tuple[List[Skill], List[str]]:
     return found, missing
 
 
+def fallback_skill_ids(
+    skills: Sequence[Skill], user_query: str, max_skills: int
+) -> List[str]:
+    """Deterministic stand-in for the skill router: description token overlap.
+
+    Scores each skill by how many distinct query tokens appear in its id and
+    description; skills with zero overlap are never selected - an irrelevant skill
+    costs every stage prompt. Sorts score-desc then id-asc, caps at max_skills,
+    and returns ids only. Callers must pass enabled skills.
+    """
+    if not skills or max_skills <= 0:
+        return []
+
+    query_tokens = _tokenize(user_query)
+    ranked: List[Tuple[int, str]] = []
+    for skill in skills or []:
+        haystack = f"{skill.id} {skill.description}"
+        score = len(query_tokens & _tokenize(haystack))
+        if score > 0:
+            ranked.append((-score, skill.id))
+    ranked.sort()
+    return [skill_id for _score, skill_id in ranked[:max_skills]]
+
+
 def set_skill_enabled(skill_id: str, enabled: bool) -> Skill:
     """Flip the enabled flag, preserving everything else in the manifest."""
     with _skills_lock:
@@ -1020,6 +1187,30 @@ def read_reference(skill_id: str, reference_path: str) -> Optional[str]:
         return None
 
 
+def read_reference_sections(
+    skill_id: str, reference_path: str, section_ids: Sequence[str]
+) -> Optional[List[Tuple[str, str]]]:
+    """``(section_id, text)`` pairs for the requested sections of one reference.
+
+    An empty ``section_ids`` means the whole file. Re-chunks with the same splitter
+    used at ingest, so boundaries are byte-identical to the manifest for the
+    installed version; ids come back in file order, not request order. Unknown ids
+    resolve to nothing rather than raising.
+    """
+    text = read_reference(skill_id, reference_path)
+    if text is None:
+        return None
+    pairs = _split_reference_sections(text)
+    by_position = {
+        str(index): (str(index), chunk)
+        for index, (_heading, chunk) in enumerate(pairs, start=1)
+    }
+    requested = {str(section_id) for section_id in (section_ids or [])}
+    if not requested:
+        return list(by_position.values())
+    return [pair for key, pair in by_position.items() if key in requested]
+
+
 def delete_skill(skill_id: str) -> bool:
     """Remove a skill; True when something was deleted."""
     directory = _skill_dir(skill_id)
@@ -1046,41 +1237,53 @@ def delete_skill(skill_id: str) -> bool:
 
 
 def build_reference_candidates(skills: Sequence[Skill]) -> List[ReferenceCandidate]:
-    """Number every selectable reference, 1-based, in skill then manifest order."""
+    """Number every selectable reference section, 1-based, in skill, then manifest,
+    then section order."""
     candidates: List[ReferenceCandidate] = []
     next_id = 1
     for skill in skills or []:
         for reference in skill.references:
-            candidates.append(
-                ReferenceCandidate(
-                    candidate_id=next_id,
-                    skill_id=skill.id,
-                    skill_description=skill.description,
-                    path=reference.path,
-                    chars=reference.chars,
-                    headings=list(reference.headings),
-                    mentions=list(reference.mentions),
+            for section in reference_sections(reference):
+                candidates.append(
+                    ReferenceCandidate(
+                        candidate_id=next_id,
+                        skill_id=skill.id,
+                        skill_description=skill.description,
+                        path=reference.path,
+                        section_id=section.section_id,
+                        heading=section.heading,
+                        summary=section.summary,
+                        chars=section.chars,
+                        mentions=list(reference.mentions),
+                        file_summary=reference.summary,
+                    )
                 )
-            )
-            next_id += 1
+                next_id += 1
     return candidates
 
 
 def fallback_reference_ids(
     candidates: Sequence[ReferenceCandidate],
     user_query: str,
-    max_references: int,
+    max_reference_files: int,
+    max_sections: int,
     char_budget: int,
 ) -> List[int]:
-    """Deterministic stand-in for the router: token overlap, whole files only.
+    """Deterministic stand-in for the router: token overlap, section by section.
 
-    Scores each candidate by how many distinct query tokens appear in its skill
-    description, headings, mentions and path; sorts score-desc then size-asc; then
-    greedily packs whole references inside the count cap and character budget. A
-    reference is never included in part - half a document the model cannot see the
-    end of is worse than omitting it.
+    Scores each candidate section by how many distinct query tokens appear in its
+    skill description, path, heading, section summary, file summary and mentions;
+    sorts score-desc then size-asc; then greedily packs sections inside the section
+    count cap, the distinct-file cap and the character budget. A section is never
+    included in part - half a section the model cannot see the end of is worse than
+    omitting it.
     """
-    if not candidates or max_references <= 0 or char_budget <= 0:
+    if (
+        not candidates
+        or max_reference_files <= 0
+        or max_sections <= 0
+        or char_budget <= 0
+    ):
         return []
 
     query_tokens = _tokenize(user_query)
@@ -1090,7 +1293,9 @@ def fallback_reference_ids(
             [
                 candidate.skill_description,
                 candidate.path.replace("/", " ").replace("-", " "),
-                " ".join(candidate.headings),
+                candidate.heading,
+                candidate.summary,
+                candidate.file_summary,
                 " ".join(candidate.mentions),
             ]
         )
@@ -1101,13 +1306,18 @@ def fallback_reference_ids(
 
     selected: List[int] = []
     used = 0
+    used_files: Set[str] = set()
     for _score, chars, _candidate_id, candidate in ranked:
-        if len(selected) >= max_references:
+        if len(selected) >= max_sections:
             break
         if used + chars > char_budget:
             continue
+        file_key = f"{candidate.skill_id}/{candidate.path}"
+        if file_key not in used_files and len(used_files) >= max_reference_files:
+            continue
         selected.append(candidate.candidate_id)
         used += chars
+        used_files.add(file_key)
     return selected
 
 
@@ -1125,38 +1335,94 @@ class _RenderEntry:
     references: List[Dict[str, Any]]
     skipped: List[Dict[str, Any]]
     truncated: bool = False
+    skill_reasons: Dict[str, str] = field(default_factory=dict)
 
 
 def _assemble_block(entries: Sequence[_RenderEntry]) -> str:
-    """Render the current entry set. Pure function of its inputs - no timestamps."""
+    """Render the current entry set. Pure function of its inputs - no timestamps.
+
+    Each selected reference gets one `### Reference` header; its selected sections
+    follow in file order, joined by blank lines. Section text carries its own
+    heading line, so the block stays self-contained even when sections are skipped.
+    """
     parts: List[str] = ["<skills>\n" + _SKILLS_PREAMBLE]
     for entry in entries:
         section = f"## Skill: {entry.skill.id}\n{entry.skill.description}"
         if entry.body:
             section += f"\n\n{entry.body}"
         for reference in entry.references:
-            section += (
-                f"\n\n### Reference: {reference['path']}\n{reference['text']}"
+            section += f"\n\n### Reference: {reference['path']}\n"
+            section += "\n\n".join(
+                section_["text"] for section_ in reference["sections"]
             )
         parts.append(section)
     return "\n\n".join(parts) + "\n</skills>"
 
 
+def _collapse_section_selections(
+    selections: Sequence[SectionSelection],
+) -> Dict[str, Optional[Set[str]]]:
+    """Dedupe a caller's selection list into path -> section id set.
+
+    `None` marks a whole-file selection; it beats any partial selection of the
+    same path. Deterministic: callers may list selections in any order without
+    changing the outcome.
+    """
+    collapsed: Dict[str, Optional[Set[str]]] = {}
+    for selection in selections or []:
+        if not isinstance(selection, SectionSelection) or not selection.path:
+            continue
+        if selection.path not in collapsed:
+            collapsed[selection.path] = (
+                None if not selection.section_ids else set(selection.section_ids)
+            )
+            continue
+        current = collapsed[selection.path]
+        if current is None:
+            continue  # already whole file
+        if not selection.section_ids:
+            collapsed[selection.path] = None
+        else:
+            current.update(selection.section_ids)
+    return collapsed
+
+
+def _entry_reason(
+    path: str, section_ids: List[str], skill_reasons: Dict[str, str]
+) -> str:
+    """One reason line for a selected reference: path-level key wins, else the
+    distinct per-section reasons joined in file order."""
+    whole = str(skill_reasons.get(path, "") or "").strip()
+    if whole:
+        return whole
+    parts: List[str] = []
+    for section_id in section_ids:
+        text = str(skill_reasons.get(f"{path}::{section_id}", "") or "").strip()
+        if text and text not in parts:
+            parts.append(text)
+    return "; ".join(parts)
+
+
 def render_skills_context(
     skills: Sequence[Skill],
-    selected_reference_paths: Dict[str, List[str]],
+    selected_sections: Dict[str, List[SectionSelection]],
     max_chars: int,
     reasons: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Tuple[Optional[str], Dict[str, Any]]:
-    """Render the ``<skills>`` prompt block plus a packing report.
+    """Render the `<skills>` prompt block plus a packing report.
+
+    `selected_sections` maps skill id -> section selections. A
+    `SectionSelection` with empty `section_ids` means the whole reference file
+    (the shape legacy persisted plans carry). `reasons` maps skill id -> reason
+    keyed by `path` (whole file) or `path::section_id` (one section).
 
     Deterministic by construction: skills render in the order given, references in
-    manifest order (not the caller's list order), and the squeeze order is fully
-    ordered - identical inputs produce byte-identical output.
+    manifest order (not the caller's list order), sections in file order, and the
+    squeeze order is fully ordered - identical inputs produce byte-identical output.
 
-    Squeeze order: (1) drop whole references, largest first; (2) head-truncate
+    Squeeze order: (1) drop whole sections, largest first; (2) head-truncate
     SKILL.md bodies, longest first, with a visible marker; (3) never emit a partial
-    reference.
+    section.
     """
     report: Dict[str, Any] = {
         "resolved": [],
@@ -1180,27 +1446,60 @@ def render_skills_context(
             body = markdown
         body = body.strip()
 
-        requested = {
-            str(path) for path in (selected_reference_paths or {}).get(skill.id, [])
-        }
+        wanted = _collapse_section_selections((selected_sections or {}).get(skill.id))
         skill_reasons = reason_map.get(skill.id, {}) or {}
         references: List[Dict[str, Any]] = []
         for reference in skill.references:  # manifest order, not caller order
-            if reference.path not in requested:
+            if reference.path not in wanted:
                 continue
-            text = read_reference(skill.id, reference.path)
-            if text is None:
+            available_ids = {
+                section.section_id for section in reference_sections(reference)
+            }
+            spec = wanted[reference.path]
+            # Whole-file selection, or a legacy manifest whose single synthetic
+            # section stands for the entire document: no id filtering applies.
+            if spec is None or not reference.sections:
+                requested_ids: Optional[Set[str]] = None
+            else:
+                requested_ids = spec & available_ids
+                if not requested_ids:
+                    continue
+            pairs = read_reference_sections(
+                skill.id,
+                reference.path,
+                () if requested_ids is None else requested_ids,
+            )
+            if not pairs:
                 continue
+            headings_by_id = {
+                section.section_id: section.heading
+                for section in reference_sections(reference)
+            }
+            sections = [
+                {
+                    "section_id": section_id,
+                    "heading": headings_by_id.get(section_id, ""),
+                    "text": text.strip(),
+                    "chars": len(text.strip()),
+                }
+                for section_id, text in pairs
+            ]
+            section_ids = [section["section_id"] for section in sections]
             references.append(
                 {
                     "path": reference.path,
-                    "text": text.strip(),
-                    "chars": len(text.strip()),
-                    "reason": str(skill_reasons.get(reference.path, "") or ""),
+                    "sections": sections,
+                    "section_ids": section_ids,
                 }
             )
         entries.append(
-            _RenderEntry(skill=skill, body=body, references=references, skipped=[])
+            _RenderEntry(
+                skill=skill,
+                body=body,
+                references=references,
+                skipped=[],
+                skill_reasons=skill_reasons,
+            )
         )
 
     if not entries:
@@ -1208,20 +1507,40 @@ def render_skills_context(
 
     rendered = _assemble_block(entries)
 
-    # (1) Drop whole references, largest first.
+    # (1) Drop whole sections, largest first.
     while len(rendered) > max_chars:
         candidates = [
-            (-len(reference["text"]), entry.skill.id, reference["path"], entry, index)
+            (
+                -len(section_["text"]),
+                entry.skill.id,
+                reference["path"],
+                section_["section_id"],
+                entry,
+                reference,
+                index,
+            )
             for entry in entries
-            for index, reference in enumerate(entry.references)
+            for reference in entry.references
+            for index, section_ in enumerate(reference["sections"])
         ]
         if not candidates:
             break
-        candidates.sort(key=lambda item: (item[0], item[1], item[2]))
-        _size, skill_id, path, entry, index = candidates[0]
-        dropped = entry.references.pop(index)
-        entry.skipped.append({"path": dropped["path"], "chars": dropped["chars"]})
-        report["dropped_references"].append(f"{skill_id}/{path}")
+        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+        _size, skill_id, path, section_id, entry, reference, index = candidates[0]
+        dropped = reference["sections"].pop(index)
+        reference["section_ids"] = [
+            section_["section_id"] for section_ in reference["sections"]
+        ]
+        entry.skipped.append(
+            {
+                "path": path,
+                "section_id": section_id,
+                "chars": dropped["chars"],
+            }
+        )
+        report["dropped_references"].append(f"{skill_id}/{path}#{section_id}")
+        if not reference["sections"]:
+            entry.references.remove(reference)
         rendered = _assemble_block(entries)
 
     # (2) Head-truncate SKILL.md bodies, longest first.
@@ -1259,8 +1578,23 @@ def render_skills_context(
                 "references": [
                     {
                         "path": reference["path"],
-                        "chars": reference["chars"],
-                        "reason": reference["reason"],
+                        "chars": sum(
+                            section_["chars"] for section_ in reference["sections"]
+                        ),
+                        "section_ids": list(reference["section_ids"]),
+                        "sections": [
+                            {
+                                "id": section_["section_id"],
+                                "heading": section_["heading"],
+                                "chars": section_["chars"],
+                            }
+                            for section_ in reference["sections"]
+                        ],
+                        "reason": _entry_reason(
+                            reference["path"],
+                            list(reference["section_ids"]),
+                            entry.skill_reasons,
+                        ),
                     }
                     for reference in entry.references
                 ],

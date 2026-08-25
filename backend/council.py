@@ -1,6 +1,6 @@
 """3-stage LLM Council orchestration with optional negative evaluations."""
 
-from typing import List, Dict, Any, Set, Tuple, Optional, Callable, Awaitable
+from typing import List, Dict, Any, Set, Tuple, Optional, Callable, Awaitable, Sequence
 import asyncio
 import json
 from .openrouter import query_model
@@ -14,11 +14,14 @@ from .config import (
     PROMPT_REFINEMENT_ENABLED,
     PROMPT_REFINEMENT_MODEL,
     SKILLS_MAX_REFERENCES,
+    SKILLS_MAX_REFERENCE_SECTIONS,
+    SKILLS_MAX_SELECTED,
+    SKILLS_AUTO_SELECT_MODEL,
     SKILLS_REFERENCE_SELECTION_MODEL,
     SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
-from .skills import ReferenceCandidate
+from .skills import ReferenceCandidate, Skill
 from .trace import TraceCollector
 
 
@@ -960,39 +963,56 @@ def _format_skill_reference_prompt(
     user_query: str,
     candidates: List[ReferenceCandidate],
 ) -> str:
-    """Build the router prompt: a numbered menu, never free-text paths."""
-    lines: List[str] = []
+    """Build the router prompt: a numbered menu of sections, never free-text paths.
+
+    Candidates arrive in skill/manifest order; the menu groups them by document so
+    file-level context (size, section count, mentions) prints once, and each section
+    gets its own candidate number the model selects by.
+    """
+    groups: "Dict[Tuple[str, str], List[ReferenceCandidate]]" = {}
     for candidate in candidates:
+        groups.setdefault((candidate.skill_id, candidate.path), []).append(candidate)
+
+    lines: List[str] = []
+    for (skill_id, path), grouped in groups.items():
+        first = grouped[0]
+        total_chars = sum(candidate.chars for candidate in grouped)
+        lines.append(f"skill: {skill_id} - {first.skill_description}")
         lines.append(
-            f"{candidate.candidate_id}. skill: {candidate.skill_id} - "
-            f"{candidate.skill_description}"
+            f"document: {path} ({total_chars} chars, {len(grouped)} section(s))"
         )
-        lines.append(f"   document: {candidate.path} ({candidate.chars} chars)")
-        for mention in candidate.mentions:
-            lines.append(f'   the skill says: "{mention}"')
-        if candidate.headings:
-            lines.append("   sections: " + " | ".join(candidate.headings))
+        for mention in first.mentions:
+            lines.append(f'the skill says: "{mention}"')
+        for candidate in grouped:
+            heading = candidate.heading or "(introduction)"
+            summary = f" - {candidate.summary}" if candidate.summary else ""
+            lines.append(
+                f'  {candidate.candidate_id}. "{heading}" '
+                f"({candidate.chars} chars){summary}"
+            )
     candidate_block = "\n".join(lines)
 
     return (
-        "You are selecting reference documents for an expert who is about to answer a "
+        "You are selecting reference sections for an expert who is about to answer a "
         "user's question under a set of operating instructions (Agent Skills).\n\n"
-        "You are NOT answering the question. Your only job is to choose which reference "
-        "documents that expert needs in front of them.\n\n"
+        "You are NOT answering the question. Your only job is to choose which sections "
+        "of which reference documents that expert needs in front of them.\n\n"
         "Return JSON with keys:\n"
         '- "selected": an array of candidate numbers (integers), most important first\n'
         '- "reasons": an object mapping each selected number (as a string) to a short '
         "reason\n\n"
         "Rules:\n"
-        "- Select only documents this specific question needs.\n"
+        "- Select only sections this specific question needs; a single section is "
+        "self-contained, so prefer the smallest set that covers the question.\n"
         '- Selecting nothing is valid and often correct: return {"selected": []} when '
         "the question does not trip any document's stated load condition.\n"
-        f"- Select at most {SKILLS_MAX_REFERENCES} documents.\n"
+        f"- Select at most {SKILLS_MAX_REFERENCE_SECTIONS} sections from at most "
+        f"{SKILLS_MAX_REFERENCES} documents.\n"
         "- Use only the candidate numbers listed below. Never invent a number, a path, "
         "or a document that is not listed.\n"
         "- Do not answer, summarize, or comment on the question itself.\n\n"
         f"User question:\n{_trim_text(user_query, _SKILL_REFERENCE_QUERY_MAX_CHARS)}\n\n"
-        f"Candidate reference documents:\n{candidate_block}\n\n"
+        f"Candidate reference sections:\n{candidate_block}\n\n"
         "Return only JSON."
     )
 
@@ -1002,12 +1022,14 @@ async def select_skill_references(
     candidates: List[ReferenceCandidate],
     trace: Optional[TraceCollector] = None,
 ) -> Dict[str, Any]:
-    """Pass 2 of skill injection: pick which ``references/*.md`` files this query needs.
+    """Pass 2 of skill injection: pick which reference sections this query needs.
 
     Council models have no tools, so they cannot act on a skill's "load
     references/X.md when ..." instruction themselves. One cheap call resolves it for
-    them. The contract is integer ids over a server-built candidate list, which makes
-    a hallucinated path structurally impossible to express.
+    them. The contract is integer ids over a server-built candidate list (one id per
+    heading-delimited section), which makes a hallucinated path structurally
+    impossible to express; selecting every section of a document equals the whole
+    file.
 
     Returns keys: selected, reasons, parsed, model, error.
     """
@@ -1045,7 +1067,98 @@ async def select_skill_references(
 
     payload = extract_json_object(response.get("content", ""))
     coerced = _coerce_skill_reference_selection(
-        payload, valid_ids, SKILLS_MAX_REFERENCES
+        payload, valid_ids, SKILLS_MAX_REFERENCE_SECTIONS
+    )
+    result.update(coerced)
+    if not coerced["parsed"]:
+        result["error"] = SKILL_REFERENCE_ERROR_UNPARSEABLE
+    return result
+
+
+def _format_skill_selection_prompt(
+    user_query: str,
+    candidates: Sequence[Skill],
+) -> str:
+    """Build the skill-selection prompt: a numbered menu of enabled skills."""
+    lines: List[str] = []
+    for index, skill in enumerate(candidates, start=1):
+        lines.append(f"{index}. skill: {skill.id} - {skill.description}")
+    candidate_block = "\n".join(lines)
+
+    return (
+        "You are selecting Agent Skills for an expert who is about to answer a "
+        "user's question.\n\n"
+        "You are NOT answering the question. Your only job is to choose which skills' "
+        "operating instructions that expert needs in front of them.\n\n"
+        "Return JSON with keys:\n"
+        '- "selected": an array of candidate numbers (integers), most important first\n'
+        '- "reasons": an object mapping each selected number (as a string) to a short '
+        "reason\n\n"
+        "Rules:\n"
+        "- Select only skills this specific question needs; prefer the smallest set "
+        "that covers it.\n"
+        '- Selecting nothing is valid and often correct: return {"selected": []} when '
+        "no skill's description applies.\n"
+        f"- Select at most {SKILLS_MAX_SELECTED} skills.\n"
+        "- Use only the candidate numbers listed below. Never invent a number, an id, "
+        "or a skill that is not listed.\n"
+        "- Do not answer, summarize, or comment on the question itself.\n\n"
+        f"User question:\n{_trim_text(user_query, _SKILL_REFERENCE_QUERY_MAX_CHARS)}\n\n"
+        f"Candidate skills:\n{candidate_block}\n\n"
+        "Return only JSON."
+    )
+
+
+async def select_skills(
+    user_query: str,
+    candidates: Sequence[Skill],
+    trace: Optional[TraceCollector] = None,
+) -> Dict[str, Any]:
+    """Pass 1 of skill injection: pick which uploaded skills this query needs.
+
+    Runs only when the operator sent the consultation with no explicit skill
+    selection (and SKILLS_AUTO_SELECT_ENABLED). The contract mirrors reference
+    selection: integer ids over a server-built candidate list, which makes a
+    hallucinated skill id structurally impossible to express. An empty selection
+    is a valid, often correct answer.
+
+    Returns keys: selected, reasons, parsed, model, error.
+    """
+    result: Dict[str, Any] = {
+        "selected": [],
+        "reasons": {},
+        "parsed": False,
+        "model": SKILLS_AUTO_SELECT_MODEL,
+        "error": None,
+    }
+    if not candidates:
+        result["parsed"] = True
+        return result
+
+    valid_ids = {index for index in range(1, len(candidates) + 1)}
+    messages = [
+        {
+            "role": "user",
+            "content": _format_skill_selection_prompt(user_query, candidates),
+        }
+    ]
+
+    response = await query_model(
+        SKILLS_AUTO_SELECT_MODEL,
+        messages,
+        timeout=60.0,
+        trace=trace,
+        trace_stage="skill_selection",
+        trace_context={"kind": "skill_selection"},
+    )
+
+    if response is None or not str(response.get("content") or "").strip():
+        result["error"] = SKILL_REFERENCE_ERROR_NO_RESPONSE
+        return result
+
+    payload = extract_json_object(response.get("content", ""))
+    coerced = _coerce_skill_reference_selection(
+        payload, valid_ids, SKILLS_MAX_SELECTED
     )
     result.update(coerced)
     if not coerced["parsed"]:

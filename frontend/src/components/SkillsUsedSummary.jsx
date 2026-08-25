@@ -82,6 +82,15 @@ export default function SkillsUsedSummary({ metadata }) {
         <span className="skills-used-label text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Agent Skills
         </span>
+        {(skills.skill_selection?.mode === 'auto'
+          || skills.skill_selection?.mode === 'auto_resumed') && (
+          <Badge
+            variant="subtle"
+            className="skills-used-badge skills-used-badge--auto font-mono text-[11px]"
+          >
+            auto
+          </Badge>
+        )}
         {resolved.map((entry) => (
           <Badge
             key={entry.id}

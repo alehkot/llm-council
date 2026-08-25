@@ -353,6 +353,8 @@ export default function SkillsModal({
   onDelete,
   onToggleEnabled,
   focusSkillId,
+  defaultSkillIds = [],
+  onDefaultSkillIdsChange = () => {},
 }) {
   const [selectedId, setSelectedId] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -378,6 +380,7 @@ export default function SkillsModal({
   }, [isOpen, focusSkillId]);
 
   const skillList = Array.isArray(skills) ? skills : [];
+  const defaultIds = Array.isArray(defaultSkillIds) ? defaultSkillIds : [];
   const selectedSummary = skillList.find((skill) => skill.id === selectedId) || null;
   // listSkills returns to_summary() payloads, which carry no references or bundled
   // files. Fetch the detail (and SKILL.md) for the selected row and prefer it, falling
@@ -524,8 +527,8 @@ export default function SkillsModal({
             <div className="space-y-1">
               <DialogTitle>Agent Skills</DialogTitle>
               <DialogDescription>
-                Upload skill bundles as .zip. Selected skills steer the council answers and
-                the chairman synthesis.
+                Upload skill bundles as .zip. Default skills apply to every chat; the
+                composer can turn them off for a single chat.
               </DialogDescription>
             </div>
             <DialogClose asChild>
@@ -592,6 +595,50 @@ export default function SkillsModal({
 
         <div className="skills-modal-body flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
           <div className="skills-modal-list min-h-0 flex-1 overflow-y-auto border-b border-border/60 px-6 py-4 lg:border-b-0 lg:border-r">
+            {skillList.length > 0 && (
+              <>
+                <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  Default skills
+                </h3>
+                <ul className="skills-default-list mb-6 flex flex-col gap-1.5">
+                  {skillList.map((skill) => {
+                    const isDefault = defaultIds.includes(skill.id);
+                    const optionId = `skill-default-${skill.id}`;
+                    return (
+                      <li
+                        key={skill.id}
+                        className="skills-default-row flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-background/70 px-3 py-1.5"
+                      >
+                        <Checkbox
+                          id={optionId}
+                          checked={isDefault}
+                          disabled={skill.enabled === false}
+                          onCheckedChange={(checked) =>
+                            onDefaultSkillIdsChange(
+                              checked === true
+                                ? [...defaultIds, skill.id]
+                                : defaultIds.filter((id) => id !== skill.id)
+                            )
+                          }
+                        />
+                        <Label
+                          htmlFor={optionId}
+                          className="cursor-pointer text-xs font-medium text-foreground"
+                        >
+                          {skill.name || skill.id}
+                        </Label>
+                        {skill.enabled === false && (
+                          <Badge variant="subtle" className="text-[10px]">
+                            Disabled
+                          </Badge>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+
             <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-muted-foreground">
               Installed ({skillList.length})
             </h3>

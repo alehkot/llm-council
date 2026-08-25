@@ -23,8 +23,11 @@ function referenceLabel(count) {
 export default function SkillPicker({
   skills,
   selectedIds,
+  defaultSkillIds,
   onChange,
+  onResetToDefault,
   maxSelected,
+  autoSelectEnabled = false,
   disabled = false,
   onManage,
 }) {
@@ -32,6 +35,10 @@ export default function SkillPicker({
 
   const availableSkills = Array.isArray(skills) ? skills : [];
   const selected = Array.isArray(selectedIds) ? selectedIds : [];
+  const defaults = new Set(
+    Array.isArray(defaultSkillIds) ? defaultSkillIds : [],
+  );
+  const hasOverrides = [...defaults].some((id) => !selected.includes(id));
 
   if (availableSkills.length === 0 && selected.length === 0) {
     return null;
@@ -40,7 +47,7 @@ export default function SkillPicker({
   const cap = Number(maxSelected) > 0 ? Number(maxSelected) : null;
   const atCap = cap !== null && selected.length >= cap;
   const triggerLabel = selected.length === 0
-    ? 'Skills: none'
+    ? (autoSelectEnabled ? 'Skills: auto' : 'Skills: none')
     : `Skills: ${selected.length} selected`;
 
   const toggleSkill = (skillId, checked) => {
@@ -115,10 +122,11 @@ export default function SkillPicker({
             <div className="skill-picker-options grid gap-2">
               {availableSkills.map((skill) => {
                 const isChecked = selected.includes(skill.id);
+                const isDefault = defaults.has(skill.id);
                 const isSkillDisabled = skill.enabled === false;
                 const blockedByCap = !isChecked && atCap;
                 const rowDisabled = disabled
-                  || (!isChecked && (isSkillDisabled || blockedByCap));
+                  || (!isChecked && (isSkillDisabled || !isDefault || blockedByCap));
                 const optionId = `skill-option-${skill.id}`;
                 const referenceCount = Number(skill.reference_count) || 0;
                 return (
@@ -151,6 +159,16 @@ export default function SkillPicker({
                             Disabled
                           </Badge>
                         )}
+                        {isDefault && !isChecked && (
+                          <Badge variant="subtle" className="text-[10px]">
+                            off for this chat
+                          </Badge>
+                        )}
+                        {!isDefault && (
+                          <Badge variant="outline" className="text-[10px]">
+                            not in default
+                          </Badge>
+                        )}
                       </div>
                       {skill.description && (
                         <div className="skill-picker-option-description text-xs text-muted-foreground">
@@ -173,8 +191,34 @@ export default function SkillPicker({
             </p>
           )}
 
+          {hasOverrides && onResetToDefault && (
+            <div className="skill-picker-overrides flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+              <span className="text-xs text-amber-900/90 dark:text-amber-100">
+                Customized for this chat — some default skills are turned off.
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="skill-picker-reset-btn h-7 px-2 text-xs"
+                onClick={() => onResetToDefault()}
+                disabled={disabled}
+              >
+                Reset to default
+              </Button>
+            </div>
+          )}
+
+          {autoSelectEnabled && selected.length === 0 && (
+            <p className="skill-picker-auto rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+              No skills selected — the backend will automatically pick skills whose
+              description matches this question.
+            </p>
+          )}
+
           <p className="skill-picker-hint text-xs text-muted-foreground">
-            Selected skills steer the council answers and the chairman synthesis. Bundled
+            Your default skills apply to every chat; unchecking one here turns it off
+            for this chat only. Change the default set from “Manage skills…”. Bundled
             scripts, assets, and evals are never sent to a model.
           </p>
         </div>

@@ -35,7 +35,9 @@ from .config import (
     OPENROUTER_MAX_TOKENS,
     SKILLS_CONTEXT_MAX_CHARS,
     SKILLS_ENABLED,
+    SKILLS_AUTO_SELECT_ENABLED,
     SKILLS_MAX_REFERENCES,
+    SKILLS_MAX_REFERENCE_SECTIONS,
     SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_ENABLED,
     SKILLS_REFERENCE_SELECTION_MODEL,
@@ -390,10 +392,12 @@ async def get_config():
         "title_model": TITLE_MODEL,
         "skills_enabled": SKILLS_ENABLED,
         "skills_max_selected": SKILLS_MAX_SELECTED,
+        "skills_auto_select_enabled": SKILLS_AUTO_SELECT_ENABLED,
         "skills_upload_max_bytes": SKILLS_UPLOAD_MAX_BYTES,
         "skills_context_max_chars": SKILLS_CONTEXT_MAX_CHARS,
         "skills_synthesis_context_max_chars": SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
         "skills_max_references": SKILLS_MAX_REFERENCES,
+        "skills_max_reference_sections": SKILLS_MAX_REFERENCE_SECTIONS,
         "skills_reference_selection_enabled": SKILLS_REFERENCE_SELECTION_ENABLED,
         "skills_reference_selection_model": SKILLS_REFERENCE_SELECTION_MODEL,
     }
@@ -767,15 +771,15 @@ def _render_persisted_skills_context(metadata: Dict[str, Any]) -> Optional[str]:
         return None
 
     skill_ids: List[str] = []
-    selected_paths: Dict[str, List[str]] = {}
+    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
     reasons: Dict[str, Dict[str, str]] = {}
     for entry in resolved:
         if not isinstance(entry, dict):
             continue
         skill_id = str(entry.get("id") or "").strip().lower()
-        if not skill_id or skill_id in selected_paths:
+        if not skill_id or skill_id in selected_sections:
             continue
-        paths: List[str] = []
+        selections: List[skills.SectionSelection] = []
         entry_reasons: Dict[str, str] = {}
         for reference in entry.get("references") or []:
             if not isinstance(reference, dict):
@@ -783,12 +787,20 @@ def _render_persisted_skills_context(metadata: Dict[str, Any]) -> Optional[str]:
             path = str(reference.get("path") or "")
             if not path:
                 continue
-            paths.append(path)
+            raw_ids = reference.get("section_ids")
+            section_ids = (
+                tuple(str(section_id) for section_id in raw_ids)
+                if isinstance(raw_ids, list)
+                else ()
+            )
+            selections.append(
+                skills.SectionSelection(path=path, section_ids=section_ids)
+            )
             reason = reference.get("reason")
             if reason:
                 entry_reasons[path] = str(reason)
         skill_ids.append(skill_id)
-        selected_paths[skill_id] = paths
+        selected_sections[skill_id] = selections
         reasons[skill_id] = entry_reasons
 
     if not skill_ids:
@@ -800,7 +812,7 @@ def _render_persisted_skills_context(metadata: Dict[str, Any]) -> Optional[str]:
 
     block, _report = skills.render_skills_context(
         loaded,
-        {skill.id: selected_paths.get(skill.id, []) for skill in loaded},
+        {skill.id: selected_sections.get(skill.id, []) for skill in loaded},
         SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
         reasons,
     )

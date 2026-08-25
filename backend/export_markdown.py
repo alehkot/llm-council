@@ -212,7 +212,7 @@ def _render_skills_export_block(
 ) -> Optional[str]:
     """Re-render the ``<skills>`` block from the current manifests at export time."""
     ordered: List[skills.Skill] = []
-    selected_reference_paths: Dict[str, List[str]] = {}
+    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
     reasons: Dict[str, Dict[str, str]] = {}
     for entry in resolved:
         skill_id = _normalize_text(entry.get("id"))
@@ -220,7 +220,7 @@ def _render_skills_export_block(
         if current is None:
             continue
         ordered.append(current)
-        paths: List[str] = []
+        selections: List[skills.SectionSelection] = []
         skill_reasons: Dict[str, str] = {}
         for reference in entry.get("references") or []:
             if not isinstance(reference, dict):
@@ -228,11 +228,19 @@ def _render_skills_export_block(
             path = _normalize_text(reference.get("path"))
             if not path:
                 continue
-            paths.append(path)
+            raw_ids = reference.get("section_ids")
+            section_ids = (
+                tuple(_normalize_text(section_id) for section_id in raw_ids)
+                if isinstance(raw_ids, list)
+                else ()
+            )
+            selections.append(
+                skills.SectionSelection(path=path, section_ids=section_ids)
+            )
             reason = _normalize_text(reference.get("reason"))
             if reason:
                 skill_reasons[path] = reason
-        selected_reference_paths[skill_id] = paths
+        selected_sections[skill_id] = selections
         reasons[skill_id] = skill_reasons
 
     if not ordered:
@@ -240,7 +248,7 @@ def _render_skills_export_block(
     try:
         block, _report = skills.render_skills_context(
             ordered,
-            selected_reference_paths,
+            selected_sections,
             max_chars,
             reasons,
         )
@@ -268,6 +276,23 @@ def _append_skills_section(lines: List[str], skills_metadata: Dict[str, Any]) ->
     missing = [value for value in (skills_metadata.get("missing") or []) if value]
     if missing:
         lines.append(f"- Unavailable at run time: {_format_skill_id_list(missing)}")
+    skill_selection = skills_metadata.get("skill_selection") or {}
+    mode = _normalize_text(skill_selection.get("mode"))
+    if mode == "auto":
+        model = _normalize_text(skill_selection.get("model")) or "n/a"
+        lines.append(
+            "- Skill selection: automatic - picked "
+            f"{_as_int(skill_selection.get('selected_count'))} of "
+            f"{_as_int(skill_selection.get('candidate_count'))} enabled skills "
+            f"(model `{model}`)"
+        )
+    elif mode == "auto_resumed":
+        lines.append("- Skill selection: automatic (replayed from the stored plan)")
+    elif mode == "manual":
+        lines.append("- Skill selection: manual (picked in the composer)")
+    skill_fallback = _normalize_text(skill_selection.get("fallback"))
+    if skill_fallback:
+        lines.append(f"- Skill-selection fallback: {skill_fallback}")
     if skills_metadata.get("drift"):
         lines.append("- Skill version drift detected during this run: yes")
     lines.append("")
@@ -311,8 +336,14 @@ def _append_skills_section(lines: List[str], skills_metadata: Dict[str, Any]) ->
                 path = _normalize_text(reference.get("path")) or "unknown"
                 chars = _as_int(reference.get("chars"))
                 reason = _normalize_text(reference.get("reason"))
+                section_ids = reference.get("section_ids")
+                section_suffix = (
+                    f", sections {', '.join(str(value) for value in section_ids)}"
+                    if isinstance(section_ids, list) and section_ids
+                    else ""
+                )
                 suffix = f" - {reason}" if reason else ""
-                lines.append(f"- `{path}` ({chars} chars){suffix}")
+                lines.append(f"- `{path}` ({chars} chars{section_suffix}){suffix}")
         else:
             lines.append("_None._")
         lines.append("")
@@ -327,7 +358,9 @@ def _append_skills_section(lines: List[str], skills_metadata: Dict[str, Any]) ->
             for reference in skipped:
                 path = _normalize_text(reference.get("path")) or "unknown"
                 chars = _as_int(reference.get("chars"))
-                lines.append(f"- `{path}` ({chars} chars)")
+                section_id = _normalize_text(reference.get("section_id"))
+                label = f"`{path}` §{section_id}" if section_id else f"`{path}`"
+                lines.append(f"- {label} ({chars} chars)")
             lines.append("")
 
     lines.extend(["### Reference Selection", ""])

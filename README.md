@@ -169,10 +169,13 @@ uploaded *and* selected for a consultation.
 |--------------------------------------|----------------------------|---------|
 | `SKILLS_ENABLED`                     | Master switch              | true    |
 | `SKILLS_MAX_SELECTED`                | Skills per consultation    | 5       |
-| `SKILLS_MAX_REFERENCES`              | References inlined per run | 4       |
+| `SKILLS_MAX_REFERENCES`              | Reference documents per run | 4       |
+| `SKILLS_MAX_REFERENCE_SECTIONS`       | Reference sections inlined per run | 12 |
 | `SKILLS_CONTEXT_MAX_CHARS`           | Stage 1 skill budget       | 48000   |
 | `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` | Stage 3 skill budget       | 24000   |
 | `SKILLS_REFERENCE_SELECTION_ENABLED` | Model-picked references    | true    |
+| `SKILLS_AUTO_SELECT_ENABLED`         | Auto-pick skills when none ticked | false |
+| `SKILLS_AUTO_SELECT_MODEL`           | Model for skill auto-selection | reference model |
 | `SKILLS_UPLOAD_MAX_BYTES`            | Max upload size            | 5 MiB   |
 
 See `.env.sample` for the remaining ingest limits.
@@ -183,16 +186,29 @@ An **Agent Skill** is a `.zip` containing a `SKILL.md` with YAML frontmatter
 (`name` and `description`) plus optional `references/*.md`. This is the same
 format Claude Code and Codex use, so existing skills work here unchanged.
 
-Upload one from the **Skills** button in the console header, then tick it in
-the composer before sending. Its instructions are injected into **Stage 1**
-(every council model's system prompt) and **Stage 3** (the chairman's
-synthesis prompt).
+Upload one from the **Skills** button in the console header. The modal's
+**Default skills** list is a global setting: default skills apply to every
+chat. In the composer, unchecking a default skill turns it off for that one
+chat only (per-chat override), with a "Reset to default" button to clear the
+overrides. Instructions are injected into **Stage 1** (every council model's
+system prompt) and **Stage 3** (the chairman's synthesis prompt).
+
+Skill selection is operator-driven by default: tick skills in the composer,
+and only those are used. With `SKILLS_AUTO_SELECT_ENABLED=true`, sending a
+question with **no** skills ticked instead asks a cheap model to pick up to
+`SKILLS_MAX_SELECTED` enabled skills whose description matches the question;
+explicit ticks always win over auto-selection. The pick is recorded in the
+message metadata, so resume and export replay the same skill set.
 
 Because council models have no tools, they cannot open a skill's
 `references/*.md` on demand. Instead a cheap model is asked once per
-consultation which reference files the question actually needs, and only
-those are inlined. Set `SKILLS_REFERENCE_SELECTION_ENABLED=false` to use a
-deterministic keyword-overlap picker instead and skip the extra model call.
+consultation which reference **sections** the question actually needs, and
+only those are inlined. Each reference file is indexed at ingest into
+self-contained heading-delimited sections, so the selector can inline one
+section of a large document without paying for the rest; selecting every
+section of a document equals the whole file. Set
+`SKILLS_REFERENCE_SELECTION_ENABLED=false` to use a deterministic
+keyword-overlap picker instead and skip the extra model call.
 
 Only `SKILL.md` and `references/*.md` ever reach a prompt. Anything else in
 the bundle — `scripts/`, `assets/`, `evals/` — is stored for fidelity but

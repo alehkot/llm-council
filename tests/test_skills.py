@@ -117,19 +117,41 @@ def _candidate(
     candidate_id: int,
     path: str,
     chars: int,
-    headings: Optional[List[str]] = None,
+    heading: str = "Overview",
+    section_id: str = "1",
     mentions: Optional[List[str]] = None,
     description: str = "A skill.",
+    summary: str = "Summary of the section.",
+    file_summary: str = "Summary of the file.",
 ) -> ReferenceCandidate:
-    """Build one router candidate without touching disk."""
+    """Build one section-level router candidate without touching disk."""
     return ReferenceCandidate(
         candidate_id=candidate_id,
         skill_id="my-skill",
         skill_description=description,
         path=path,
+        section_id=section_id,
+        heading=heading,
+        summary=summary,
         chars=chars,
-        headings=headings or [],
         mentions=mentions or [],
+        file_summary=file_summary,
+    )
+
+
+def _plain_skill(skill_id: str, description: str) -> Skill:
+    """A manifest-free Skill object for router tests that never touch disk."""
+    return Skill(
+        id=skill_id,
+        name=skill_id,
+        description=description,
+        version=1,
+        enabled=True,
+        created_at="",
+        updated_at="",
+        source_filename=None,
+        archive_sha256="",
+        skill_md_chars=10,
     )
 
 
@@ -171,6 +193,40 @@ class _SkillsDirTestCase(unittest.TestCase):
 
     def _bundle_file(self, relpath: str, skill_id: str = "my-skill") -> Path:
         return self._skill_dir(skill_id) / "bundle" / relpath
+
+    def _render(
+        self,
+        selected: Optional[Dict[str, List[str]]] = None,
+        max_chars: int = 24000,
+        reasons: Optional[Dict[str, Dict[str, str]]] = None,
+    ) -> Tuple[Optional[str], Dict[str, Any]]:
+        """Render with whole-file selections, the shape legacy callers use."""
+        skill = skills.get_skill("my-skill")
+        assert skill is not None
+        selection_map: Dict[str, List[skills.SectionSelection]] = {}
+        for skill_id, paths in (selected or {}).items():
+            selection_map[skill_id] = [
+                skills.SectionSelection(path=path) for path in paths
+            ]
+        return skills.render_skills_context(
+            [skill], selection_map, max_chars, reasons
+        )
+
+    def _render_sections(
+        self,
+        selected: Dict[str, List[Tuple[str, Tuple[str, ...]]]],
+        max_chars: int = 24000,
+    ) -> Tuple[Optional[str], Dict[str, Any]]:
+        """Render with explicit per-section selections."""
+        skill = skills.get_skill("my-skill")
+        assert skill is not None
+        selection_map: Dict[str, List[skills.SectionSelection]] = {}
+        for skill_id, specs in (selected or {}).items():
+            selection_map[skill_id] = [
+                skills.SectionSelection(path=path, section_ids=section_ids)
+                for path, section_ids in specs
+            ]
+        return skills.render_skills_context([skill], selection_map, max_chars)
 
     def _temp_entries(self) -> List[str]:
         return [
@@ -600,18 +656,6 @@ class SkillStoreTests(_SkillsDirTestCase):
 
 
 class SkillRenderingTests(_SkillsDirTestCase):
-    def _render(
-        self,
-        selected: Optional[Dict[str, List[str]]] = None,
-        max_chars: int = 24000,
-        reasons: Optional[Dict[str, Dict[str, str]]] = None,
-    ) -> Tuple[Optional[str], Dict[str, Any]]:
-        skill = skills.get_skill("my-skill")
-        assert skill is not None
-        return skills.render_skills_context(
-            [skill], selected or {}, max_chars, reasons
-        )
-
     def test_rendered_block_omits_frontmatter_and_unused_bundle_files(self) -> None:
         self._install(
             {
@@ -698,11 +742,14 @@ class SkillRenderingTests(_SkillsDirTestCase):
         self.assertLessEqual(len(rendered), 1500)
         self.assertNotIn("BIG-HEAD", rendered)
         self.assertNotIn("BIG-TAIL", rendered)
-        # Whatever survives the squeeze survives whole - never a partial file.
+        # Whatever survives the squeeze survives whole - never a partial section.
         self.assertIn("SMALL-BODY stays whole.", rendered)
-        self.assertEqual(report["dropped_references"], ["my-skill/references/big.md"])
+        self.assertEqual(
+            report["dropped_references"], ["my-skill/references/big.md#1"]
+        )
         skipped = report["resolved"][0]["references_skipped"]
         self.assertEqual([item["path"] for item in skipped], ["references/big.md"])
+        self.assertEqual([item["section_id"] for item in skipped], ["1"])
         self.assertEqual(
             [item["path"] for item in report["resolved"][0]["references"]],
             ["references/small.md"],
@@ -748,6 +795,254 @@ class SkillRenderingTests(_SkillsDirTestCase):
 
         first_text, first_report = self._render(selected, max_chars=4000)
         second_text, second_report = self._render(selected, max_chars=4000)
+
+        self.assertIsNotNone(first_text)
+        self.assertEqual(first_text, second_text)
+        self.assertEqual(
+            json.dumps(first_report, sort_keys=True),
+            json.dumps(second_report, sort_keys=True),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Section chunking and section-level rendering
+# ---------------------------------------------------------------------------
+
+
+class ReferenceSectionTests(_SkillsDirTestCase):
+    def test_split_chunks_at_headings(self) -> None:
+        sections = skills._split_reference_sections(ALPHA_BODY)
+
+        self.assertEqual(
+            [heading for heading, _text in sections],
+            ["Drafting Guardrails", "Default Non-Disclosure List"],
+        )
+        self.assertIn("ALPHA-REFERENCE-BODY", sections[0][1])
+        self.assertNotIn("Default Non-Disclosure List", sections[0][1])
+        self.assertIn("Reservation value", sections[1][1])
+
+    def test_split_without_headings_is_one_intro_section(self) -> None:
+        sections = skills._split_reference_sections("plain body, no headings.")
+
+        self.assertEqual(sections, [("", "plain body, no headings.")])
+
+    def test_split_keeps_intro_text_before_the_first_heading(self) -> None:
+        body = "Intro line.\n\n# One\n\nOne body.\n\n## Two\n\nTwo body."
+        sections = skills._split_reference_sections(body)
+
+        self.assertEqual(
+            [heading for heading, _text in sections], ["", "One", "Two"]
+        )
+        self.assertIn("Intro line.", sections[0][1])
+        self.assertNotIn("One body.", sections[0][1])
+
+    def test_split_caps_sections_at_the_constant(self) -> None:
+        parts = [f"## Heading {index}\n\nBody {index}." for index in range(60)]
+        body = "\n\n".join(parts)
+        sections = skills._split_reference_sections(body)
+
+        self.assertLessEqual(len(sections), skills._MAX_SECTIONS_PER_REFERENCE)
+        self.assertGreaterEqual(
+            len(sections), skills._MAX_SECTIONS_PER_REFERENCE - 1
+        )
+        # Headings beyond the cap live inside the final section.
+        self.assertIn("## Heading 59", sections[-1][1])
+        self.assertNotIn("## Heading 0", sections[-1][1])
+
+    def test_install_indexes_sections_into_the_manifest(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+            }
+        )
+
+        skill = skills.get_skill("my-skill")
+        assert skill is not None
+        reference = skill.references[0]
+        self.assertEqual(
+            [(section.section_id, section.heading) for section in reference.sections],
+            [("1", "Drafting Guardrails"), ("2", "Default Non-Disclosure List")],
+        )
+        chunks = skills._split_reference_sections(ALPHA_BODY)
+        self.assertEqual(
+            [section.chars for section in reference.sections],
+            [len(chunk) for _heading, chunk in chunks],
+        )
+
+        manifest = json.loads(
+            (self._skill_dir() / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [section["id"] for section in manifest["references"][0]["sections"]],
+            ["1", "2"],
+        )
+
+    def test_legacy_manifest_without_sections_backfills_one_section(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+            }
+        )
+        manifest_path = self._skill_dir() / "manifest.json"
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for reference in payload["references"]:
+            reference.pop("sections")
+        manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        reloaded = skills.get_skill("my-skill")
+        assert reloaded is not None
+        reference = reloaded.references[0]
+        sections = skills.reference_sections(reference)
+        self.assertEqual([section.section_id for section in sections], ["1"])
+        self.assertEqual(sections[0].chars, reference.chars)
+        self.assertEqual(sections[0].heading, "Drafting Guardrails")
+
+    def test_read_reference_sections_filters_and_keeps_file_order(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+            }
+        )
+
+        pairs = skills.read_reference_sections(
+            "my-skill", "references/alpha.md", ["2", "1", "ghost"]
+        )
+        assert pairs is not None
+        self.assertEqual([section_id for section_id, _text in pairs], ["1", "2"])
+
+        whole = skills.read_reference_sections("my-skill", "references/alpha.md", [])
+        assert whole is not None
+        self.assertEqual(len(whole), 2)
+
+    def test_build_candidates_numbers_sections(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+                "references/beta.md": BETA_BODY,
+            }
+        )
+
+        skill = skills.get_skill("my-skill")
+        assert skill is not None
+        candidates = skills.build_reference_candidates([skill])
+
+        self.assertEqual([item.candidate_id for item in candidates], [1, 2, 3])
+        self.assertEqual(
+            [item.path for item in candidates],
+            ["references/alpha.md", "references/alpha.md", "references/beta.md"],
+        )
+        self.assertEqual(
+            [(item.section_id, item.heading) for item in candidates],
+            [
+                ("1", "Drafting Guardrails"),
+                ("2", "Default Non-Disclosure List"),
+                ("1", "Escalation Ladder"),
+            ],
+        )
+
+    def test_renders_only_the_selected_sections(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+            }
+        )
+
+        rendered, report = self._render_sections(
+            {"my-skill": [("references/alpha.md", ("2",))]}
+        )
+
+        assert rendered is not None
+        self.assertIn("Default Non-Disclosure List", rendered)
+        self.assertIn("Reservation value", rendered)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", rendered)
+        self.assertNotIn("Drafting Guardrails", rendered)
+        entry = report["resolved"][0]["references"][0]
+        self.assertEqual(entry["section_ids"], ["2"])
+        self.assertLess(entry["chars"], len(ALPHA_BODY))
+        self.assertEqual(
+            entry["sections"],
+            [
+                {
+                    "id": "2",
+                    "heading": "Default Non-Disclosure List",
+                    "chars": entry["chars"],
+                }
+            ],
+        )
+
+    def test_unknown_section_ids_render_nothing_for_that_reference(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+            }
+        )
+
+        rendered, report = self._render_sections(
+            {"my-skill": [("references/alpha.md", ("9",))]}
+        )
+
+        assert rendered is not None
+        self.assertNotIn("ALPHA-REFERENCE-BODY", rendered)
+        self.assertNotIn("Default Non-Disclosure List", rendered)
+        self.assertEqual(report["resolved"][0]["references"], [])
+
+    def test_squeeze_drops_whole_sections_not_files(self) -> None:
+        first = "## First\n\n" + ("first section filler. " * 200) + "\n\n"
+        second = "## Second\n\n" + ("second section filler. " * 200) + "\n\n"
+        third = "## Third\n\nTHIRD-MARKER\n"
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/multi.md": first + second + third,
+                "references/small.md": "SMALL-MARKER stays.",
+            }
+        )
+
+        rendered, report = self._render(
+            {"my-skill": ["references/multi.md", "references/small.md"]},
+            max_chars=2000,
+        )
+
+        assert rendered is not None
+        self.assertLessEqual(len(rendered), 2000)
+        self.assertIn("SMALL-MARKER stays.", rendered)
+        # The smallest section of the big reference survives the squeeze.
+        self.assertIn("THIRD-MARKER", rendered)
+        self.assertNotIn("first section filler.", rendered)
+        self.assertNotIn("second section filler.", rendered)
+        self.assertEqual(
+            report["dropped_references"],
+            ["my-skill/references/multi.md#2", "my-skill/references/multi.md#1"],
+        )
+        kept = report["resolved"][0]["references"]
+        self.assertEqual(
+            [(item["path"], item["section_ids"]) for item in kept],
+            [("references/multi.md", ["3"]), ("references/small.md", ["1"])],
+        )
+
+    def test_section_selection_is_byte_identical_across_calls(self) -> None:
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": ALPHA_BODY,
+                "references/beta.md": BETA_BODY,
+            }
+        )
+        selected = {
+            "my-skill": [
+                ("references/alpha.md", ("2",)),
+                ("references/beta.md", ()),
+            ]
+        }
+
+        first_text, first_report = self._render_sections(selected, max_chars=4000)
+        second_text, second_report = self._render_sections(selected, max_chars=4000)
 
         self.assertIsNotNone(first_text)
         self.assertEqual(first_text, second_text)
@@ -831,6 +1126,124 @@ class ReferenceSelectionParserTests(unittest.TestCase):
         self.assertEqual(reasons, {1: "query is a guarded vendor reply"})
 
 
+class SkillReferencePromptTests(unittest.TestCase):
+    def test_prompt_lists_sections_with_numbers_and_both_caps(self) -> None:
+        candidates = [
+            _candidate(1, "references/a.md", 100, heading="Intro", section_id="1"),
+            _candidate(2, "references/a.md", 200, heading="Auth", section_id="2"),
+            _candidate(3, "references/b.md", 50, heading="Ladder", section_id="1"),
+        ]
+
+        prompt = council._format_skill_reference_prompt("who dis", candidates)
+
+        self.assertIn('1. "Intro" (100 chars)', prompt)
+        self.assertIn('2. "Auth" (200 chars)', prompt)
+        self.assertIn('3. "Ladder" (50 chars)', prompt)
+        # Document-level context prints once per file, not once per section.
+        self.assertEqual(prompt.count("document: references/a.md"), 1)
+        self.assertIn("(300 chars, 2 section(s))", prompt)
+        self.assertIn(
+            f"at most {council.SKILLS_MAX_REFERENCE_SECTIONS} sections", prompt
+        )
+        self.assertIn(f"at most {council.SKILLS_MAX_REFERENCES} documents", prompt)
+
+    def test_prompt_uses_introduction_label_for_headingless_sections(self) -> None:
+        candidates = [_candidate(1, "references/a.md", 100, heading="")]
+
+        prompt = council._format_skill_reference_prompt("who dis", candidates)
+
+        self.assertIn('1. "(introduction)" (100 chars)', prompt)
+
+
+class FallbackSkillSelectionTests(unittest.TestCase):
+    def test_no_overlap_selects_nothing(self) -> None:
+        skills_list = [
+            _plain_skill("gardening", "Advice for roses, tulips and compost."),
+            _plain_skill("cooking", "Recipes and kitchen technique."),
+        ]
+
+        self.assertEqual(
+            skills.fallback_skill_ids(skills_list, "vendor pricing reply", 5), []
+        )
+
+    def test_ranks_by_overlap_and_caps(self) -> None:
+        skills_list = [
+            _plain_skill("gardening", "Advice for roses, tulips and compost."),
+            _plain_skill(
+                "vendor-replies",
+                "Guarded drafting for vendor reply and price pushback.",
+            ),
+            _plain_skill("vendor-contracts", "Vendor contracts and legal review."),
+        ]
+
+        selected = skills.fallback_skill_ids(
+            skills_list, "Draft a vendor reply", 5
+        )
+
+        # vendor-replies scores 2 (vendor, reply); vendor-contracts scores 1.
+        self.assertEqual(selected, ["vendor-replies", "vendor-contracts"])
+
+    def test_empty_or_capped_returns_empty(self) -> None:
+        skills_list = [_plain_skill("a-skill", "Anything at all.")]
+
+        self.assertEqual(skills.fallback_skill_ids([], "q", 5), [])
+        self.assertEqual(skills.fallback_skill_ids(skills_list, "q", 0), [])
+
+
+class SkillSelectionPromptTests(unittest.TestCase):
+    def test_prompt_lists_numbered_skills_and_the_cap(self) -> None:
+        candidates = [
+            _plain_skill("alpha", "First skill."),
+            _plain_skill("beta", "Second skill."),
+        ]
+
+        prompt = council._format_skill_selection_prompt("who dis", candidates)
+
+        self.assertIn("1. skill: alpha - First skill.", prompt)
+        self.assertIn("2. skill: beta - Second skill.", prompt)
+        self.assertIn(
+            f"at most {council.SKILLS_MAX_SELECTED} skills", prompt
+        )
+        self.assertIn('{"selected": []}', prompt)
+
+
+class RouterFileCapTests(unittest.TestCase):
+    def test_router_selection_is_capped_per_document(self) -> None:
+        """Sections beyond the per-document cap are dropped in the router's order."""
+        candidates = [
+            _candidate(1, "references/a.md", 100, section_id="1"),
+            _candidate(2, "references/a.md", 100, section_id="2"),
+            _candidate(3, "references/b.md", 100, section_id="1"),
+            _candidate(4, "references/c.md", 100, section_id="1"),
+        ]
+
+        async def _run() -> Tuple[List[int], Dict[int, str]]:
+            async def fake_router(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+                return {
+                    "selected": [1, 2, 3, 4],
+                    "reasons": {"1": "first", "4": "fourth"},
+                    "parsed": True,
+                    "model": "unused",
+                    "error": None,
+                }
+
+            with patch.object(langgraph_flow, "select_skill_references", fake_router):
+                with patch.object(langgraph_flow, "SKILLS_MAX_REFERENCES", 2):
+                    return await langgraph_flow._resolve_reference_selection(
+                        FlowContext(trace=TraceCollector()),
+                        {"user_query": "q"},
+                        candidates,
+                        {},
+                        [],
+                    )
+
+        selected_ids, reason_by_id = asyncio.run(_run())
+
+        # Documents a and b fill the cap; c is dropped, and so is its reason.
+        self.assertEqual(selected_ids, [1, 2, 3])
+        self.assertEqual(reason_by_id, {1: "first"})
+
+
 class FallbackReferenceSelectionTests(unittest.TestCase):
     def test_respects_the_count_cap(self) -> None:
         candidates = [
@@ -839,12 +1252,16 @@ class FallbackReferenceSelectionTests(unittest.TestCase):
         ]
 
         selected = skills.fallback_reference_ids(
-            candidates, "vendor pricing", max_references=2, char_budget=100_000
+            candidates,
+            "vendor pricing",
+            max_reference_files=2,
+            max_sections=10,
+            char_budget=100_000,
         )
 
         self.assertEqual(len(selected), 2)
 
-    def test_packs_whole_files_inside_the_char_budget(self) -> None:
+    def test_packs_sections_inside_the_char_budget(self) -> None:
         candidates = [
             _candidate(1, "references/a.md", 1000),
             _candidate(2, "references/b.md", 1000),
@@ -852,7 +1269,11 @@ class FallbackReferenceSelectionTests(unittest.TestCase):
         ]
 
         selected = skills.fallback_reference_ids(
-            candidates, "vendor pricing", max_references=5, char_budget=2500
+            candidates,
+            "vendor pricing",
+            max_reference_files=5,
+            max_sections=5,
+            char_budget=2500,
         )
 
         by_id = {candidate.candidate_id: candidate for candidate in candidates}
@@ -860,20 +1281,38 @@ class FallbackReferenceSelectionTests(unittest.TestCase):
         self.assertEqual(len(selected), 2)
         self.assertLessEqual(total, 2500)
 
+    def test_respects_the_section_cap(self) -> None:
+        candidates = [
+            _candidate(1, "references/a.md", 100, section_id="1"),
+            _candidate(2, "references/a.md", 100, section_id="2"),
+            _candidate(3, "references/a.md", 100, section_id="3"),
+        ]
+
+        selected = skills.fallback_reference_ids(
+            candidates,
+            "vendor pricing",
+            max_reference_files=5,
+            max_sections=2,
+            char_budget=100_000,
+        )
+
+        self.assertEqual(selected, [1, 2])
+
     def test_prefers_token_overlap_over_size(self) -> None:
-        irrelevant = _candidate(1, "references/gardening.md", 100, headings=["Mulch"])
+        irrelevant = _candidate(1, "references/gardening.md", 100, heading="Mulch")
         relevant = _candidate(
             2,
             "references/vendor-pricing.md",
             5000,
-            headings=["Vendor pricing pushback"],
+            heading="Vendor pricing pushback",
             mentions=["Load references/vendor-pricing.md before a vendor reply."],
         )
 
         selected = skills.fallback_reference_ids(
             [irrelevant, relevant],
             "Draft a reply rejecting a vendor pricing increase",
-            max_references=1,
+            max_reference_files=1,
+            max_sections=1,
             char_budget=100_000,
         )
 
@@ -882,9 +1321,10 @@ class FallbackReferenceSelectionTests(unittest.TestCase):
     def test_returns_empty_without_candidates_or_budget(self) -> None:
         candidates = [_candidate(1, "references/a.md", 100)]
 
-        self.assertEqual(skills.fallback_reference_ids([], "q", 4, 1000), [])
-        self.assertEqual(skills.fallback_reference_ids(candidates, "q", 0, 1000), [])
-        self.assertEqual(skills.fallback_reference_ids(candidates, "q", 4, 0), [])
+        self.assertEqual(skills.fallback_reference_ids([], "q", 4, 12, 1000), [])
+        self.assertEqual(skills.fallback_reference_ids(candidates, "q", 0, 12, 1000), [])
+        self.assertEqual(skills.fallback_reference_ids(candidates, "q", 4, 0, 1000), [])
+        self.assertEqual(skills.fallback_reference_ids(candidates, "q", 4, 12, 0), [])
 
     def test_build_reference_candidates_numbers_from_one(self) -> None:
         skill = Skill(
@@ -1148,6 +1588,61 @@ class SkillsRuntimeTests(_SkillsDirTestCase):
         assert runtime is not None
         self.assertTrue(runtime.metadata.get("drift"))
 
+    def test_persisted_section_plan_renders_only_those_sections(self) -> None:
+        context = FlowContext(trace=TraceCollector(), skill_ids=["my-skill"])
+        persisted = self._persisted_metadata()
+        persisted["resolved"][0]["references"] = [
+            {
+                "path": "references/alpha.md",
+                "chars": 10,
+                "section_ids": ["2"],
+                "reason": "only the non-disclosure list",
+            }
+        ]
+        state: Dict[str, Any] = {"metadata": {"skills": persisted}}
+
+        with self._no_router():
+            asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(self.router_calls, [])
+        runtime = context.skills_runtime
+        assert runtime is not None
+        assert runtime.stage1_block is not None
+        self.assertIn("Default Non-Disclosure List", runtime.stage1_block)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", runtime.stage1_block)
+        entry = runtime.metadata["resolved"][0]["references"][0]
+        self.assertEqual(entry["section_ids"], ["2"])
+        self.assertEqual(entry["reason"], "only the non-disclosure list")
+        self.assertEqual(
+            runtime.metadata["reference_selection"]["selected_count"], 1
+        )
+
+    def test_resume_drops_sections_whose_heading_no_longer_matches(self) -> None:
+        """A shifted heading must not silently inline different content under an old id."""
+        context = FlowContext(trace=TraceCollector(), skill_ids=["my-skill"])
+        persisted = self._persisted_metadata()
+        persisted["resolved"][0]["references"] = [
+            {
+                "path": "references/alpha.md",
+                "chars": 10,
+                "section_ids": ["2"],
+                "sections": [{"id": "2", "heading": "A heading that no longer exists"}],
+            }
+        ]
+        state: Dict[str, Any] = {"metadata": {"skills": persisted}}
+
+        with self._no_router():
+            asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(self.router_calls, [])
+        runtime = context.skills_runtime
+        assert runtime is not None
+        assert runtime.stage1_block is not None
+        self.assertNotIn("Default Non-Disclosure List", runtime.stage1_block)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", runtime.stage1_block)
+        self.assertTrue(runtime.metadata.get("drift"))
+        self.assertEqual(runtime.metadata["resolved"][0]["references"], [])
+
     def test_no_skill_ids_yields_an_empty_runtime(self) -> None:
         context = FlowContext(trace=TraceCollector())
 
@@ -1244,6 +1739,213 @@ class SkillsRuntimeTests(_SkillsDirTestCase):
             [entry["id"] for entry in stored["metadata"]["skills"]["resolved"]],
             ["my-skill"],
         )
+
+
+
+
+class SkillAutoSelectionRuntimeTests(_SkillsDirTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill_router_calls: List[Any] = []
+        skills.install_skill(
+            _zip(
+                {
+                    "SKILL.md": _skill_md(
+                        description="Guarded drafting for vendor replies and price pushback."
+                    )
+                }
+            )
+        )
+        skills.install_skill(
+            _zip(
+                {
+                    "SKILL.md": _skill_md(
+                        name="Other-Skill",
+                        description="Gardening advice for roses and tulips.",
+                        body="## Other Skill\n\nGardening instructions for the council.\n",
+                    )
+                },
+                top="other-skill/",
+            )
+        )
+
+    @contextlib.contextmanager
+    def _count_skill_router(self) -> Any:
+        async def _fake_skill_router(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+            self.skill_router_calls.append((args, kwargs))
+            return {
+                "selected": [],
+                "reasons": {},
+                "parsed": True,
+                "model": "unused",
+                "error": None,
+            }
+
+        with patch.object(langgraph_flow, "select_skills", _fake_skill_router):
+            yield
+
+    def test_auto_select_runs_when_no_explicit_ids(self) -> None:
+        async def _picking_router(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+            self.skill_router_calls.append((args, kwargs))
+            return {
+                "selected": [2],
+                "reasons": {2: "gardening question"},
+                "parsed": True,
+                "model": "test-model",
+                "error": None,
+            }
+
+        context = FlowContext(trace=TraceCollector())
+        state: Dict[str, Any] = {"user_query": "How do I mulch roses?"}
+
+        with patch.object(langgraph_flow, "SKILLS_AUTO_SELECT_ENABLED", True):
+            with patch.object(langgraph_flow, "select_skills", _picking_router):
+                asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(len(self.skill_router_calls), 1)
+        runtime = context.skills_runtime
+        assert runtime is not None
+        assert runtime.stage1_block is not None
+        self.assertIn("Gardening instructions for the council.", runtime.stage1_block)
+        self.assertNotIn("Operating instructions for the council.", runtime.stage1_block)
+        meta = runtime.metadata["skill_selection"]
+        self.assertEqual(meta["mode"], "auto")
+        self.assertEqual(meta["selected_count"], 1)
+        self.assertEqual(meta["candidate_count"], 2)
+        self.assertEqual(meta["reasons"], {"other-skill": "gardening question"})
+
+    def test_auto_select_falls_back_deterministically(self) -> None:
+        context = FlowContext(trace=TraceCollector())
+        state: Dict[str, Any] = {"user_query": "Draft a vendor pricing reply"}
+
+        with patch.object(langgraph_flow, "SKILLS_AUTO_SELECT_ENABLED", True):
+            with patch.object(langgraph_flow, "SKILLS_REFERENCE_SELECTION_ENABLED", False):
+                with self._count_skill_router():
+                    asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(self.skill_router_calls, [])
+        runtime = context.skills_runtime
+        assert runtime is not None
+        assert runtime.stage1_block is not None
+        self.assertIn("Operating instructions for the council.", runtime.stage1_block)
+        self.assertNotIn("Gardening instructions for the council.", runtime.stage1_block)
+        meta = runtime.metadata["skill_selection"]
+        self.assertEqual(meta["mode"], "auto")
+        self.assertEqual(meta["fallback"], "router_disabled")
+
+    def test_auto_selection_replays_from_the_persisted_plan(self) -> None:
+        context = FlowContext(trace=TraceCollector())
+        persisted: Dict[str, Any] = {
+            "requested": [],
+            "resolved": [
+                {
+                    "id": "other-skill",
+                    "version": 1,
+                    "skill_md_chars": 10,
+                    "truncated": False,
+                    "references": [],
+                    "references_skipped": [],
+                    "bundled_unused": {"scripts": 0, "assets": 0, "evals": 0, "other": 0},
+                }
+            ],
+            "missing": [],
+            "skill_selection": {
+                "mode": "auto",
+                "enabled": True,
+                "model": "test-model",
+                "candidate_count": 2,
+                "selected_count": 1,
+                "fallback": None,
+                "reasons": {},
+            },
+            "reference_selection": {
+                "enabled": True,
+                "model": "test-model",
+                "candidate_count": 0,
+                "selected_count": 0,
+                "fallback": None,
+            },
+            "budget": {},
+            "drift": False,
+        }
+        state: Dict[str, Any] = {"metadata": {"skills": persisted}}
+
+        with patch.object(langgraph_flow, "SKILLS_AUTO_SELECT_ENABLED", True):
+            with self._count_skill_router():
+                asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(self.skill_router_calls, [])
+        runtime = context.skills_runtime
+        assert runtime is not None
+        assert runtime.stage1_block is not None
+        self.assertIn("Gardening instructions for the council.", runtime.stage1_block)
+        self.assertEqual(runtime.metadata["skill_selection"]["mode"], "auto_resumed")
+
+    def test_manual_ids_bypass_auto_selection(self) -> None:
+        context = FlowContext(trace=TraceCollector(), skill_ids=["my-skill"])
+        state: Dict[str, Any] = {"user_query": "Draft a vendor reply"}
+
+        with patch.object(langgraph_flow, "SKILLS_AUTO_SELECT_ENABLED", True):
+            with self._count_skill_router():
+                asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(self.skill_router_calls, [])
+        runtime = context.skills_runtime
+        assert runtime is not None
+        self.assertEqual(runtime.metadata["skill_selection"]["mode"], "manual")
+        assert runtime.stage1_block is not None
+        self.assertIn("Operating instructions for the council.", runtime.stage1_block)
+
+    def test_auto_disabled_with_no_ids_yields_empty_runtime(self) -> None:
+        context = FlowContext(trace=TraceCollector())
+        state: Dict[str, Any] = {"user_query": "Draft a vendor reply"}
+
+        with patch.object(langgraph_flow, "SKILLS_AUTO_SELECT_ENABLED", False):
+            with self._count_skill_router():
+                asyncio.run(langgraph_flow._ensure_skills_runtime(context, state))
+
+        self.assertEqual(self.skill_router_calls, [])
+        runtime = context.skills_runtime
+        assert runtime is not None
+        self.assertIsNone(runtime.stage1_block)
+        self.assertEqual(runtime.metadata, {})
+
+
+class PersistedSkillsContextRenderTests(_SkillsDirTestCase):
+    """main._render_persisted_skills_context replays stored plans for resynthesis."""
+
+    def _render_persisted(self, references: List[Dict[str, Any]]) -> Optional[str]:
+        from backend.main import _render_persisted_skills_context
+
+        return _render_persisted_skills_context(
+            {"skills": {"resolved": [{"id": "my-skill", "references": references}]}}
+        )
+
+    def test_legacy_plan_without_section_ids_renders_the_whole_file(self) -> None:
+        self._install(
+            {"SKILL.md": _skill_md(), "references/alpha.md": ALPHA_BODY}
+        )
+
+        block = self._render_persisted(
+            [{"path": "references/alpha.md", "chars": len(ALPHA_BODY)}]
+        )
+
+        assert block is not None
+        self.assertIn("ALPHA-REFERENCE-BODY", block)
+        self.assertIn("Default Non-Disclosure List", block)
+
+    def test_section_plan_renders_only_the_stored_sections(self) -> None:
+        self._install(
+            {"SKILL.md": _skill_md(), "references/alpha.md": ALPHA_BODY}
+        )
+
+        block = self._render_persisted(
+            [{"path": "references/alpha.md", "section_ids": ["2"]}]
+        )
+
+        assert block is not None
+        self.assertIn("Default Non-Disclosure List", block)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", block)
 
 
 class SkillIdsPlumbingTests(unittest.TestCase):
