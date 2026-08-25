@@ -788,9 +788,21 @@ async def _ensure_skills_runtime(context: FlowContext, state: CouncilState) -> N
             skill_selection_meta["selected_count"] = len(requested)
 
     if not requested:
+        # An auto-selection that picked nothing is still a decision the operator
+        # should see: persist the selection metadata so the UI can say so.
+        empty_metadata: Dict[str, Any] = {}
+        if skill_selection_meta.get("mode") == "auto":
+            empty_metadata = {
+                "requested": [],
+                "resolved": [],
+                "missing": [],
+                "skill_selection": skill_selection_meta,
+            }
         context.skills_runtime = SkillsRuntime(
-            stage1_block=None, stage3_block=None, metadata={}
+            stage1_block=None, stage3_block=None, metadata=empty_metadata
         )
+        if empty_metadata:
+            await context.update_message({"metadata": {"skills": empty_metadata}})
         return
 
     # A skill deleted while queued or in flight is skipped, never fatal.

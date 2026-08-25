@@ -12,6 +12,17 @@ const FALLBACK_NOTES = {
     'The reference selector failed — references were picked by keyword overlap.',
 };
 
+const SKILL_SELECTION_FALLBACK_NOTES = {
+  router_disabled:
+    'The skill selector is disabled — skills were picked by keyword overlap.',
+  router_failed:
+    'The skill selector returned an unusable answer — skills were picked by keyword overlap.',
+  router_timeout:
+    'The skill selector timed out — skills were picked by keyword overlap.',
+  router_error:
+    'The skill selector failed — skills were picked by keyword overlap.',
+};
+
 function formatChars(chars) {
   const value = Number(chars);
   if (!Number.isFinite(value) || value <= 0) return '0 chars';
@@ -37,19 +48,56 @@ export default function SkillsUsedSummary({ metadata }) {
   const resolved = Array.isArray(skills.resolved) ? skills.resolved : [];
   const missing = Array.isArray(skills.missing) ? skills.missing : [];
   const selection = skills.reference_selection || {};
+  const skillSelection = skills.skill_selection || {};
   const budget = skills.budget || {};
   const droppedFromSynthesis = Array.isArray(budget.stage3_dropped_references)
     ? budget.stage3_dropped_references
     : [];
+
+  const isAuto = skillSelection.mode === 'auto'
+    || skillSelection.mode === 'auto_resumed';
 
   const resolvedIds = new Set(resolved.map((entry) => entry?.id).filter(Boolean));
   const pendingIds = requested.filter(
     (id) => id && !resolvedIds.has(id) && !missing.includes(id)
   );
 
-  if (resolved.length === 0 && pendingIds.length === 0 && missing.length === 0) {
+  if (
+    resolved.length === 0
+    && pendingIds.length === 0
+    && missing.length === 0
+    && !isAuto
+  ) {
     return null;
   }
+
+  const pickedCount = resolved.length + pendingIds.length;
+  const candidateCount = Number(skillSelection.candidate_count) || 0;
+  const autoModel = skillSelection.model ? ` via ${skillSelection.model}` : '';
+  let autoSummary = null;
+  if (isAuto) {
+    if (pickedCount === 0) {
+      autoSummary = candidateCount > 0
+        ? `Auto-select matched none of the ${candidateCount} enabled skills — the council ran without skill context.`
+        : 'Auto-select matched no skills — the council ran without skill context.';
+    } else {
+      autoSummary = candidateCount > 0
+        ? `Auto-selected ${pickedCount} of ${candidateCount} enabled skills${autoModel}.`
+        : `Auto-selected ${pluralize(pickedCount, 'skill', 'skills')}${autoModel}.`;
+    }
+  }
+
+  const autoReasons = skillSelection.reasons || {};
+  const autoReasonRows = isAuto
+    ? resolved
+        .map((entry) => ({ id: entry?.id, reason: autoReasons[entry?.id] }))
+        .filter((row) => row.id && row.reason)
+    : [];
+
+  const skillFallbackNote = isAuto && skillSelection.fallback
+    ? SKILL_SELECTION_FALLBACK_NOTES[skillSelection.fallback]
+      || `Skill auto-selection fell back to keyword overlap (${skillSelection.fallback}).`
+    : null;
 
   const referenceRows = [];
   let skippedCount = 0;
@@ -82,8 +130,7 @@ export default function SkillsUsedSummary({ metadata }) {
         <span className="skills-used-label text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Agent Skills
         </span>
-        {(skills.skill_selection?.mode === 'auto'
-          || skills.skill_selection?.mode === 'auto_resumed') && (
+        {isAuto && (
           <Badge
             variant="subtle"
             className="skills-used-badge skills-used-badge--auto font-mono text-[11px]"
@@ -110,10 +157,44 @@ export default function SkillsUsedSummary({ metadata }) {
             {id}
           </Badge>
         ))}
-        <span className="skills-used-reference-count text-xs text-muted-foreground">
-          {pluralize(referenceRows.length, 'reference inlined', 'references inlined')}
-        </span>
+        {pickedCount > 0 && (
+          <span className="skills-used-reference-count text-xs text-muted-foreground">
+            {pluralize(referenceRows.length, 'reference inlined', 'references inlined')}
+          </span>
+        )}
       </div>
+
+      {autoSummary && (
+        <p className="skills-used-note skills-used-note--auto-summary text-xs text-muted-foreground">
+          {autoSummary}
+        </p>
+      )}
+
+      {autoReasonRows.length > 0 && (
+        <Card className="skills-used-card skills-used-card--auto border-border/60 bg-muted/20">
+          <CardContent className="skills-used-card-content space-y-1 p-3">
+            {autoReasonRows.map((row) => (
+              <div
+                key={row.id}
+                className="skills-used-auto-reason flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs"
+              >
+                <span className="skills-used-auto-reason-id font-mono text-foreground">
+                  {row.id}
+                </span>
+                <span className="skills-used-auto-reason-text text-muted-foreground">
+                  — {row.reason}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {skillFallbackNote && (
+        <p className="skills-used-note skills-used-note--skill-fallback rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900/90 dark:text-amber-100">
+          {skillFallbackNote}
+        </p>
+      )}
 
       {referenceRows.length > 0 && (
         <Card className="skills-used-card border-border/60 bg-muted/20">
