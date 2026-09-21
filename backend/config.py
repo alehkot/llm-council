@@ -76,12 +76,12 @@ if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
 
 # Council members - list of OpenRouter model identifiers
 DEFAULT_COUNCIL_MODELS = [
-    "openai/gpt-5.5",
+    "openai/gpt-6-astra",
     "google/gemini-3.1-pro-preview",
-    "anthropic/claude-opus-4.7",
-    "x-ai/grok-4.3",
-    "moonshotai/kimi-k2.6",
-    "deepseek/deepseek-v4-pro",
+    "anthropic/claude-opus-5",
+    "x-ai/grok-4.6",
+    "moonshotai/kimi-k3",
+    "deepseek/deepseek-v4-pro-0813",
 ]
 COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", DEFAULT_COUNCIL_MODELS)
 
@@ -110,6 +110,12 @@ OPENROUTER_API_URL = (
 OPENROUTER_MAX_TOKENS = _get_int_env("OPENROUTER_MAX_TOKENS", 10000)
 if OPENROUTER_MAX_TOKENS <= 0:
     raise ValueError("OPENROUTER_MAX_TOKENS must be > 0")
+
+# Bounded extra calls for oversized inputs and interrupted prose answers.
+OPENROUTER_MAX_CONTEXT_CALLS = _get_int_env("OPENROUTER_MAX_CONTEXT_CALLS", 16)
+OPENROUTER_MAX_CONTINUATIONS = _get_int_env("OPENROUTER_MAX_CONTINUATIONS", 2)
+if OPENROUTER_MAX_CONTEXT_CALLS < 0 or OPENROUTER_MAX_CONTINUATIONS < 0:
+    raise ValueError("OpenRouter context/continuation call limits must be >= 0")
 
 # OpenRouter retry configuration
 OPENROUTER_MAX_RETRIES = _get_int_env("OPENROUTER_MAX_RETRIES", 2)
@@ -217,13 +223,21 @@ SKILLS_REFERENCE_SELECTION_MODEL = (
     os.getenv("SKILLS_REFERENCE_SELECTION_MODEL") or PROMPT_REFINEMENT_MODEL
 )
 
+TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY", "").strip()
+TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-latest").strip()
+SKILLS_TYPESAFE_ENABLED = _get_bool_env(
+    "SKILLS_TYPESAFE_ENABLED", "true" if TYPESAFE_API_KEY else "false"
+)
+
 # Automatic skill selection: when a consultation is sent with no skills ticked in
 # the composer, pick up to SKILLS_MAX_SELECTED enabled skills whose description
-# matches the question. Explicit selections always win over auto-selection. Off by
-# default so existing deployments keep the operator-driven behavior. The same
+# matches the question. Explicit selections always win over auto-selection. Jev
+# enables this by default; deployments without Jev stay manual. The same
 # SKILLS_REFERENCE_SELECTION_ENABLED switch gates the router: when it is off, a
 # deterministic keyword-overlap fallback runs instead.
-SKILLS_AUTO_SELECT_ENABLED = _get_bool_env("SKILLS_AUTO_SELECT_ENABLED", "false")
+SKILLS_AUTO_SELECT_ENABLED = _get_bool_env(
+    "SKILLS_AUTO_SELECT_ENABLED", "true" if SKILLS_TYPESAFE_ENABLED else "false"
+)
 SKILLS_AUTO_SELECT_MODEL = (
     os.getenv("SKILLS_AUTO_SELECT_MODEL") or SKILLS_REFERENCE_SELECTION_MODEL
 )

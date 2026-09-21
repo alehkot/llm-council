@@ -148,6 +148,9 @@ function SkillRow({
 						{displayName}
 					</span>
 					<Badge variant="outline" className="text-[10px]">
+						{skill.source && skill.source !== "uploaded"
+							? `${skill.source} · `
+							: ""}
 						v{skill.version ?? 1}
 					</Badge>
 					{skill.enabled === false && (
@@ -196,6 +199,7 @@ function SkillRow({
 					variant="ghost"
 					size="icon"
 					className="skill-delete-btn h-9 w-9 shrink-0 text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+					disabled={busy || (skill.source && skill.source !== "uploaded")}
 					onClick={() => onRequestDelete(skill)}
 					title="Delete skill"
 					aria-label={`Delete skill: ${displayName}`}
@@ -382,6 +386,8 @@ export default function SkillsModal({
 	onClose,
 	skills,
 	onUpload,
+	sources = { codex: false, claude: false },
+	onSourcesChange,
 	onDelete,
 	onToggleEnabled,
 	focusSkillId,
@@ -390,6 +396,7 @@ export default function SkillsModal({
 }) {
 	const [selectedId, setSelectedId] = useState("");
 	const [isUploading, setIsUploading] = useState(false);
+	const [isUpdatingSources, setIsUpdatingSources] = useState(false);
 	const [isDragging, setIsDragging] = useState(false);
 	const [actionError, setActionError] = useState("");
 	const [actionNotice, setActionNotice] = useState("");
@@ -418,7 +425,9 @@ export default function SkillsModal({
 	// listSkills returns to_summary() payloads, which carry no references or bundled
 	// files. Fetch the detail (and SKILL.md) for the selected row and prefer it, falling
 	// back to the summary while the request is in flight.
-	const selectedSkill = detailById[selectedId] || selectedSummary;
+	const selectedSkill = selectedSummary
+		? detailById[selectedId] || selectedSummary
+		: null;
 	const selectedMarkdown = markdownById[selectedId] || "";
 
 	useEffect(() => {
@@ -470,6 +479,15 @@ export default function SkillsModal({
 		try {
 			const result = await onUpload?.(file);
 			const installed = result?.skill;
+			if (result?.skills?.length > 1) {
+				setDetailById({});
+				setMarkdownById({});
+				setSelectedId(installed?.id || "");
+				setActionNotice(
+					`Installed ${result.skills.length} skills${result.replaced ? " (including replacements)" : ""}.`,
+				);
+				return;
+			}
 			if (installed?.id) {
 				// POST returns to_detail(), so seed the cache and invalidate the old preview.
 				setDetailById((prev) => ({ ...prev, [installed.id]: installed }));
@@ -560,14 +578,15 @@ export default function SkillsModal({
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="skills-modal flex h-[min(92vh,60rem)] max-w-5xl flex-col overflow-hidden p-0">
-				<DialogHeader className="skills-modal-header border-b border-border/60 px-6 py-4">
-					<div className="flex flex-wrap items-start justify-between gap-3">
-						<div className="space-y-1">
+			<DialogContent className="skills-modal flex h-[min(92vh,60rem)] max-w-5xl flex-col overflow-hidden p-0 max-lg:overflow-y-auto">
+				<DialogHeader className="skills-modal-header shrink-0 border-b border-border/60 px-6 py-4">
+					<div className="flex items-start justify-between gap-3">
+						<div className="min-w-0 flex-1 space-y-1">
 							<DialogTitle>Agent Skills</DialogTitle>
 							<DialogDescription>
-								Upload skill bundles as .zip. Default skills apply to every
-								chat; the composer can turn them off for a single chat.
+								Upload individual skills or combined skill packs as .zip.
+								Default skills apply to every chat; the composer can turn them
+								off for a single chat.
 							</DialogDescription>
 						</div>
 						<DialogClose asChild>
@@ -578,7 +597,43 @@ export default function SkillsModal({
 					</div>
 				</DialogHeader>
 
-				<div className="skills-modal-upload border-b border-border/60 px-6 py-4">
+				<div className="shrink-0 space-y-2 border-b border-border/60 px-6 py-3">
+					<p className="text-sm font-medium">Local skill sources</p>
+					<p className="text-xs text-muted-foreground">
+						Read skills from the computer running the council. Original files
+						stay unchanged. Applies to all council users.
+					</p>
+					<div className="flex flex-wrap gap-4">
+						{["codex", "claude"].map((source) => (
+							<label key={source} className="flex items-center gap-2 text-sm">
+								<Checkbox
+									checked={sources[source] === true}
+									disabled={isUpdatingSources || isUploading}
+									onCheckedChange={async (checked) => {
+										setIsUpdatingSources(true);
+										setActionError("");
+										try {
+											await onSourcesChange?.({
+												...sources,
+												[source]: checked === true,
+											});
+											setDetailById({});
+											setMarkdownById({});
+										} catch (error) {
+											setActionError(
+												error?.message || "Failed to update skill sources.",
+											);
+										} finally {
+											setIsUpdatingSources(false);
+										}
+									}}
+								/>
+								{`~/.${source}/skills`}
+							</label>
+						))}
+					</div>
+				</div>
+				<div className="skills-modal-upload shrink-0 border-b border-border/60 px-6 py-4">
 					<div
 						className={cn(
 							"skills-dropzone rounded-lg border border-dashed px-4 py-5 text-center transition",
@@ -595,9 +650,9 @@ export default function SkillsModal({
 							here
 						</p>
 						<p className="mx-auto mt-1 max-w-xl text-xs text-muted-foreground">
-							The archive needs a SKILL.md at its root or inside a single
-							top-level folder. Files under scripts/, assets/, and evals/ are
-							stored but never sent to a model.
+							Accepts individual skills and combined thinking-skills or
+							business-writing-skills packs. Each skill keeps its references.
+							Scripts, assets, and evals are never sent to a model.
 						</p>
 						<div className="mt-3 flex items-center justify-center">
 							<Button
@@ -637,7 +692,7 @@ export default function SkillsModal({
 					)}
 				</div>
 
-				<div className="skills-modal-body flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+				<div className="skills-modal-body flex min-h-0 flex-1 flex-col overflow-hidden max-lg:min-h-96 max-lg:flex-none lg:flex-row">
 					<div className="skills-modal-list min-h-0 flex-1 overflow-y-auto border-b border-border/60 px-6 py-4 lg:border-b-0 lg:border-r">
 						{skillList.length > 0 && (
 							<>
@@ -716,7 +771,7 @@ export default function SkillsModal({
 					</div>
 				</div>
 
-				<div className="skills-modal-footer flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-6 py-4">
+				<div className="skills-modal-footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border/60 px-6 py-4">
 					<p className="text-xs text-muted-foreground">
 						Skill instructions are injected into Stage 1 and the chairman
 						synthesis only.

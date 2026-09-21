@@ -540,6 +540,7 @@ async def _resolve_reference_selection(
             # Skills must never kill a run; degrade to the deterministic packer.
             fallback = "router_error"
         else:
+            selection_meta["model"] = router.get("model") or selection_meta.get("model")
             if router.get("parsed"):
                 selected_ids = [int(item) for item in router.get("selected") or []]
                 reason_by_id = {
@@ -631,6 +632,11 @@ def _persisted_skill_ids(state: CouncilState) -> Optional[List[str]]:
     if not isinstance(persisted, dict):
         return None
     resolved = persisted.get("resolved")
+    if resolved == [] and (persisted.get("skill_selection") or {}).get("mode") in (
+        "auto",
+        "auto_resumed",
+    ):
+        return []
     if not isinstance(resolved, list) or not resolved:
         return None
     skill_ids: List[str] = []

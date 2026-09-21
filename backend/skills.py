@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import stat
+import tempfile
 import threading
 import time
 import uuid
@@ -271,6 +272,8 @@ class Skill:
     counts: Dict[str, int] = field(default_factory=dict)
     frontmatter_extra: Dict[str, Any] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
+    source: str = "uploaded"
+    source_path: str = ""
 
     def reference_paths(self) -> List[str]:
         """Manifest-order reference paths."""
@@ -287,6 +290,7 @@ class Skill:
     def to_summary(self) -> Dict[str, Any]:
         """Compact record for list endpoints and the composer picker."""
         return {
+            "source": self.source,
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -341,6 +345,8 @@ class Skill:
     def to_manifest(self) -> Dict[str, Any]:
         """Full on-disk manifest payload (the only place ``mentions`` is stored)."""
         return {
+            "source": self.source,
+            "source_path": self.source_path,
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -569,7 +575,7 @@ def _read_member(
     return b"".join(chunks)
 
 
-def inspect_archive(data: bytes) -> Dict[str, bytes]:
+def inspect_archive(data: bytes, *, collection: bool = False) -> Dict[str, bytes]:
     """Validate an uploaded .zip and return ``normalized relpath -> content``.
 
     Steps 0-5 of the ingest hardening: junk filter, open, per-entry checks,
@@ -638,7 +644,12 @@ def inspect_archive(data: bytes) -> Dict[str, bytes]:
                 raise SkillError(
                     "Archive expands beyond the allowed uncompressed size.", 413
                 )
+            if relpath in extracted:
+                raise SkillError("Archive contains duplicate paths.")
             extracted[relpath] = payload
+
+    if collection:
+        return extracted
 
     # Step 5: normalize the tree.
     if _SKILL_MD_NAME in extracted:
@@ -901,6 +912,8 @@ def _skill_from_manifest(payload: Dict[str, Any]) -> Skill:
         str(key): int(value) for key, value in (payload.get("counts") or {}).items()
     }
     return Skill(
+        source=str(payload.get("source", "uploaded")),
+        source_path=str(payload.get("source_path", "")),
         id=skill_id,
         name=str(payload.get("name", skill_id) or skill_id),
         description=str(payload.get("description", "") or ""),
@@ -973,6 +986,10 @@ def install_skill(
     data: bytes,
     source_filename: Optional[str] = None,
     replace: bool = False,
+    *,
+    _directory: Optional[Path] = None,
+    _source: str = "uploaded",
+    _origin: str = "",
 ) -> Tuple[Skill, bool]:
     """Validate, extract and atomically install an uploaded skill archive.
 
@@ -980,6 +997,7 @@ def install_skill(
     exists and ``replace`` is not set; the error carries ``.skill_id`` and
     ``.existing`` so the route can answer with the existing summary.
     """
+    directory = _directory if _directory is not None else _SKILLS_DIR
     files = inspect_archive(data)
 
     try:
@@ -1051,7 +1069,7 @@ def install_skill(
     counts["references"] = len(references)
 
     now = datetime.utcnow().isoformat()
-    staging = _SKILLS_DIR / f".tmp-{uuid.uuid4().hex}"
+    staging = directory / f".tmp-{uuid.uuid4().hex}"
     trash: Optional[Path] = None
     replaced = False
 
@@ -1060,9 +1078,9 @@ def install_skill(
         _write_bundle(staging, files)
 
         with _skills_lock:
-            final_dir = _SKILLS_DIR / skill_id
+            final_dir = directory / skill_id
             existing = _load_skill_dir(final_dir) if final_dir.is_dir() else None
-            if existing is not None and not replace:
+            if existing is not None and not replace and existing.source == "uploaded":
                 error = SkillError(
                     f"A skill named '{skill_id}' already exists. "
                     "Upload again with replace=true to overwrite it.",
@@ -1073,6 +1091,8 @@ def install_skill(
                 raise error
 
             skill = Skill(
+                source=_source,
+                source_path=_origin,
                 id=skill_id,
                 name=skill_id,
                 description=description,
@@ -1099,7 +1119,7 @@ def install_skill(
             # so the old tree is renamed aside first. Readers on the consultation
             # worker threads see the old tree or the new one, never a partial one.
             if final_dir.is_dir() or final_dir.exists():
-                trash = _SKILLS_DIR / f".trash-{uuid.uuid4().hex}"
+                trash = directory / f".trash-{uuid.uuid4().hex}"
                 os.rename(str(final_dir), str(trash))
                 replaced = True
             os.rename(str(staging), str(final_dir))
@@ -1113,8 +1133,91 @@ def install_skill(
     return skill, replaced
 
 
+def install_skill_pack(
+    data: bytes, source_filename: Optional[str] = None, replace: bool = False
+) -> Tuple[List[Skill], bool]:
+    """Install individual skills or portable multi-skill/plugin packs atomically."""
+    files = inspect_archive(data, collection=True)
+    roots = sorted(
+        path.removesuffix(_SKILL_MD_NAME)
+        for path in files
+        if path.split("/")[-1] == _SKILL_MD_NAME
+        and not any(
+            part in ("evals", "scripts", "assets") for part in path.split("/")[:-1]
+        )
+    )
+    if not roots or any(
+        other != root and other.startswith(root) for root in roots for other in roots
+    ):
+        raise SkillError(
+            "Archive must contain separate skill directories with SKILL.md."
+        )
+    with _skills_lock:
+        _SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix=".tmp-pack-", dir=_SKILLS_DIR
+        ) as temporary:
+            staging = Path(temporary) / "new"
+            backups = Path(temporary) / "old"
+            backups.mkdir()
+            prepared: List[Skill] = []
+            replaced_upload = False
+            for root in roots:
+                archive = io.BytesIO()
+                with zipfile.ZipFile(archive, "w") as bundle:
+                    for path, payload in files.items():
+                        if path.startswith(root):
+                            bundle.writestr(path[len(root) :], payload)
+                skill, _ = install_skill(
+                    archive.getvalue(), source_filename, _directory=staging
+                )
+                existing = _load_skill_dir(_SKILLS_DIR / skill.id)
+                if (
+                    existing is not None
+                    and existing.source == "uploaded"
+                    and not replace
+                ):
+                    error = SkillError(
+                        f"Skill '{skill.id}' already exists. Replacing this pack replaces all matching skills.",
+                        409,
+                    )
+                    error.skill_id, error.existing = skill.id, existing
+                    raise error
+                if existing is not None:
+                    replaced_upload |= existing.source == "uploaded"
+                    payload = skill.to_manifest()
+                    payload.update(
+                        version=existing.version + 1,
+                        enabled=existing.enabled,
+                        created_at=existing.created_at,
+                    )
+                    skill = _skill_from_manifest(payload)
+                    _write_json_file(str(_manifest_path(staging / skill.id)), payload)
+                prepared.append(skill)
+            published: List[str] = []
+            moved: List[str] = []
+            try:
+                for skill in prepared:
+                    target = _SKILLS_DIR / skill.id
+                    if target.exists():
+                        os.rename(target, backups / skill.id)
+                        moved.append(skill.id)
+                    os.rename(staging / skill.id, target)
+                    published.append(skill.id)
+            except OSError:
+                for skill_id in reversed(published):
+                    os.rename(_SKILLS_DIR / skill_id, staging / skill_id)
+                for skill_id in reversed(moved):
+                    os.rename(backups / skill_id, _SKILLS_DIR / skill_id)
+                raise
+            return prepared, replaced_upload
+
+
 def list_skills() -> List[Skill]:
     """All installed skills, ordered by id; sweeps stale staging directories."""
+    from . import skill_sources
+
+    skill_sources.refresh()
     skills_dir = _SKILLS_DIR
     if not skills_dir.is_dir():
         return []
@@ -1134,7 +1237,7 @@ def list_skills() -> List[Skill]:
                 _sweep_if_stale(path)
             continue
         skill = _load_skill_dir(path)
-        if skill is not None:
+        if skill is not None and skill_sources.is_available(skill):
             found.append(skill)
     return found
 
@@ -1144,7 +1247,10 @@ def get_skill(skill_id: str) -> Optional[Skill]:
     directory = _skill_dir(skill_id)
     if directory is None or not directory.is_dir():
         return None
-    return _load_skill_dir(directory)
+    from .skill_sources import is_available
+
+    skill = _load_skill_dir(directory)
+    return skill if skill is not None and is_available(skill) else None
 
 
 def load_skills(skill_ids: Sequence[str]) -> Tuple[List[Skill], List[str]]:
@@ -1206,7 +1312,7 @@ def set_skill_enabled(skill_id: str, enabled: bool) -> Skill:
 def read_skill_markdown(skill_id: str) -> Optional[str]:
     """Raw SKILL.md text including the frontmatter, for the library UI."""
     directory = _skill_dir(skill_id)
-    if directory is None:
+    if directory is None or get_skill(skill_id) is None:
         return None
     path = _bundle_path(directory) / _SKILL_MD_NAME
     try:
@@ -1277,6 +1383,11 @@ def read_reference_sections(
 
 def delete_skill(skill_id: str) -> bool:
     """Remove a skill; True when something was deleted."""
+    skill = get_skill(skill_id)
+    if skill is not None and skill.source != "uploaded":
+        raise SkillError(
+            "Local skills are read-only; disable the skill or its source instead."
+        )
     directory = _skill_dir(skill_id)
     if directory is None:
         return False

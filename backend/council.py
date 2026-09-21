@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import asdict
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from .config import (
@@ -18,12 +19,14 @@ from .config import (
     SKILLS_MAX_REFERENCES,
     SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_MODEL,
+    SKILLS_TYPESAFE_ENABLED,
     SYNTHESIS_CONTEXT_MAX_CHARS,
     TITLE_MODEL,
 )
 from .openrouter import query_model
 from .skills import ReferenceCandidate, Skill
 from .trace import TraceCollector
+from .typesafe import select_relevant
 
 ProgressCallback = Optional[
     Callable[[str, str, Optional[Dict[str, Any]]], Awaitable[None]]
@@ -1033,6 +1036,15 @@ async def select_skill_references(
 
     Returns keys: selected, reasons, parsed, model, error.
     """
+    if SKILLS_TYPESAFE_ENABLED:
+        return await select_relevant(
+            user_query,
+            {candidate.candidate_id: asdict(candidate) for candidate in candidates},
+            SKILLS_MAX_REFERENCE_SECTIONS,
+            "skill_references",
+            trace,
+        )
+
     result: Dict[str, Any] = {
         "selected": [],
         "reasons": {},
@@ -1124,6 +1136,18 @@ async def select_skills(
 
     Returns keys: selected, reasons, parsed, model, error.
     """
+    if SKILLS_TYPESAFE_ENABLED:
+        return await select_relevant(
+            user_query,
+            {
+                index: {"name": skill.name, "description": skill.description}
+                for index, skill in enumerate(candidates, start=1)
+            },
+            SKILLS_MAX_SELECTED,
+            "skill_selection",
+            trace,
+        )
+
     result: Dict[str, Any] = {
         "selected": [],
         "reasons": {},

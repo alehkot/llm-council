@@ -203,6 +203,10 @@ function App() {
 	} = useAppStore();
 
 	const [skillsModalFocusId, setSkillsModalFocusId] = useState(null);
+	const [skillSources, setSkillSources] = useState({
+		codex: false,
+		claude: false,
+	});
 
 	// Notifications
 	const { requestPermission, notifyInputNeeded } = useNotifications();
@@ -559,6 +563,7 @@ function App() {
 		try {
 			const data = await api.listSkills();
 			setSkills(Array.isArray(data?.skills) ? data.skills : []);
+			setSkillSources(data?.sources || { codex: false, claude: false });
 		} catch (err) {
 			// Skills are disabled server-side (404) or unreachable; the picker
 			// simply stays hidden instead of blocking the console.
@@ -712,7 +717,7 @@ function App() {
 					const confirmed = window.confirm(
 						`${existingId} is already installed${
 							existingVersion ? ` (v${existingVersion})` : ""
-						}. Replace it with the uploaded bundle?`,
+						}. Replace all matching skills in the uploaded bundle?`,
 					);
 					if (!confirmed) {
 						return null;
@@ -1607,6 +1612,11 @@ function App() {
 				isOpen={isSkillsModalOpen}
 				onClose={handleCloseSkillsModal}
 				skills={skills}
+				sources={skillSources}
+				onSourcesChange={async (sources) => {
+					await api.setSkillSources(sources);
+					await loadSkills();
+				}}
 				onUpload={handleUploadSkill}
 				onDelete={handleDeleteSkill}
 				onToggleEnabled={handleToggleSkillEnabled}

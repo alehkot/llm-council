@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import skills, storage
+from . import skill_sources, skills, storage
 from .config import (
     API_AUTH_KEY,
     API_KEY_BRUTEFORCE_LOCKOUT_SECONDS,
@@ -491,7 +491,22 @@ if SKILLS_ENABLED:
     @app.get("/api/skills")
     async def list_skills() -> Dict[str, Any]:
         """List every installed skill (manifest-derived summaries)."""
-        return {"skills": [skill.to_summary() for skill in skills.list_skills()]}
+        found = await asyncio.to_thread(skills.list_skills)
+        return {
+            "skills": [skill.to_summary() for skill in found],
+            "sources": skill_sources.settings(),
+        }
+
+    class SkillSourcesRequest(BaseModel):
+        codex: bool
+        claude: bool
+
+    @app.put("/api/skills/sources")
+    async def set_skill_sources(request: SkillSourcesRequest) -> Dict[str, Any]:
+        sources = await asyncio.to_thread(
+            skill_sources.configure, request.codex, request.claude
+        )
+        return {"sources": sources}
 
     @app.post("/api/skills")
     async def upload_skill(
@@ -507,8 +522,8 @@ if SKILLS_ENABLED:
         """
         data = await _read_upload_body(request, SKILLS_UPLOAD_MAX_BYTES)
         try:
-            skill, replaced = await asyncio.to_thread(
-                skills.install_skill,
+            installed, replaced = await asyncio.to_thread(
+                skills.install_skill_pack,
                 data,
                 _sanitize_upload_filename(filename),
                 bool(replace),
@@ -523,7 +538,11 @@ if SKILLS_ENABLED:
 
         return JSONResponse(
             status_code=200 if replaced else 201,
-            content={"skill": skill.to_detail(), "replaced": replaced},
+            content={
+                "skill": installed[0].to_detail(),
+                "skills": [skill.to_detail() for skill in installed],
+                "replaced": replaced,
+            },
         )
 
     @app.get("/api/skills/{skill_id}")
@@ -556,7 +575,10 @@ if SKILLS_ENABLED:
     @app.delete("/api/skills/{skill_id}")
     async def delete_skill(skill_id: str) -> Dict[str, Any]:
         """Delete an installed skill and its stored bundle."""
-        deleted = skills.delete_skill(skill_id)
+        try:
+            deleted = skills.delete_skill(skill_id)
+        except skills.SkillError as e:
+            raise _skill_http_error(e)
         if not deleted:
             raise HTTPException(status_code=404, detail="Skill not found")
         return {"status": "ok", "deleted": True}

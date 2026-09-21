@@ -301,6 +301,19 @@ export const api = {
 		return response.json();
 	},
 
+	async setSkillSources(sources) {
+		const response = await apiFetch("/api/skills/sources", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(sources),
+		});
+		if (!response.ok)
+			throw new Error(
+				await parseErrorDetail(response, "Failed to update skill sources"),
+			);
+		return response.json();
+	},
+
 	/**
 	 * Upload an agent skill as a .zip archive.
 	 * The File is sent as the raw request body (no multipart).

@@ -146,9 +146,9 @@ All configuration is managed via `.env`. See `.env.sample` for full options.
 
 | Variable          | Description              | Default                    |
 |-------------------|--------------------------|----------------------------|
-| `COUNCIL_MODELS`  | Comma-separated model IDs| GPT-4o, Gemini-1.5, Claude-3.5, etc. |
-| `CHAIRMAN_MODEL`  | Synthesis model          | google/gemini-pro-1.5      |
-| `TITLE_MODEL`     | Title generation model   | google/gemini-flash-1.5    |
+| `COUNCIL_MODELS`  | Comma-separated model IDs| GPT-6 Astra, Gemini 3.1 Pro, Claude Opus 5, Grok 4.6, Kimi K3, DeepSeek V4 Pro 0813 |
+| `CHAIRMAN_MODEL`  | Synthesis model          | google/gemini-3.1-pro-preview      |
+| `TITLE_MODEL`     | Title generation model   | google/gemini-3.1-pro-preview    |
 
 ### Feature Flags
 
@@ -158,6 +158,30 @@ All configuration is managed via `.env`. See `.env.sample` for full options.
 | `DELIBERATION_ENABLED`     | Enable revised responses       | false   |
 | `INTERACTIVE_MODE_ENABLED` | Enable inline user prompts     | false   |
 | `PROMPT_REFINEMENT_ENABLED`| Enable query refinement stage  | false   |
+
+### Model context and multi-turn requests
+
+Model IDs were checked against the [OpenRouter catalog](https://openrouter.ai/api/v1/models)
+on 2026-09-20. Explicit environment overrides still take precedence. The shared
+OpenRouter client refreshes model context/output limits hourly and falls back to
+a checked-in snapshot when the catalog is unavailable (8,192 context tokens for
+unknown models). It uses the smaller catalog/provider context limit, reserves
+output space and a safety margin, and sends reasoning parameters only when supported.
+
+Input sizing uses a conservative UTF-8 byte estimate, not an exact model tokenizer.
+Oversized inputs are reduced through bounded calls to the same model: system and
+developer messages remain verbatim, while long message interiors become evidence
+notes with source labels and constraints; prompt beginnings/endings remain intact.
+Summarization can lose detail, and traces explicitly record reduction. The client
+fails rather than silently dropping text when the input still cannot fit.
+
+Prose answers cut off by output limits can continue for up to two additional turns;
+structured router/ranking outputs fail instead of being concatenated as broken JSON.
+Incomplete answers after that limit are reported as failures. Usage includes the
+extra reduction and continuation calls. Configure `OPENROUTER_MAX_CONTEXT_CALLS`
+(default 16; 0 disables reduction) and `OPENROUTER_MAX_CONTINUATIONS` (default 2;
+0 disables continuation) to bound additional spend. Existing prompt/skill character
+caps remain cost controls, independent of the model's maximum context window.
 
 ### Skills
 
@@ -174,7 +198,10 @@ uploaded *and* selected for a consultation.
 | `SKILLS_CONTEXT_MAX_CHARS`           | Stage 1 skill budget       | 48000   |
 | `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` | Stage 3 skill budget       | 24000   |
 | `SKILLS_REFERENCE_SELECTION_ENABLED` | Model-picked references    | true    |
-| `SKILLS_AUTO_SELECT_ENABLED`         | Auto-pick skills when none ticked | false |
+| `SKILLS_AUTO_SELECT_ENABLED`         | Auto-pick skills when none ticked | true with Jev, otherwise false |
+| `TYPESAFE_API_KEY` | Server-side TypeSafe credential | unset |
+| `SKILLS_TYPESAFE_ENABLED` | Use Jev for both selection steps | true when key is set |
+| `TYPESAFE_MODEL` | TypeSafe model | jev-latest |
 | `SKILLS_AUTO_SELECT_MODEL`           | Model for skill auto-selection | reference model |
 | `SKILLS_UPLOAD_MAX_BYTES`            | Max upload size            | 5 MiB   |
 
@@ -186,6 +213,22 @@ An **Agent Skill** is a `.zip` containing a `SKILL.md` with YAML frontmatter
 (`name` and `description`) plus optional `references/*.md`. This is the same
 format Claude Code and Codex use, so existing skills work here unchanged.
 
+Individual ZIPs and combined packs from the `thinking-skills` and
+`business-writing-skills` exporters are accepted, including their plugin layouts.
+All skills in a pack are validated before publication; a conflict requires explicit
+replacement of matching skills, and failed publication rolls back the pack.
+
+In the **Skills** dialog, turn on **~/.codex/skills** and/or **~/.claude/skills**
+to include installed skills from the backend computer. Both default off and the
+settings persist across restarts, applying to all council users. Root skill symlinks
+are supported; nested links are not followed. Only SKILL.md and Markdown references
+are copied into the council's local cache. Original files are never modified.
+Local skills work with the existing picker and Jev auto-selection; uploaded names
+win collisions, followed by Codex, then Claude. Listing the library refreshes changed
+local content. Disable individual local skills or their source to stop using them;
+source toggles also prevent access through skill-content endpoints. Local skills
+cannot be deleted from the UI. Unreadable or incompatible local installations are skipped.
+
 Upload one from the **Skills** button in the console header. The modal's
 **Default skills** list is a global setting: default skills apply to every
 chat. In the composer, unchecking a default skill turns it off for that one
@@ -193,12 +236,30 @@ chat only (per-chat override), with a "Reset to default" button to clear the
 overrides. Instructions are injected into **Stage 1** (every council model's
 system prompt) and **Stage 3** (the chairman's synthesis prompt).
 
-Skill selection is operator-driven by default: tick skills in the composer,
+Without TypeSafe configured, skill selection is operator-driven by default: tick skills in the composer,
 and only those are used. With `SKILLS_AUTO_SELECT_ENABLED=true`, sending a
 question with **no** skills ticked instead asks a cheap model to pick up to
 `SKILLS_MAX_SELECTED` enabled skills whose description matches the question;
 explicit ticks always win over auto-selection. The pick is recorded in the
 message metadata, so resume and export replay the same skill set.
+
+To use TypeSafe Jev, set `TYPESAFE_API_KEY` in the backend environment and
+restart the backend. This enables Jev routing and automatic skill selection by
+default; explicit `SKILLS_AUTO_SELECT_ENABLED=false` still disables automatic
+skill picks. `SKILLS_TYPESAFE_ENABLED=false` restores the OpenRouter selectors.
+
+Jev first scores enabled skills by name and description, then scores reference
+sections within the selected skills using their indexed headings, summaries, and
+SKILL.md mentions. The selected SKILL.md instructions and actual section text
+are loaded into Stage 1 and Stage 3 prompts through the existing context budgets.
+The query and candidate metadata are sent to TypeSafe; credentials stay server-side.
+The integration uses the [TypeSafe HTTP API](https://docs.typesafe.ai/api) with
+one Score question per candidate, in batches of 16. It selects scores at least
+1.5 on a 0–2 relevance scale, up to the existing selection limits; no match can
+select nothing. This is an initial routing policy, not a measured quality guarantee.
+Traces record scores and the model, without candidate text. Provider errors or
+invalid responses use the existing deterministic fallback. Existing persisted
+plans are reused on resume.
 
 Because council models have no tools, they cannot open a skill's
 `references/*.md` on demand. Instead a cheap model is asked once per
