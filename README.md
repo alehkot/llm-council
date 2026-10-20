@@ -64,6 +64,10 @@ Final Answer
   fail.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
 - **Conversation history**: Persistent JSON storage with full deliberation records.
+- **Durable recovery**: Restart resumes unfinished consultations. Jobs whose
+  conversation file is missing or unreadable are skipped without blocking other
+  conversations. Their journals are retained; repair or restore the conversation
+  file and restart to retry recovery. Deleted conversations are not recreated.
 - **Markdown Export**: Export full conversation context and reasoning to Markdown.
 - **Focus View**: Dedicated modal for deep reading of the synthesized answer.
 

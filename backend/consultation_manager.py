@@ -1026,6 +1026,14 @@ class ConsultationManager:
                 grouped.setdefault(job.get("conversation_id", ""), []).append(job)
 
             for conversation_id, group in grouped.items():
+                if storage.get_conversation(conversation_id) is None:
+                    # Missing and unreadable files share this result. Keep the journal
+                    # for repair, but do not let an unavailable conversation block startup.
+                    print(
+                        f"Warning: Skipping recovery for unavailable conversation "
+                        f"{conversation_id}; consultation journals retained"
+                    )
+                    continue
                 active_job = None
                 queued_jobs: List[Dict[str, Any]] = []
                 for job in group:
