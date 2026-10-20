@@ -45,6 +45,7 @@ from .openrouter import query_model
 from .side_chat import (
     build_side_chat_messages,
     build_side_chat_thread,
+    resolve_effective_prompt,
     resolve_side_chat_source,
 )
 
@@ -538,7 +539,9 @@ async def _run_synthesis(
 
     stage1 = target_msg.get("stage1", [])
     stage2 = target_msg.get("stage2", [])
-    metadata = target_msg.get("metadata", {})
+    metadata = target_msg.get("metadata") or {}
+    # Reruns must use the same accepted question as the original council run.
+    user_query = resolve_effective_prompt(user_query, metadata)
     label_to_model = metadata.get("label_to_model", {})
     aggregate_gap_scores = metadata.get("aggregate_gap_scores")
     aggregate_rankings = metadata.get("aggregate_rankings")

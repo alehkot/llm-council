@@ -73,6 +73,8 @@ Final Answer
 - **Deliberation**: Models revise their answers after seeing peer feedback.
 - **Interactive Mode**: Inline prompts for user guidance during processing.
 - **Prompt Refinement**: Iteratively refine your initial query for better results.
+  Re-running one or all synthesis modes preserves the accepted refined prompt;
+  choosing the original prompt keeps reruns on that original question.
 
 ## Quick Start
 
