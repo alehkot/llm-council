@@ -479,9 +479,11 @@ def _get_assistant_message_context(conversation_id: str, message_index: int):
         )
 
     stage1 = target_msg.get("stage1", [])
-    stage2 = target_msg.get("stage2", [])
+    stage2 = target_msg.get("stage2")
 
-    if not stage1 or not stage2:
+    # All reviewers may fail while Stage 3 still completes from Stage 1.
+    # An explicit empty list is a valid result; missing/None means incomplete.
+    if not stage1 or not isinstance(stage2, list):
         raise HTTPException(
             status_code=400, detail="Missing stage1 or stage2 data for resynthesis"
         )

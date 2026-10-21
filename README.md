@@ -65,7 +65,8 @@ Final Answer
   `OPENROUTER_RETRY_MAX_SECONDS` caps exponential backoff, not a longer provider
   cooldown. Stop can interrupt the wait. Missing or invalid hints use normal backoff.
 - **Graceful degradation**: Continues with successful responses if some models
-  fail.
+  fail. A completed synthesis can still be re-run (one or all modes) when every
+  peer reviewer failed; reruns use the saved responses without peer rankings.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
 - **Cancellation**: Stopping a consultation cancels its local in-flight async work
   and clears queued messages, freeing the worker for a new request. This does not
