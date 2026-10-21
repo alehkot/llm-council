@@ -60,6 +60,10 @@ Final Answer
 - **Anonymized evaluation**: Unbiased peer review without model identification.
 - **Transparent reasoning**: View raw evaluations, debug traces, and validate ranking
   extraction.
+- **Provider cooldowns**: Retryable provider errors honor valid `Retry-After`
+  seconds or HTTP dates before retrying. The configured retry count is unchanged;
+  `OPENROUTER_RETRY_MAX_SECONDS` caps exponential backoff, not a longer provider
+  cooldown. Stop can interrupt the wait. Missing or invalid hints use normal backoff.
 - **Graceful degradation**: Continues with successful responses if some models
   fail.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
