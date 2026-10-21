@@ -510,7 +510,7 @@ def build_council_graph(context: FlowContext):
                 timeout=timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             await _cancel_tasks(tasks)
             raise
 

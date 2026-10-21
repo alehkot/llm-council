@@ -63,6 +63,9 @@ Final Answer
 - **Graceful degradation**: Continues with successful responses if some models
   fail.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
+- **Cancellation**: Stopping a consultation cancels its local in-flight async work
+  and clears queued messages, freeing the worker for a new request. This does not
+  guarantee that an already-submitted provider request stops or avoids billing.
 - **Conversation history**: Persistent JSON storage with full deliberation records.
 - **Durable recovery**: Restart resumes unfinished consultations. Jobs whose
   conversation file is missing or unreadable are skipped without blocking other
