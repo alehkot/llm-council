@@ -67,6 +67,9 @@ Final Answer
 - **Graceful degradation**: Continues with successful responses if some models
   fail. A completed synthesis can still be re-run (one or all modes) when every
   peer reviewer failed; reruns use the saved responses without peer rankings.
+  Empty or whitespace-only provider completions use the existing bounded retry
+  budget; if all attempts fail, deliberation keeps the original answer instead
+  of replacing it with blank text. Nonblank string formatting is preserved.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
 - **Cancellation**: Stopping a consultation cancels its local in-flight async work
   and clears queued messages, freeing the worker for a new request. This does not
@@ -233,6 +236,19 @@ llm-council/
 - **Frontend**: React 19, Vite 7, Tailwind CSS 4, and Zustand.
 - **Storage**: Lightweight JSON file persistence in `data/conversations/`.
 - **Sync**: Robust polling mechanism replaces SSE for state consistency.
+
+## Backend Regression Checks
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
+Provider-response tests use mocked HTTPX responses with the real client and
+council stages. They cover blank-completion retry recovery, exhaustion, failure
+status, and deliberation fallback. They make no live provider calls or claims
+about model quality. Retries do not increase the token budget or change reasoning
+settings; a provider that repeatedly returns empty text may still fail and bill
+for its attempts.
 
 ## Frontend Regression Checks
 

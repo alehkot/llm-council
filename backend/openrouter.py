@@ -164,7 +164,8 @@ def _extract_message_content(message: Dict[str, Any]) -> Optional[str]:
     """Normalize provider message payloads to plain text content."""
     content = message.get("content")
     if isinstance(content, str):
-        return content
+        # Empty completions are failures, but retain formatting of usable answers.
+        return content if content.strip() else None
     if isinstance(content, list):
         parts = []
         for item in content:
