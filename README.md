@@ -234,6 +234,23 @@ llm-council/
 - **Storage**: Lightweight JSON file persistence in `data/conversations/`.
 - **Sync**: Robust polling mechanism replaces SSE for state consistency.
 
+## Frontend Regression Checks
+
+Selected-conversation status checks and polling ignore responses from obsolete
+navigation effects, so a slow previous conversation cannot replace the current
+status, queue, or interactive prompt through those effects. Slow polling requests
+do not overlap within an active effect. Other request flows and global API-key
+error handling are unchanged.
+
+```bash
+node --test frontend/tests/*.test.mjs
+cd frontend && npm run lint && npm run build
+```
+
+The dependency-free tests execute the production polling and selection effect
+bodies with controlled promises and store/API seams. They cover navigation,
+cleanup, late responses, and current-request controls, not rendered browser UI.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Development guidelines and project standards.
