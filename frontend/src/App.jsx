@@ -111,8 +111,7 @@ function App() {
 		setInteractiveSessionId,
 		currentInteractivePrompt,
 		setCurrentInteractivePrompt,
-		isCancelling,
-		setIsCancelling,
+		setCancellingConversations,
 		hasApiKey,
 		setHasApiKey,
 		showApiKeyModal,
@@ -1057,45 +1056,58 @@ function App() {
 
 	const handleCancelConsultation = useCallback(async () => {
 		if (!currentConversationId) return;
-		if (isCancelling) return;
 
 		const conversationId = currentConversationId;
-		setIsCancelling(true);
+		// Check the live store so a second click before a render cannot send twice.
+		if (useAppStore.getState().cancellingConversations[conversationId]) return;
+		const isCurrent = () =>
+			useAppStore.getState().currentConversationId === conversationId;
+		setCancellingConversations((previous) => ({
+			...previous,
+			[conversationId]: true,
+		}));
 		setError(null);
 
 		try {
 			await api.cancelConsultation(conversationId);
-			setIsLoading(false);
-			setConsultationStatus(null);
 			clearStreamingConsultation(conversationId);
-			setCurrentInteractivePrompt(null);
-			setInteractiveSessionId(null);
-			setMessageQueue([]);
-			await loadConversation(conversationId);
+			if (isCurrent()) {
+				setIsLoading(false);
+				setConsultationStatus(null);
+				setCurrentInteractivePrompt(null);
+				setInteractiveSessionId(null);
+				setMessageQueue([]);
+			}
+			// Refresh the stopped conversation; snapshot handling scopes UI to its ID.
+			const conversation = await api.getConversation(conversationId);
+			applyConversationSnapshot(conversation);
 			await loadConversations();
 		} catch (err) {
 			console.error("Failed to cancel consultation:", err);
-			if (!handleApiError(err)) {
+			if (isCurrent() && !handleApiError(err)) {
 				setError({
 					message: "Failed to cancel consultation.",
 					details: err.message,
 				});
 			}
 		} finally {
-			setIsCancelling(false);
+			setCancellingConversations((previous) => {
+				const next = { ...previous };
+				delete next[conversationId];
+				return next;
+			});
 		}
 	}, [
 		currentConversationId,
+		applyConversationSnapshot,
 		clearStreamingConsultation,
 		handleApiError,
-		isCancelling,
 		loadConversations,
-		loadConversation,
+		setCancellingConversations,
 		setConsultationStatus,
 		setCurrentInteractivePrompt,
 		setError,
 		setInteractiveSessionId,
-		setIsCancelling,
 		setIsLoading,
 		setMessageQueue,
 	]);

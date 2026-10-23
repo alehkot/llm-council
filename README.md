@@ -255,17 +255,23 @@ for its attempts.
 Selected-conversation status checks and polling ignore responses from obsolete
 navigation effects, so a slow previous conversation cannot replace the current
 status, queue, or interactive prompt through those effects. Slow polling requests
-do not overlap within an active effect. Other request flows and global API-key
-error handling are unchanged.
+do not overlap within an active effect.
+
+Stop requests are tracked per conversation: stopping one conversation does not
+disable another conversation's controls. Late Stop responses and local errors
+are scoped to their conversation, while its saved transcript is still refreshed.
+Repeated Stop clicks for the same pending request are ignored. Other mutation
+flows and global API-key error handling are unchanged.
 
 ```bash
 node --test frontend/tests/*.test.mjs
 cd frontend && npm run lint && npm run build
 ```
 
-The dependency-free tests execute the production polling and selection effect
-bodies with controlled promises and store/API seams. They cover navigation,
-cleanup, late responses, and current-request controls, not rendered browser UI.
+The dependency-free tests execute the production polling/selection effects and
+Stop callback with controlled promises and store/API seams. They cover navigation,
+cleanup, late responses, independent and duplicate Stop requests, and current-
+request controls, not rendered browser UI.
 
 ## Documentation
 
