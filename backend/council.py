@@ -1682,10 +1682,16 @@ def parse_ranking_from_text(
         if len(parts) >= 2:
             ranking_section = parts[1]
 
-            # If we have expected labels, build a precise pattern
+            # Expected labels extend the supported spelling, not a whitelist:
+            # unknown Response labels must survive parsing so validation can
+            # reject the whole ballot. Match complete labels, never A from A1.
             if expected_labels:
-                escaped = [re.escape(lbl) for lbl in expected_labels]
-                pattern = r"\d+\.\s*(" + "|".join(escaped) + r")"
+                escaped = [
+                    re.escape(lbl)
+                    for lbl in sorted(expected_labels, key=len, reverse=True)
+                ]
+                alternatives = "|".join([*escaped, r"Response\s+[A-Za-z0-9]+"])
+                pattern = r"\d+\.\s*(" + alternatives + r")(?!\w)"
                 matches = re.findall(pattern, ranking_section)
                 if matches:
                     return matches

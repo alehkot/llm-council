@@ -59,6 +59,7 @@ Final Answer
   Gemini, Grok, and more.
 - **Anonymized evaluation**: Unbiased peer review without model identification.
 - **Invalid ranking handling**: Peer orders marked invalid by Stage 2 (for example,
+  unknown labels, including labels that only share a prefix with a valid response,
   a truncated order missing a response) are shown to the chairman as invalid,
   not as usable ranking lines, and do not contribute deliberation position counts.
   Where a synthesis mode includes reviewer rationale, an invalid review's excerpt
