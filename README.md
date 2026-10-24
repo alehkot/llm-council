@@ -60,10 +60,29 @@ Final Answer
 - **Anonymized evaluation**: Unbiased peer review without model identification.
 - **Transparent reasoning**: View raw evaluations, debug traces, and validate ranking
   extraction.
+- **Provider cooldowns**: Retryable provider errors honor valid `Retry-After`
+  seconds or HTTP dates before retrying. The configured retry count is unchanged;
+  `OPENROUTER_RETRY_MAX_SECONDS` caps exponential backoff, not a longer provider
+  cooldown. Stop can interrupt the wait. Missing or invalid hints use normal backoff.
 - **Graceful degradation**: Continues with successful responses if some models
-  fail.
+  fail. A completed synthesis can still be re-run (one or all modes) when every
+  peer reviewer failed; reruns use the saved responses without peer rankings.
+  Empty or whitespace-only provider completions use the existing bounded retry
+  budget; if all attempts fail, deliberation keeps the original answer instead
+  of replacing it with blank text. Nonblank string formatting is preserved.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
+  Switching consultations while a message is being submitted keeps the selected
+  consultation’s progress, queue, and errors separate. Late submission results
+  update only the original conversation’s cached messages; returning to it
+  reloads its status and queue from the backend.
+- **Cancellation**: Stopping a consultation cancels its local in-flight async work
+  and clears queued messages, freeing the worker for a new request. This does not
+  guarantee that an already-submitted provider request stops or avoids billing.
 - **Conversation history**: Persistent JSON storage with full deliberation records.
+- **Durable recovery**: Restart resumes unfinished consultations. Jobs whose
+  conversation file is missing or unreadable are skipped without blocking other
+  conversations. Their journals are retained; repair or restore the conversation
+  file and restart to retry recovery. Deleted conversations are not recreated.
 - **Markdown Export**: Export full conversation context and reasoning to Markdown.
 - **Focus View**: Dedicated modal for deep reading of the synthesized answer.
 
@@ -73,6 +92,8 @@ Final Answer
 - **Deliberation**: Models revise their answers after seeing peer feedback.
 - **Interactive Mode**: Inline prompts for user guidance during processing.
 - **Prompt Refinement**: Iteratively refine your initial query for better results.
+  Re-running one or all synthesis modes preserves the accepted refined prompt;
+  choosing the original prompt keeps reruns on that original question.
 
 ## Quick Start
 
@@ -219,6 +240,64 @@ llm-council/
 - **Frontend**: React 19, Vite 7, Tailwind CSS 4, and Zustand.
 - **Storage**: Lightweight JSON file persistence in `data/conversations/`.
 - **Sync**: Robust polling mechanism replaces SSE for state consistency.
+
+## Backend Regression Checks
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
+Provider-response tests use mocked HTTPX responses with the real client and
+council stages. They cover blank-completion retry recovery, exhaustion, failure
+status, and deliberation fallback. They make no live provider calls or claims
+about model quality. Retries do not increase the token budget or change reasoning
+settings; a provider that repeatedly returns empty text may still fail and bill
+for its attempts.
+
+## Frontend Regression Checks
+
+Selected-conversation status checks and polling ignore responses from obsolete
+navigation effects, so a slow previous conversation cannot replace the current
+status, queue, or interactive prompt through those effects. Slow polling requests
+do not overlap within an active effect.
+
+Stop requests are tracked per conversation: stopping one conversation does not
+disable another conversation's controls. Late Stop responses and local errors
+are scoped to their conversation, while its saved transcript is still refreshed.
+Repeated Stop clicks for the same pending request are ignored. Other mutation
+flows and global API-key error handling are unchanged.
+
+```bash
+node --test frontend/tests/*.test.mjs
+cd frontend && npm run lint && npm run build
+```
+
+The dependency-free tests execute the production polling/selection effects and
+Stop/Send callbacks with controlled promises and store/API seams. They cover
+navigation, cleanup, late responses, independent and duplicate Stop requests,
+Send rollback/cache ownership, and current-request controls, not rendered browser UI.
+
+### Optional rendered send/navigation regression test
+
+After installing frontend dependencies, run the real UI against synthetic,
+intercepted API responses. Supply an installed Playwright Core module and a
+sandbox-capable Chromium executable; this does not download a browser or change
+production dependencies:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/send-navigation.browser.mjs
+```
+
+The script starts and stops a local Vite server on port 5197 and launches Chromium
+with its sandbox enabled. At desktop and mobile viewport sizes it types and sends
+a question in A, selects idle or active B through the sidebar, then releases A's
+delayed started, queued, or failed response. It verifies B's selected conversation,
+loading indicator, consultation status, queue, error, and send-button label remain
+unchanged. These are API-mocked UI checks, not live-provider or backend integration
+tests; no real API key or paid provider request is used.
 
 ## Documentation
 
