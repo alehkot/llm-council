@@ -69,6 +69,7 @@ class ConsultationState:
     resume_from_storage: bool = False
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     loop: Optional[asyncio.AbstractEventLoop] = field(default=None, repr=False)
+    task: Optional[asyncio.Task] = field(default=None, repr=False)
     interactive_queue: Optional[asyncio.Queue] = field(default=None, repr=False)
     session_id: Optional[str] = None
 
@@ -589,6 +590,8 @@ class ConsultationManager:
                 ConsultationStatus.FAILED,
             ):
                 state.cancel_event.set()
+                if state.loop is not None and state.task is not None:
+                    state.loop.call_soon_threadsafe(state.task.cancel)
                 state.status = ConsultationStatus.FAILED
                 state.error = "Cancelled"
                 state.updated_at = datetime.utcnow()
@@ -634,6 +637,8 @@ class ConsultationManager:
                 ):
                     continue
                 state.cancel_event.set()
+                if state.loop is not None and state.task is not None:
+                    state.loop.call_soon_threadsafe(state.task.cancel)
                 state.status = ConsultationStatus.FAILED
                 state.error = "Cancelled"
                 state.updated_at = datetime.utcnow()
@@ -716,6 +721,9 @@ class ConsultationManager:
         asyncio.set_event_loop(loop)
 
         try:
+            # A job can be cancelled while it is still waiting for a pool worker.
+            if state.cancel_event.is_set():
+                raise asyncio.CancelledError
             if state.assistant_index is None:
                 state.assistant_index = self._ensure_assistant_placeholder(
                     state.id,
@@ -872,7 +880,7 @@ class ConsultationManager:
                 state.negative_prompt,
                 assistant_message,
             )
-            final_state = loop.run_until_complete(
+            task = loop.create_task(
                 run_council_graph(
                     state.message_content,
                     state.negative_prompt,
@@ -880,21 +888,15 @@ class ConsultationManager:
                     initial_state=cast(CouncilState, initial_state),
                 )
             )
+            with self._lock:
+                state.task = task
+                # Cover cancellation between worker startup and task registration.
+                if state.cancel_event.is_set():
+                    task.cancel()
+            final_state = loop.run_until_complete(task)
 
             if state.cancel_event.is_set():
-                with self._lock:
-                    state.error = "Cancelled"
-                    state.status = ConsultationStatus.FAILED
-                    state.metadata = {
-                        **(state.metadata or {}),
-                        "status": ConsultationStatus.FAILED.value,
-                        "error": "Cancelled",
-                        "interactive_prompt": None,
-                    }
-                    state.updated_at = datetime.utcnow()
-                persist_failure("Cancelled")
-                consultation_journal.delete_job(state.id)
-                return
+                raise asyncio.CancelledError
 
             error_message = final_state.get("error")
             stage3_result = final_state.get("stage3")
@@ -929,26 +931,45 @@ class ConsultationManager:
             trace.finish()
             trace_payload = trace.to_dict()
 
-            storage.update_assistant_message(
-                conversation_id,
-                state.assistant_index,
-                {
-                    "stage1": stage1_results,
-                    "negative": negative_context,
-                    "stage2": stage2_results,
-                    "stage3": stage3_result,
-                    "metadata": final_metadata,
-                    "trace": trace_payload,
-                },
-            )
             with self._lock:
+                # Serialize the final commit with cancellation, including the window
+                # after the graph task has already returned.
+                if state.cancel_event.is_set():
+                    raise asyncio.CancelledError
+                storage.update_assistant_message(
+                    conversation_id,
+                    state.assistant_index,
+                    {
+                        "stage1": stage1_results,
+                        "negative": negative_context,
+                        "stage2": stage2_results,
+                        "stage3": stage3_result,
+                        "metadata": final_metadata,
+                        "trace": trace_payload,
+                    },
+                )
                 state.metadata = final_metadata
                 state.stage1_results = stage1_results
                 state.negative_context = negative_context
                 state.stage2_results = stage2_results
                 state.stage3_result = stage3_result
+                state.status = ConsultationStatus.COMPLETE
+                state.updated_at = datetime.utcnow()
 
-            self._update_status(state, ConsultationStatus.COMPLETE)
+            consultation_journal.delete_job(state.id)
+
+        except asyncio.CancelledError:
+            with self._lock:
+                state.error = "Cancelled"
+                state.status = ConsultationStatus.FAILED
+                state.metadata = {
+                    **(state.metadata or {}),
+                    "status": ConsultationStatus.FAILED.value,
+                    "error": "Cancelled",
+                    "interactive_prompt": None,
+                }
+                state.updated_at = datetime.utcnow()
+            persist_failure("Cancelled")
             consultation_journal.delete_job(state.id)
 
         except Exception as exc:
@@ -973,9 +994,16 @@ class ConsultationManager:
                 if state.session_id:
                     self._interactive_sessions.pop(state.session_id, None)
                 state.loop = None
+                state.task = None
                 state.interactive_queue = None
                 state.session_id = None
 
+            # Drain any graph/provider child tasks before closing their event loop.
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.close()
             self._on_consultation_complete(state)
 
@@ -1026,6 +1054,14 @@ class ConsultationManager:
                 grouped.setdefault(job.get("conversation_id", ""), []).append(job)
 
             for conversation_id, group in grouped.items():
+                if storage.get_conversation(conversation_id) is None:
+                    # Missing and unreadable files share this result. Keep the journal
+                    # for repair, but do not let an unavailable conversation block startup.
+                    print(
+                        f"Warning: Skipping recovery for unavailable conversation "
+                        f"{conversation_id}; consultation journals retained"
+                    )
+                    continue
                 active_job = None
                 queued_jobs: List[Dict[str, Any]] = []
                 for job in group:

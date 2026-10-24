@@ -93,7 +93,9 @@ export default function ChatInterface({
 			consultationStatus: state.consultationStatus,
 			messageQueue: state.messageQueue,
 			streamingConsultations: state.streamingConsultations,
-			isCancelling: state.isCancelling,
+			isCancelling: Boolean(
+				state.cancellingConversations[state.currentConversationId],
+			),
 			setError: state.setError,
 		})),
 	);
