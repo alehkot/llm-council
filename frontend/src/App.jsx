@@ -1119,6 +1119,9 @@ function App() {
 	const handleSendMessage = async (content, negativePrompt) => {
 		if (!currentConversationId) return;
 
+		const isCurrent = () =>
+			useAppStore.getState().currentConversationId === currentConversationId;
+
 		// Request notification permission on first message
 		requestPermission();
 
@@ -1206,6 +1209,7 @@ function App() {
 
 				if (result.status === "queued") {
 					rollbackOptimisticMessagePair();
+					if (!isCurrent()) return;
 					setMessageQueue((prev) => [
 						...prev,
 						{
@@ -1219,7 +1223,7 @@ function App() {
 					return;
 				}
 
-				setIsLoading(true);
+				// Cache the result for its owner, even after navigating elsewhere.
 				updateConversationById(conversationId, (draft) => {
 					const lastMsg = draft?.messages?.[draft.messages.length - 1];
 					if (!lastMsg || lastMsg.role !== "assistant") return;
@@ -1229,13 +1233,16 @@ function App() {
 						status: "pending",
 					};
 				});
+				if (!isCurrent()) return;
+				setIsLoading(true);
 				setConsultationStatus({
 					status: "pending",
 					consultation_id: result.consultation_id,
 				});
 			} catch (err) {
-				setIsLoading(false);
 				rollbackOptimisticMessagePair();
+				if (!isCurrent()) return;
+				setIsLoading(false);
 				if (!handleApiError(err)) {
 					setError({
 						message: "Failed to send message.",
@@ -1245,7 +1252,7 @@ function App() {
 			}
 		} catch (err) {
 			console.error("Failed to prepare message send:", err);
-			if (!handleApiError(err)) {
+			if (isCurrent() && !handleApiError(err)) {
 				setError({
 					message: "Failed to prepare message.",
 					details: err.message,

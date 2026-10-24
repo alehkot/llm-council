@@ -71,6 +71,10 @@ Final Answer
   budget; if all attempts fail, deliberation keeps the original answer instead
   of replacing it with blank text. Nonblank string formatting is preserved.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
+  Switching consultations while a message is being submitted keeps the selected
+  consultation’s progress, queue, and errors separate. Late submission results
+  update only the original conversation’s cached messages; returning to it
+  reloads its status and queue from the backend.
 - **Cancellation**: Stopping a consultation cancels its local in-flight async work
   and clears queued messages, freeing the worker for a new request. This does not
   guarantee that an already-submitted provider request stops or avoids billing.
@@ -269,9 +273,31 @@ cd frontend && npm run lint && npm run build
 ```
 
 The dependency-free tests execute the production polling/selection effects and
-Stop callback with controlled promises and store/API seams. They cover navigation,
-cleanup, late responses, independent and duplicate Stop requests, and current-
-request controls, not rendered browser UI.
+Stop/Send callbacks with controlled promises and store/API seams. They cover
+navigation, cleanup, late responses, independent and duplicate Stop requests,
+Send rollback/cache ownership, and current-request controls, not rendered browser UI.
+
+### Optional rendered send/navigation regression test
+
+After installing frontend dependencies, run the real UI against synthetic,
+intercepted API responses. Supply an installed Playwright Core module and a
+sandbox-capable Chromium executable; this does not download a browser or change
+production dependencies:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/send-navigation.browser.mjs
+```
+
+The script starts and stops a local Vite server on port 5197 and launches Chromium
+with its sandbox enabled. At desktop and mobile viewport sizes it types and sends
+a question in A, selects idle or active B through the sidebar, then releases A's
+delayed started, queued, or failed response. It verifies B's selected conversation,
+loading indicator, consultation status, queue, error, and send-button label remain
+unchanged. These are API-mocked UI checks, not live-provider or backend integration
+tests; no real API key or paid provider request is used.
 
 ## Documentation
 
