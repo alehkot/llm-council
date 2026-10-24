@@ -58,6 +58,12 @@ Final Answer
 - **Multi-model consensus**: Leverage diverse perspectives from GPT, Claude,
   Gemini, Grok, and more.
 - **Anonymized evaluation**: Unbiased peer review without model identification.
+- **Invalid ranking handling**: Peer orders marked invalid by Stage 2 (for example,
+  a truncated order missing a response) are shown to the chairman as invalid,
+  not as usable ranking lines, and do not contribute deliberation position counts.
+  Where a synthesis mode includes reviewer rationale, an invalid review's excerpt
+  remains available but is explicitly labeled as rationale only. Valid rankings,
+  aggregate voting rules, and legacy reviews without validation metadata are unchanged.
 - **Transparent reasoning**: View raw evaluations, debug traces, and validate ranking
   extraction.
 - **Provider cooldowns**: Retryable provider errors honor valid `Retry-After`
@@ -253,6 +259,12 @@ status, and deliberation fallback. They make no live provider calls or claims
 about model quality. Retries do not increase the token budget or change reasoning
 settings; a provider that repeatedly returns empty text may still fail and bill
 for its attempts.
+
+Ranking-validity regressions exercise real Stage 2 validation and capture the
+chairman's request across all four synthesis modes with provider calls mocked.
+They verify that declared-invalid orders stay diagnostic, qualitative rationale
+is qualified, and invalid votes do not inflate deliberation position counts.
+These checks establish prompt construction, not improved live-model answer quality.
 
 ## Frontend Regression Checks
 

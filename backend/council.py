@@ -434,16 +434,22 @@ def build_synthesis_ranking_context(
     rationale_lines = []
     expected_labels = list(label_to_model.keys())
     for result in stage2_results:
+        # A partial parsed order is still nonempty even when Stage 2 rejected it.
+        invalid = (
+            bool(result.get("validation_error"))
+            or result.get("validation_status") == "invalid"
+        )
         parsed = result.get("parsed_ranking")
         if parsed is None:
             parsed = parse_ranking_from_text(result.get("ranking", ""), expected_labels)
-        if parsed:
+        if invalid:
+            reason = result.get("validation_error") or "invalid ranking"
+            final_rank_lines.append(
+                f"- {result.get('model', 'unknown')}: invalid ({reason})"
+            )
+        elif parsed:
             final_rank_lines.append(
                 f"- {result.get('model', 'unknown')}: {' > '.join(parsed)}"
-            )
-        elif result.get("validation_error"):
-            final_rank_lines.append(
-                f"- {result.get('model', 'unknown')}: invalid ({result.get('validation_error')})"
             )
 
         rationale_limit = policy["ranking_note_chars"]
@@ -451,8 +457,10 @@ def build_synthesis_ranking_context(
             ranking_text = str(result.get("ranking") or "").strip()
             rationale = ranking_text.split("FINAL RANKING:", 1)[0].strip()
             if rationale:
+                qualifier = " (invalid ranking; rationale only)" if invalid else ""
                 rationale_lines.append(
-                    f"- {result.get('model', 'unknown')}: {_trim_text(rationale, rationale_limit)}"
+                    f"- {result.get('model', 'unknown')}{qualifier}: "
+                    f"{_trim_text(rationale, rationale_limit)}"
                 )
 
     if final_rank_lines:
@@ -525,6 +533,11 @@ def _ranking_position_counts(
     """Count how often a response label appeared at each rank."""
     counts: Dict[int, int] = {}
     for ranking in stage2_results:
+        if (
+            ranking.get("validation_error")
+            or ranking.get("validation_status") == "invalid"
+        ):
+            continue
         parsed_ranking = ranking.get("parsed_ranking")
         if parsed_ranking is None:
             parsed_ranking = parse_ranking_from_text(ranking.get("ranking", ""))
