@@ -1539,7 +1539,6 @@ KEY GAPS IDENTIFIED BY PEER REVIEWERS:
                 summaries = evaluation.get("summaries", {})
                 # Handle new multi-peer format
                 peer_scores = scores.get("peers", {})
-                peer_summaries = summaries.get("peers", {})
                 if peer_scores:
                     peer_text = ", ".join(
                         [f"{lbl}: {s}" for lbl, s in peer_scores.items()]
