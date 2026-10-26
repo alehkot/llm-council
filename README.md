@@ -277,8 +277,14 @@ do not overlap within an active effect.
 Stop requests are tracked per conversation: stopping one conversation does not
 disable another conversation's controls. Late Stop responses and local errors
 are scoped to their conversation, while its saved transcript is still refreshed.
-Repeated Stop clicks for the same pending request are ignored. Other mutation
-flows and global API-key error handling are unchanged.
+Repeated Stop clicks for the same pending request are ignored.
+
+A delayed single-conversation deletion removes only its target from the latest
+sidebar list and cache. It preserves another selected conversation, newly added
+list entries, and a newer delete-confirmation dialog. If the deleted conversation
+is selected when deletion finishes, selection is cleared. Delete failures retain
+local conversation data and keep the existing global error handling. Clear-all
+and other mutation flows are unchanged.
 
 ```bash
 node --test frontend/tests/*.test.mjs
@@ -286,9 +292,10 @@ cd frontend && npm run lint && npm run build
 ```
 
 The dependency-free tests execute the production polling/selection effects and
-Stop/Send callbacks with controlled promises and store/API seams. They cover
+Stop/Send/Delete callbacks with controlled promises and store/API seams. They cover
 navigation, cleanup, late responses, independent and duplicate Stop requests,
-Send rollback/cache ownership, and current-request controls, not rendered browser UI.
+Send rollback/cache ownership, delayed deletion/list/dialog ownership, and
+current-request controls, not rendered browser UI.
 
 ### Optional rendered send/navigation regression test
 
@@ -311,6 +318,24 @@ delayed started, queued, or failed response. It verifies B's selected conversati
 loading indicator, consultation status, queue, error, and send-button label remain
 unchanged. These are API-mocked UI checks, not live-provider or backend integration
 tests; no real API key or paid provider request is used.
+
+### Optional rendered deletion/navigation regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/delete-navigation.browser.mjs
+```
+
+This script owns local Vite port 5198 and verifies desktop/mobile delayed deletion:
+selecting B while A is being deleted, creating C and opening a newer B confirmation,
+deleting still-selected A, and a failed deletion retaining A. Requests are synthetic
+and intercepted; no provider calls are made. Node tests additionally exercise the
+real selection callback when starting with no selection and selecting A before its
+deletion finishes. Neither suite verifies live network/provider integration.
 
 ## Documentation
 

@@ -199,7 +199,7 @@ function App() {
 
 	const selectConversation = useCallback(
 		(conversationId, { updateUrl = true, replace = false } = {}) => {
-			if (currentConversationId === conversationId) {
+			if (useAppStore.getState().currentConversationId === conversationId) {
 				if (updateUrl) {
 					updateConversationUrl(conversationId, replace);
 				}
@@ -210,7 +210,7 @@ function App() {
 				updateConversationUrl(conversationId, replace);
 			}
 		},
-		[currentConversationId, setCurrentConversationId, updateConversationUrl],
+		[setCurrentConversationId, updateConversationUrl],
 	);
 
 	const updateConversationById = useCallback(
@@ -971,25 +971,25 @@ function App() {
 
 	const confirmDeleteConversation = async () => {
 		if (!deleteTarget) return;
+		const target = deleteTarget;
+		const conversationId = target.id;
 
 		setError(null);
 		try {
-			await api.deleteConversation(deleteTarget.id);
-			const remaining = conversations.filter(
-				(conv) => conv.id !== deleteTarget.id,
-			);
-			setConversations(remaining);
-			if (useAppStore.getState().conversationsById[deleteTarget.id]) {
+			await api.deleteConversation(conversationId);
+			// Navigation and list updates may have happened while DELETE was pending.
+			setConversations((prev) => prev.filter((conv) => conv.id !== conversationId));
+			if (useAppStore.getState().conversationsById[conversationId]) {
 				setConversationsById((prev) => {
 					const next = { ...prev };
-					delete next[deleteTarget.id];
+					delete next[conversationId];
 					return next;
 				});
 			}
-			if (currentConversationId === deleteTarget.id) {
+			if (useAppStore.getState().currentConversationId === conversationId) {
 				selectConversation(null, { replace: true });
 			}
-			setDeleteTarget(null);
+			setDeleteTarget((current) => current === target ? null : current);
 		} catch (err) {
 			console.error("Failed to delete conversation:", err);
 			if (!handleApiError(err)) {
