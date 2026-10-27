@@ -337,6 +337,24 @@ and intercepted; no provider calls are made. Node tests additionally exercise th
 real selection callback when starting with no selection and selecting A before its
 deletion finishes. Neither suite verifies live network/provider integration.
 
+### Optional rendered interactive-reply regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/interactive-navigation.browser.mjs
+```
+
+Delayed Submit or Skip responses only dismiss the prompt they answered. A newer
+conversation, session, or refinement round keeps its prompt and error state; an
+authentication failure still reaches the global authentication handler. Polling
+refreshes of the same logical prompt do not prevent normal dismissal. The tests
+use intercepted synthetic API responses, not live model providers. Node callback
+regressions additionally verify logical prompt identity and retryable failures.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Development guidelines and project standards.

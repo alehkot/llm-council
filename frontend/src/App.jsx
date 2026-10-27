@@ -796,19 +796,32 @@ function App() {
 
 	const handleInteractiveSubmit = async (responses) => {
 		if (!interactiveSessionId || !currentInteractivePrompt) return;
+		const conversationId = currentConversationId;
+		const sessionId = interactiveSessionId;
+		const promptId = currentInteractivePrompt.prompt_id;
+		const promptTitle = currentInteractivePrompt.title;
+		// Polling may replace the object, so compare the logical prompt, not identity.
+		const isCurrentPrompt = () => {
+			const state = useAppStore.getState();
+			return state.currentConversationId === conversationId &&
+				state.interactiveSessionId === sessionId &&
+				state.currentInteractivePrompt?.prompt_id === promptId &&
+				state.currentInteractivePrompt?.title === promptTitle;
+		};
 
 		try {
 			await api.submitInteractiveResponse(
-				interactiveSessionId,
-				currentInteractivePrompt.prompt_id,
+				sessionId,
+				promptId,
 				responses,
 				false,
 			);
+			if (!isCurrentPrompt()) return;
 			setCurrentInteractivePrompt(null);
 			setInteractiveSessionId(null);
 		} catch (err) {
 			console.error("Failed to submit interactive response:", err);
-			if (!handleApiError(err)) {
+			if (!handleApiError(err) && isCurrentPrompt()) {
 				setError({
 					message: "Failed to submit response.",
 					details: err.message,
@@ -819,19 +832,32 @@ function App() {
 
 	const handleInteractiveSkip = async () => {
 		if (!interactiveSessionId || !currentInteractivePrompt) return;
+		const conversationId = currentConversationId;
+		const sessionId = interactiveSessionId;
+		const promptId = currentInteractivePrompt.prompt_id;
+		const promptTitle = currentInteractivePrompt.title;
+		// Polling may replace the object, so compare the logical prompt, not identity.
+		const isCurrentPrompt = () => {
+			const state = useAppStore.getState();
+			return state.currentConversationId === conversationId &&
+				state.interactiveSessionId === sessionId &&
+				state.currentInteractivePrompt?.prompt_id === promptId &&
+				state.currentInteractivePrompt?.title === promptTitle;
+		};
 
 		try {
 			await api.submitInteractiveResponse(
-				interactiveSessionId,
-				currentInteractivePrompt.prompt_id,
+				sessionId,
+				promptId,
 				{},
 				true,
 			);
+			if (!isCurrentPrompt()) return;
 			setCurrentInteractivePrompt(null);
 			setInteractiveSessionId(null);
 		} catch (err) {
 			console.error("Failed to skip interactive prompt:", err);
-			if (!handleApiError(err)) {
+			if (!handleApiError(err) && isCurrentPrompt()) {
 				setError({ message: "Failed to skip prompt.", details: err.message });
 			}
 		}
