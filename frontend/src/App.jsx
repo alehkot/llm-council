@@ -948,6 +948,11 @@ function App() {
 			// Delete empty conversation if needed
 			if (conversationToDelete) {
 				await api.deleteConversation(conversationToDelete);
+				// Reconcile the completed deletion even if creating its replacement fails.
+				setConversations((prev) => prev.filter((c) => c.id !== conversationToDelete));
+				if (useAppStore.getState().currentConversationId === conversationToDelete) {
+					selectConversation(null, { replace: true });
+				}
 				if (useAppStore.getState().conversationsById[conversationToDelete]) {
 					setConversationsById((prev) => {
 						const next = { ...prev };

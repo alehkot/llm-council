@@ -374,6 +374,25 @@ These lifecycle
 checks use synthetic intercepted API responses on desktop/mobile; they do not
 verify live provider behavior or cancel server-side work.
 
+### Optional rendered new-consultation recovery regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/creation-recovery.browser.mjs
+```
+
+When New Consultation removes an empty consultation, that successful deletion is
+reflected immediately. If creating its replacement fails, retry can create a new
+consultation without trying to delete the missing one again. A different
+consultation selected while deletion is pending stays selected if creation fails.
+Desktop/mobile browser checks cover retry, navigation, failed deletion, and normal
+creation with synthetic API responses. Node callback tests additionally verify
+that populated conversations are retained. These checks do not call live providers.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Development guidelines and project standards.
