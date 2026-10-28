@@ -857,24 +857,27 @@ export default function ChatInterface({
 						/>
 					)}
 
-					<ModelSideChatModal
-						isOpen={Boolean(sideChatSource)}
-						onOpenChange={(open) => {
-							if (!open) {
-								setSideChatSource(null);
+					{/* Isolate each open session so late replies cannot replace a reopened chat. */}
+					{sideChatSource && (
+						<ModelSideChatModal
+							isOpen={Boolean(sideChatSource)}
+							onOpenChange={(open) => {
+								if (!open) {
+									setSideChatSource(null);
+								}
+							}}
+							conversationId={conversation.id}
+							assistantAbsoluteIndex={sideChatSource?.assistantAbsoluteIndex}
+							assistantMessageIndex={sideChatSource?.assistantMessageIndex}
+							assistantMessage={
+								sideChatSource
+									? conversation.messages[sideChatSource.assistantAbsoluteIndex]
+									: null
 							}
-						}}
-						conversationId={conversation.id}
-						assistantAbsoluteIndex={sideChatSource?.assistantAbsoluteIndex}
-						assistantMessageIndex={sideChatSource?.assistantMessageIndex}
-						assistantMessage={
-							sideChatSource
-								? conversation.messages[sideChatSource.assistantAbsoluteIndex]
-								: null
-						}
-						source={sideChatSource}
-						availableModels={config?.council_models || []}
-					/>
+							source={sideChatSource}
+							availableModels={config?.council_models || []}
+						/>
+					)}
 
 					<div ref={messagesEndRef} />
 				</div>

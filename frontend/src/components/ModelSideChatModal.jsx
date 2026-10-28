@@ -328,7 +328,7 @@ export default function ModelSideChatModal({
                   setDraft('');
                   setPendingMessage('');
                 }}
-                disabled={availableModels.length === 0 || isSending}
+                disabled={availableModels.length === 0 || isOpening || isSending}
               >
                 <SelectTrigger id="side-chat-model">
                   <SelectValue placeholder="Select a model" />

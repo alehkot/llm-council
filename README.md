@@ -355,6 +355,25 @@ refreshes of the same logical prompt do not prevent normal dismissal. The tests
 use intercepted synthetic API responses, not live model providers. Node callback
 regressions additionally verify logical prompt identity and retryable failures.
 
+### Optional rendered side-chat lifecycle regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/side-chat-navigation.browser.mjs
+```
+
+Closing a side chat ends that modal's local UI session. An already submitted
+request may still finish and save to its original thread, but cannot replace the
+thread, draft, or error in another source’s newly opened side chat. Model selection
+is unavailable while opening a thread, as it already is while sending a follow-up.
+These lifecycle
+checks use synthetic intercepted API responses on desktop/mobile; they do not
+verify live provider behavior or cancel server-side work.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Development guidelines and project standards.
