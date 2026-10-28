@@ -398,6 +398,26 @@ that populated conversations are retained. These checks do not call live provide
 - [AGENTS.md](AGENTS.md) - Development guidelines and project standards.
 - [.env.sample](.env.sample) - Configuration reference and templates.
 
+### Synthesis navigation regression check
+
+Synthesis controls belong to their conversation and assistant message. Switching
+cached consultations keeps their loading, error, and version-tab state separate;
+a pending result still updates its originating conversation. Returning to that
+conversation before completion retains its busy controls.
+
+The optional sandboxed browser check uses synthetic intercepted API responses,
+including delayed success/failure and same-conversation control recovery. No model
+provider is contacted. From `frontend/`, run:
+
+```bash
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/synthesis-navigation.browser.mjs
+```
+
+Use an installed sandbox-capable Chromium; do not disable its sandbox. This
+checks desktop/mobile UI isolation, not live-provider or model-answer quality.
+
 ## License
 
 MIT
