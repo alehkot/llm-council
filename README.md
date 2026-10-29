@@ -418,6 +418,30 @@ node tests/synthesis-navigation.browser.mjs
 Use an installed sandbox-capable Chromium; do not disable its sandbox. This
 checks desktop/mobile UI isolation, not live-provider or model-answer quality.
 
+### Draft preservation during submission
+
+The question and optional Negative Mode instructions remain in memory for their
+conversation until the server accepts the submission (started or queued). A
+failed submission leaves both fields available for editing and manual retry.
+There is no automatic retry: a lost network response does not prove that the
+backend rejected the original request, so check the conversation before resending.
+
+While the initial submission is pending, another send for that conversation is
+disabled, but its draft remains editable. A late success clears only the exact
+submitted draft, never newer edits or another conversation's draft. Navigating
+between consultations keeps their drafts separate. Drafts are not persisted to
+browser storage and do not survive a page reload.
+
+The optional rendered regression uses intercepted synthetic APIs and the same
+sandbox-capable browser setup described above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/draft-submission.browser.mjs
+```
+
 ## License
 
 MIT

@@ -1148,7 +1148,7 @@ function App() {
 	};
 
 	const handleSendMessage = async (content, negativePrompt) => {
-		if (!currentConversationId) return;
+		if (!currentConversationId) return false;
 
 		const isCurrent = () =>
 			useAppStore.getState().currentConversationId === currentConversationId;
@@ -1240,7 +1240,7 @@ function App() {
 
 				if (result.status === "queued") {
 					rollbackOptimisticMessagePair();
-					if (!isCurrent()) return;
+					if (!isCurrent()) return true;
 					setMessageQueue((prev) => [
 						...prev,
 						{
@@ -1251,7 +1251,7 @@ function App() {
 					]);
 					setConsultationStatus(activeBeforeSend);
 					setIsLoading(isLoading || Boolean(activeBeforeSend));
-					return;
+					return true;
 				}
 
 				// Cache the result for its owner, even after navigating elsewhere.
@@ -1264,15 +1264,16 @@ function App() {
 						status: "pending",
 					};
 				});
-				if (!isCurrent()) return;
+				if (!isCurrent()) return true;
 				setIsLoading(true);
 				setConsultationStatus({
 					status: "pending",
 					consultation_id: result.consultation_id,
 				});
+				return true;
 			} catch (err) {
 				rollbackOptimisticMessagePair();
-				if (!isCurrent()) return;
+				if (!isCurrent()) return false;
 				setIsLoading(false);
 				if (!handleApiError(err)) {
 					setError({
@@ -1290,6 +1291,7 @@ function App() {
 				});
 			}
 		}
+		return false;
 	};
 
 	return (

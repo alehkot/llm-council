@@ -42,6 +42,7 @@ import { useAppStore } from "../store/useAppStore";
 const DEFAULT_PROMPT_MAX_CHARS = 15000;
 const DEFAULT_NEGATIVE_PROMPT_MAX_CHARS = 15000;
 const DEFAULT_VISIBLE_MESSAGES = 50;
+const EMPTY_DRAFT = { input: "", negativePrompt: "" };
 const NEGATIVE_PROMPT_EXAMPLES = [
 	{
 		label: "Risk review",
@@ -111,8 +112,25 @@ export default function ChatInterface({
 					)) ||
 				messageQueue.length > 0),
 	);
-	const [input, setInput] = useState("");
-	const [negativePrompt, setNegativePrompt] = useState("");
+	// Drafts stay in memory for their conversation until the server accepts them.
+	// Keeping the submitted object lets late success preserve any newer edits.
+	const [drafts, setDrafts] = useState({});
+	const draft = drafts[currentConversationId] || EMPTY_DRAFT;
+	const { input, negativePrompt } = draft;
+	const updateDraft = (field, value) => {
+		setDrafts(previous => ({
+			...previous,
+			[currentConversationId]: {
+				...(previous[currentConversationId] || EMPTY_DRAFT),
+				[field]: value,
+			},
+		}));
+	};
+	const setInput = value => updateDraft("input", value);
+	const setNegativePrompt = value => updateDraft("negativePrompt", value);
+	const pendingSends = useRef(new Set());
+	const [submittingIds, setSubmittingIds] = useState({});
+	const isSubmitting = Boolean(submittingIds[currentConversationId]);
 	const [inputError, setInputError] = useState(null);
 	const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 	const [isStopConfirmOpen, setIsStopConfirmOpen] = useState(false);
@@ -198,13 +216,6 @@ export default function ChatInterface({
 	}, [conversationMessageCount, interactivePromptKey, scrollToBottom]);
 
 	useEffect(() => {
-		if (conversation?.id && conversationMessageCount === 0) {
-			setInput("");
-			setNegativePrompt("");
-		}
-	}, [conversation?.id, conversationMessageCount]);
-
-	useEffect(() => {
 		if (!conversation?.id) return;
 		setVisibleMessageCount(DEFAULT_VISIBLE_MESSAGES);
 		setSideChatSource(null);
@@ -231,7 +242,7 @@ export default function ChatInterface({
 		);
 	};
 
-	const handleSubmit = (e) => {
+	const handleSubmit = async (e) => {
 		e.preventDefault();
 		setInputError(null);
 
@@ -244,11 +255,29 @@ export default function ChatInterface({
 			setInputError(`Prompt too long (max ${promptMaxChars} characters)`);
 			return;
 		}
-		if (isCancelling) return;
+		const conversationId = currentConversationId;
+		if (!conversationId || isCancelling || pendingSends.current.has(conversationId)) return;
 
-		onSendMessage(input, negativePrompt);
-		setInput("");
-		setNegativePrompt("");
+		pendingSends.current.add(conversationId);
+		setSubmittingIds(previous => ({ ...previous, [conversationId]: true }));
+		try {
+			const accepted = await onSendMessage(input, negativePrompt);
+			if (accepted === true) {
+				setDrafts(previous => {
+					if (previous[conversationId] !== draft) return previous;
+					const next = { ...previous };
+					delete next[conversationId];
+					return next;
+				});
+			}
+		} finally {
+			pendingSends.current.delete(conversationId);
+			setSubmittingIds(previous => {
+				const next = { ...previous };
+				delete next[conversationId];
+				return next;
+			});
+		}
 	};
 
 	const handleKeyDown = (e) => {
@@ -998,11 +1027,11 @@ export default function ChatInterface({
 					</p>
 					<Button
 						type="submit"
-						disabled={!input.trim() || isCancelling}
+						disabled={!input.trim() || isCancelling || isSubmitting}
 						className="chat-send-btn sm:min-w-[160px]"
 					>
 						<span className="chat-send-btn-text">
-							{isLoading ? "Queue for Council" : "Send to Council"}
+							{isSubmitting ? "Sending…" : isLoading ? "Queue for Council" : "Send to Council"}
 						</span>
 					</Button>
 				</div>
