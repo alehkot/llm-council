@@ -462,3 +462,23 @@ The guard follows [MDN's IME keydown guidance](https://developer.mozilla.org/en-
 ## License
 
 MIT
+
+### Optional rendered system-theme regression test
+
+With no saved theme preference, the interface follows operating-system color-scheme
+changes while open. The theme button's label and next click follow the same current
+scheme; choosing a theme explicitly keeps that preference across system changes
+and reloads. React subscribes to the browser media query so context and page styles
+stay in sync ([React browser API subscription guidance](https://react.dev/reference/react/useSyncExternalStore)).
+
+```bash
+cd frontend
+CHROMIUM_EXECUTABLE=/path/to/chrome-headless-shell \
+PLAYWRIGHT_MODULE=/path/to/playwright-core/index.mjs \
+node tests/system-theme.browser.mjs
+```
+
+This sandboxed desktop/mobile check uses emulated system color preferences and
+synthetic API responses. It covers both transition directions, button labels and
+one-click reversal, repeated system changes, and saved manual preferences. It does
+not verify physical OS scheduling, other browser engines, or live model providers.
