@@ -281,6 +281,9 @@ export default function ChatInterface({
 	};
 
 	const handleKeyDown = (e) => {
+		// Enter may confirm an IME candidate rather than submit the draft.
+		// Some engines end composition before keydown but retain keyCode 229.
+		if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			handleSubmit(e);

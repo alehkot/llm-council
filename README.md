@@ -442,6 +442,23 @@ CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
 node tests/draft-submission.browser.mjs
 ```
 
+### Optional rendered IME submission regression test
+
+The main and negative-prompt composers leave IME confirmation Enter events alone;
+a later ordinary Enter still submits, and Shift+Enter inserts a newline.
+
+```bash
+cd frontend
+CHROMIUM_EXECUTABLE=/path/to/chrome-headless-shell \
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
+node tests/composition-submit.browser.mjs
+```
+
+This desktop/mobile Chromium test dispatches composition-marked keyboard events
+and intercepts all API requests. It verifies our event handler, not a native OS
+IME or cross-browser input-method behavior. No real provider calls are made.
+The guard follows [MDN's IME keydown guidance](https://developer.mozilla.org/en-US/docs/Web/API/Element/keydown_event#keydown_events_with_ime).
+
 ## License
 
 MIT
