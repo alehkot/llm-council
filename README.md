@@ -284,6 +284,15 @@ Traces record scores and the model, without candidate text. Provider errors or
 invalid responses use the existing deterministic fallback. Existing persisted
 plans are reused on resume.
 
+Resynthesis also reuses the stored reference selection without rerunning a
+router. Where the stored plan includes section headings, both the section ID
+and heading must still match the current skill manifest; missing or moved
+sections are omitted rather than replaced with a different section at the old
+position. Unchanged selections remain eligible for the normal context budget.
+Older whole-file plans retain whole-file behavior. This is not a historical
+content snapshot: matching sections and `SKILL.md` use their currently installed
+text, and older ID-only plans cannot detect heading changes.
+
 Because council models have no tools, they cannot open a skill's
 `references/*.md` on demand. Instead a cheap model is asked once per
 consultation which reference **sections** the question actually needs, and

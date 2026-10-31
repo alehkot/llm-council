@@ -1271,6 +1271,116 @@ def load_skills(skill_ids: Sequence[str]) -> Tuple[List[Skill], List[str]]:
     return found, missing
 
 
+def persisted_skills_plan(
+    persisted: Any,
+    loaded: List[Skill],
+) -> Optional[
+    Tuple[Dict[str, List[SectionSelection]], Dict[str, Dict[str, str]], bool]
+]:
+    """Rebuild a stored reference selection for router-free resume or resynthesis.
+
+    Returns `(selected_sections, reasons, drift)`, or `None` when the persisted
+    plan cannot be trusted and the selection must be resolved from scratch. A skill
+    whose version moved keeps only the persisted sections that still exist in the
+    current manifest and flags drift. Legacy plans without `section_ids` keep
+    whole-file semantics.
+    """
+    if not isinstance(persisted, dict):
+        return None
+    resolved = persisted.get("resolved")
+    if not isinstance(resolved, list) or not resolved:
+        return None
+
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for entry in resolved:
+        if isinstance(entry, dict) and entry.get("id"):
+            by_id[str(entry.get("id"))] = entry
+
+    selected_sections: Dict[str, List[SectionSelection]] = {}
+    reasons: Dict[str, Dict[str, str]] = {}
+    drift = False
+    for skill in loaded:
+        entry = by_id.get(skill.id)
+        if entry is None:
+            return None
+        if entry.get("version") != skill.version:
+            drift = True
+        by_path = {reference.path: reference for reference in skill.references}
+        selections: List[SectionSelection] = []
+        skill_reasons: Dict[str, str] = {}
+        seen_paths: Set[str] = set()
+        for reference in entry.get("references") or []:
+            if not isinstance(reference, dict):
+                continue
+            path = str(reference.get("path") or "")
+            if not path or path in seen_paths:
+                continue
+            seen_paths.add(path)
+            current = by_path.get(path)
+            if current is None:
+                drift = True
+                continue
+            stored_sections = reference.get("sections")
+            raw_ids = reference.get("section_ids")
+            # A legacy manifest has no sections of its own: its synthetic section
+            # means whole file, so stored section ids cannot be validated - and
+            # must not shrink the selection on resume.
+            if not current.sections:
+                section_ids = ()
+            elif isinstance(stored_sections, list):
+                # Positional ids alone are unstable across version bumps: an
+                # inserted heading shifts every later position. Require the stored
+                # id+heading pair to match the current manifest, so replay can
+                # shrink the selection (flagged as drift) but never silently
+                # inline different content under an old position.
+                current_by_id = {
+                    section.section_id: section.heading
+                    for section in reference_sections(current)
+                }
+                kept: List[str] = []
+                for stored in stored_sections:
+                    if not isinstance(stored, dict):
+                        drift = True
+                        continue
+                    section_id = str(stored.get("id") or "")
+                    heading = str(stored.get("heading") or "")
+                    if (
+                        section_id
+                        and section_id in current_by_id
+                        and current_by_id[section_id] == heading
+                    ):
+                        kept.append(section_id)
+                    else:
+                        drift = True
+                section_ids = tuple(kept)
+                if stored_sections and not section_ids:
+                    continue
+            elif isinstance(raw_ids, list):
+                available = {
+                    section.section_id for section in reference_sections(current)
+                }
+                section_ids = tuple(
+                    str(section_id)
+                    for section_id in raw_ids
+                    if str(section_id) in available
+                )
+                if len(section_ids) != len(raw_ids):
+                    drift = True
+                if raw_ids and not section_ids:
+                    continue
+            else:
+                section_ids = ()
+            selections.append(SectionSelection(path=path, section_ids=section_ids))
+            reason = str(reference.get("reason") or "").strip()
+            if reason:
+                skill_reasons[path] = reason
+        selected_sections[skill.id] = selections
+        if skill_reasons:
+            reasons[skill.id] = skill_reasons
+
+    return selected_sections, reasons, drift
+
+
 def fallback_skill_ids(
     skills: Sequence[Skill], user_query: str, max_skills: int
 ) -> List[str]:

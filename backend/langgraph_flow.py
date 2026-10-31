@@ -73,6 +73,7 @@ from .interactive import (
     get_synthesis_prefs_prompt,
     serialize_prompt_responses,
 )
+from .skills import persisted_skills_plan as _persisted_skills_plan
 from .trace import TraceCollector
 
 _DECISION_SUPPORT_RANKING_GUIDANCE = (
@@ -377,118 +378,6 @@ def _skills_stage1_block(context: FlowContext) -> Optional[str]:
 def _skills_stage3_block(context: FlowContext) -> Optional[str]:
     runtime = context.skills_runtime
     return runtime.stage3_block if runtime else None
-
-
-def _persisted_skills_plan(
-    persisted: Any,
-    loaded: List[skills.Skill],
-) -> Optional[
-    Tuple[Dict[str, List[skills.SectionSelection]], Dict[str, Dict[str, str]], bool]
-]:
-    """Rebuild a stored reference selection so a resume re-renders it router-free.
-
-    Returns `(selected_sections, reasons, drift)`, or `None` when the persisted
-    plan cannot be trusted and the selection must be resolved from scratch. A skill
-    whose version moved keeps only the persisted sections that still exist in the
-    current manifest and flags drift. Legacy plans without `section_ids` keep
-    whole-file semantics.
-    """
-    if not isinstance(persisted, dict):
-        return None
-    resolved = persisted.get("resolved")
-    if not isinstance(resolved, list) or not resolved:
-        return None
-
-    by_id: Dict[str, Dict[str, Any]] = {}
-    for entry in resolved:
-        if isinstance(entry, dict) and entry.get("id"):
-            by_id[str(entry.get("id"))] = entry
-
-    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
-    reasons: Dict[str, Dict[str, str]] = {}
-    drift = False
-    for skill in loaded:
-        entry = by_id.get(skill.id)
-        if entry is None:
-            return None
-        if entry.get("version") != skill.version:
-            drift = True
-        by_path = {reference.path: reference for reference in skill.references}
-        selections: List[skills.SectionSelection] = []
-        skill_reasons: Dict[str, str] = {}
-        seen_paths: Set[str] = set()
-        for reference in entry.get("references") or []:
-            if not isinstance(reference, dict):
-                continue
-            path = str(reference.get("path") or "")
-            if not path or path in seen_paths:
-                continue
-            seen_paths.add(path)
-            current = by_path.get(path)
-            if current is None:
-                drift = True
-                continue
-            stored_sections = reference.get("sections")
-            raw_ids = reference.get("section_ids")
-            # A legacy manifest has no sections of its own: its synthetic section
-            # means whole file, so stored section ids cannot be validated - and
-            # must not shrink the selection on resume.
-            if not current.sections:
-                section_ids = ()
-            elif isinstance(stored_sections, list):
-                # Positional ids alone are unstable across version bumps: an
-                # inserted heading shifts every later position. Require the stored
-                # id+heading pair to match the current manifest, so a resume can
-                # shrink the selection (flagged as drift) but never silently
-                # inline different content under an old position.
-                current_by_id = {
-                    section.section_id: section.heading
-                    for section in skills.reference_sections(current)
-                }
-                kept: List[str] = []
-                for stored in stored_sections:
-                    if not isinstance(stored, dict):
-                        drift = True
-                        continue
-                    section_id = str(stored.get("id") or "")
-                    heading = str(stored.get("heading") or "")
-                    if (
-                        section_id
-                        and section_id in current_by_id
-                        and current_by_id[section_id] == heading
-                    ):
-                        kept.append(section_id)
-                    else:
-                        drift = True
-                section_ids = tuple(kept)
-                if stored_sections and not section_ids:
-                    continue
-            elif isinstance(raw_ids, list):
-                available = {
-                    section.section_id for section in skills.reference_sections(current)
-                }
-                section_ids = tuple(
-                    str(section_id)
-                    for section_id in raw_ids
-                    if str(section_id) in available
-                )
-                if len(section_ids) != len(raw_ids):
-                    drift = True
-                if raw_ids and not section_ids:
-                    continue
-            else:
-                section_ids = ()
-            selections.append(
-                skills.SectionSelection(path=path, section_ids=section_ids)
-            )
-            reason = str(reference.get("reason") or "").strip()
-            if reason:
-                skill_reasons[path] = reason
-        selected_sections[skill.id] = selections
-        if skill_reasons:
-            reasons[skill.id] = skill_reasons
-
-    return selected_sections, reasons, drift
 
 
 def _reference_selection_from_persisted(persisted: Any) -> Optional[Dict[str, Any]]:

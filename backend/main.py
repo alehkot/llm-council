@@ -787,9 +787,10 @@ def _render_persisted_skills_context(metadata: Dict[str, Any]) -> Optional[str]:
     Re-render the Stage 3 skills block from a message's persisted skill plan.
 
     Deterministic and LLM-free: the reference selection recorded when the message was
-    produced is replayed against the current manifests, so every resynthesis - including
-    the parallel modes of /resynthesize-all - runs under the same skill rules that
-    shaped the original answer.
+    produced is replayed against current manifests. Stored section IDs and headings
+    must still match; replaced or missing selections are omitted rather than silently
+    substituting another section. Legacy whole-file and ID-only plans retain their
+    original replay semantics. No new selection or model calls are made.
     """
     if not SKILLS_ENABLED:
         return None
@@ -799,45 +800,24 @@ def _render_persisted_skills_context(metadata: Dict[str, Any]) -> Optional[str]:
     if not isinstance(resolved, list):
         return None
 
-    skill_ids: List[str] = []
-    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
-    reasons: Dict[str, Dict[str, str]] = {}
+    # Keep the existing canonical-ID/first-entry behavior while using the same
+    # section identity validation as crash recovery. Positional IDs alone cannot
+    # safely identify modern saved sections after a skill replaces its headings.
+    entries: Dict[str, Dict[str, Any]] = {}
     for entry in resolved:
         if not isinstance(entry, dict):
             continue
         skill_id = str(entry.get("id") or "").strip().lower()
-        if not skill_id or skill_id in selected_sections:
-            continue
-        selections: List[skills.SectionSelection] = []
-        entry_reasons: Dict[str, str] = {}
-        for reference in entry.get("references") or []:
-            if not isinstance(reference, dict):
-                continue
-            path = str(reference.get("path") or "")
-            if not path:
-                continue
-            raw_ids = reference.get("section_ids")
-            section_ids = (
-                tuple(str(section_id) for section_id in raw_ids)
-                if isinstance(raw_ids, list)
-                else ()
-            )
-            selections.append(
-                skills.SectionSelection(path=path, section_ids=section_ids)
-            )
-            reason = reference.get("reason")
-            if reason:
-                entry_reasons[path] = str(reason)
-        skill_ids.append(skill_id)
-        selected_sections[skill_id] = selections
-        reasons[skill_id] = entry_reasons
+        if skill_id and skill_id not in entries:
+            entries[skill_id] = {**entry, "id": skill_id}
 
-    if not skill_ids:
-        return None
-
-    loaded, _missing = skills.load_skills(skill_ids)
+    loaded, _missing = skills.load_skills(list(entries))
     if not loaded:
         return None
+    plan = skills.persisted_skills_plan({"resolved": list(entries.values())}, loaded)
+    if plan is None:
+        return None
+    selected_sections, reasons, _drift = plan
 
     block, _report = skills.render_skills_context(
         loaded,

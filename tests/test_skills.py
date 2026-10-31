@@ -16,7 +16,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -1941,6 +1941,211 @@ class PersistedSkillsContextRenderTests(_SkillsDirTestCase):
         assert block is not None
         self.assertIn("Default Non-Disclosure List", block)
         self.assertNotIn("ALPHA-REFERENCE-BODY", block)
+
+    def test_replaced_skill_does_not_replay_a_shifted_section(self) -> None:
+        original = self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": "# First\nFIRST\n## Selected\nORIGINAL_SELECTED",
+            }
+        )
+        _, report = skills.render_skills_context(
+            [original],
+            {"my-skill": [skills.SectionSelection("references/alpha.md", ("2",))]},
+            10000,
+        )
+        self._install(
+            {
+                "SKILL.md": _skill_md(),
+                "references/alpha.md": (
+                    "# Inserted\nINSERTED\n## First\nWRONG_CONTENT_NOW_AT_2"
+                    "\n## Selected\nORIGINAL_SELECTED"
+                ),
+            },
+            replace=True,
+        )
+        from backend.main import _render_persisted_skills_context
+
+        block = _render_persisted_skills_context({"skills": report})
+
+        assert block is not None
+        self.assertIn("My Skill", block)
+        self.assertNotIn("WRONG_CONTENT_NOW_AT_2", block)
+        self.assertNotIn("ORIGINAL_SELECTED", block)
+        self.assertNotIn("INSERTED", block)
+
+    def test_unchanged_heading_pair_keeps_section(self) -> None:
+        self._install()
+        block = self._render_persisted(
+            [
+                {
+                    "path": "references/alpha.md",
+                    "section_ids": ["2"],
+                    "sections": [{"id": "2", "heading": "Default Non-Disclosure List"}],
+                    "reason": "Keep the selected guardrail",
+                }
+            ]
+        )
+        assert block is not None
+        self.assertIn("Reservation value", block)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", block)
+
+    def test_changed_heading_drops_only_the_affected_selection(self) -> None:
+        self._install()
+        block = self._render_persisted(
+            [
+                {
+                    "path": "references/alpha.md",
+                    "section_ids": ["1", "2"],
+                    "sections": [
+                        {"id": "1", "heading": "Drafting Guardrails"},
+                        {"id": "2", "heading": "Old heading"},
+                    ],
+                }
+            ]
+        )
+        assert block is not None
+        self.assertIn("ALPHA-REFERENCE-BODY", block)
+        self.assertNotIn("Reservation value", block)
+
+    def test_missing_reference_does_not_expand_to_other_references(self) -> None:
+        self._install()
+        block = self._render_persisted(
+            [
+                {
+                    "path": "references/deleted.md",
+                    "section_ids": ["1"],
+                    "sections": [{"id": "1", "heading": "Deleted"}],
+                }
+            ]
+        )
+        assert block is not None
+        self.assertIn("My Skill", block)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", block)
+
+    def test_missing_stored_section_does_not_expand_to_whole_file(self) -> None:
+        self._install()
+        block = self._render_persisted(
+            [
+                {
+                    "path": "references/alpha.md",
+                    "section_ids": ["3"],
+                    "sections": [{"id": "3", "heading": "Deleted"}],
+                }
+            ]
+        )
+        assert block is not None
+        self.assertNotIn("ALPHA-REFERENCE-BODY", block)
+        self.assertNotIn("Reservation value", block)
+
+    def test_legacy_manifest_keeps_whole_file_semantics(self) -> None:
+        skill = self._install()
+        manifest_path = skills._SKILLS_DIR / skill.id / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        for reference in manifest["references"]:
+            reference.pop("sections", None)
+        manifest_path.write_text(json.dumps(manifest))
+        block = self._render_persisted(
+            [
+                {
+                    "path": "references/alpha.md",
+                    "section_ids": ["2"],
+                    "sections": [{"id": "2", "heading": "Old heading"}],
+                }
+            ]
+        )
+        assert block is not None
+        self.assertIn("ALPHA-REFERENCE-BODY", block)
+        self.assertIn("Reservation value", block)
+
+    def test_normalized_duplicate_skill_ids_keep_the_first_plan(self) -> None:
+        self._install()
+        from backend.main import _render_persisted_skills_context
+
+        metadata = {
+            "skills": {
+                "resolved": [
+                    {
+                        "id": " MY-SKILL ",
+                        "references": [
+                            {
+                                "path": "references/alpha.md",
+                                "section_ids": ["2"],
+                                "sections": [
+                                    {
+                                        "id": "2",
+                                        "heading": "Default Non-Disclosure List",
+                                    }
+                                ],
+                                "reason": "Keep the selected guardrail",
+                            }
+                        ],
+                    },
+                    {"id": "my-skill", "references": [{"path": "references/alpha.md"}]},
+                    {"id": "deleted-skill", "references": []},
+                ]
+            }
+        }
+        with patch.object(
+            skills, "render_skills_context", wraps=skills.render_skills_context
+        ) as render:
+            block = _render_persisted_skills_context(metadata)
+        assert block is not None
+        self.assertIn("Reservation value", block)
+        self.assertNotIn("ALPHA-REFERENCE-BODY", block)
+        self.assertEqual(
+            render.call_args.args[3]["my-skill"],
+            {"references/alpha.md": "Keep the selected guardrail"},
+        )
+        self.assertEqual(metadata["skills"]["resolved"][0]["id"], " MY-SKILL ")
+
+    def test_resynthesis_passes_only_validated_sections_to_chairman(self) -> None:
+        self._install()
+        from backend import main
+
+        for heading, expected in [
+            ("Default Non-Disclosure List", True),
+            ("Heading from the replaced skill", False),
+        ]:
+            with self.subTest(heading=heading):
+                target = {
+                    "stage1": [{"model": "test-model", "response": "Synthetic answer"}],
+                    "stage2": [],
+                    "metadata": {
+                        "skills": {
+                            "resolved": [
+                                {
+                                    "id": "my-skill",
+                                    "references": [
+                                        {
+                                            "path": "references/alpha.md",
+                                            "section_ids": ["2"],
+                                            "sections": [
+                                                {"id": "2", "heading": heading}
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    },
+                }
+                chairman = AsyncMock(
+                    return_value={
+                        "model": "fake-chairman",
+                        "response": "Synthetic synthesis",
+                    }
+                )
+                with patch.object(main, "stage3_synthesize_final", chairman):
+                    result = asyncio.run(
+                        main._run_synthesis("Synthetic question", target, "consensus")
+                    )
+                chairman.assert_awaited_once()
+                block = chairman.call_args.kwargs["skills_context"]
+                self.assertIn("My Skill", block)
+                self.assertNotIn("ALPHA-REFERENCE-BODY", block)
+                self.assertEqual("Reservation value" in block, expected)
+                self.assertEqual(result["response"], "Synthetic synthesis")
 
 
 class SkillIdsPlumbingTests(unittest.TestCase):
