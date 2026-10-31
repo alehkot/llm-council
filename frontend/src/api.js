@@ -75,7 +75,7 @@ let authProbe = null;
 
 const probeAuth = () => {
 	if (authProbe) return authProbe;
-	authProbe = (async () => {
+	const probe = (async () => {
 		const apiKey = apiKeyStorage.get();
 		if (!apiKey) {
 			authFailure = { type: "NO_API_KEY" };
@@ -106,7 +106,14 @@ const probeAuth = () => {
 			throwAuthError("INVALID_API_KEY");
 		}
 	})();
-	return authProbe;
+	authProbe = probe;
+	// A transport failure is not a permanent authentication decision. Let a
+	// later caller retry, while preserving the authFailure latch for rejected
+	// credentials/rate limits and never clearing a newer probe after reset.
+	void probe.catch(() => {
+		if (authProbe === probe) authProbe = null;
+	});
+	return probe;
 };
 
 /**

@@ -624,6 +624,21 @@ synthetic API responses. It covers both transition directions, button labels and
 one-click reversal, repeated system changes, and saved manual preferences. It does
 not verify physical OS scheduling, other browser engines, or live model providers.
 
+### Authentication probe recovery
+
+Concurrent API requests share the first authentication probe. A temporary network
+failure releases that failed probe so a later request can retry without a page
+reload or re-entering the key. Invalid-key and rate-limit responses still latch;
+this does not retry automatically or bypass their cooldown. A late network-failed probe
+cannot evict a newer probe started after an explicit authentication reset.
+
+Run `node --test frontend/tests/authProbe.test.mjs` for controlled concurrency,
+reset and cooldown regressions. With the browser variables above, run
+`node frontend/tests/auth-probe-recovery.browser.mjs` for real Chromium transport
+checks at desktop/mobile viewport sizes. The latter imports the real API module
+with synthetic responses; it is not a rendered UI or live-provider evaluation.
+See [Fetch rejection behavior](https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch).
+
 ### Synthesis through a local subscription CLI
 
 Stage 3 defaults to `SYNTHESIS_BACKEND=codex`, using `gpt-6-astra` with
