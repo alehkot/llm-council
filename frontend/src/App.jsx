@@ -182,8 +182,7 @@ function App() {
 		setInteractiveSessionId,
 		currentInteractivePrompt,
 		setCurrentInteractivePrompt,
-		isCancelling,
-		setIsCancelling,
+		setCancellingConversations,
 		hasApiKey,
 		setHasApiKey,
 		showApiKeyModal,
@@ -287,7 +286,7 @@ function App() {
 
 	const selectConversation = useCallback(
 		(conversationId, { updateUrl = true, replace = false } = {}) => {
-			if (currentConversationId === conversationId) {
+			if (useAppStore.getState().currentConversationId === conversationId) {
 				if (updateUrl) {
 					updateConversationUrl(conversationId, replace);
 				}
@@ -298,7 +297,7 @@ function App() {
 				updateConversationUrl(conversationId, replace);
 			}
 		},
-		[currentConversationId, setCurrentConversationId, updateConversationUrl],
+		[setCurrentConversationId, updateConversationUrl],
 	);
 
 	const updateConversationById = useCallback(
@@ -819,6 +818,9 @@ function App() {
 		const controller = new AbortController();
 		let stopped = false;
 		let cursor = null;
+		const isCurrent = () =>
+			!stopped &&
+			useAppStore.getState().currentConversationId === currentConversationId;
 
 		const applySnapshot = async (status) => {
 			const queuedMessages = status.queue || [];
@@ -836,7 +838,9 @@ function App() {
 						localConversation?.messages?.[status.assistant_index]?.role !==
 						"assistant"
 					) {
-						await loadConversation(currentConversationId);
+						const conv = await api.getConversation(currentConversationId);
+						if (!isCurrent()) return;
+						applyConversationSnapshot(conv);
 					}
 				}
 
@@ -922,17 +926,17 @@ function App() {
 		};
 
 		const runLoop = async () => {
-			while (!stopped) {
+			while (isCurrent()) {
 				try {
 					const status = await api.getConsultationStatus(
 						currentConversationId,
 						{ wait: 25, cursor, signal: controller.signal },
 					);
-					if (stopped) break;
+					if (!isCurrent()) break;
 					cursor = status.cursor || null;
 					await applySnapshot(status);
 				} catch (err) {
-					if (stopped || err?.name === "AbortError") break;
+					if (!isCurrent() || err?.name === "AbortError") break;
 					console.error("Failed to poll consultation status:", err);
 					handleApiError(err);
 					// Back off before retrying so transient failures (server restart,
@@ -950,12 +954,12 @@ function App() {
 		};
 	}, [
 		applyConsultationStatusSnapshot,
+		applyConversationSnapshot,
 		clearStreamingConsultation,
 		isConsultationActive,
 		currentConversationId,
 		handleApiError,
 		hasApiKey,
-		loadConversation,
 		loadConversations,
 		setConsultationStatus,
 		setCurrentInteractivePrompt,
@@ -976,9 +980,15 @@ function App() {
 			return;
 		}
 
+		let disposed = false;
+		const isCurrent = () =>
+			!disposed &&
+			useAppStore.getState().currentConversationId === currentConversationId;
+
 		const checkConsultation = async () => {
 			try {
 				const status = await api.getConsultationStatus(currentConversationId);
+				if (!isCurrent()) return;
 				if (status.status === "none") {
 					setConsultationStatus(null);
 					setIsLoading(false);
@@ -999,12 +1009,16 @@ function App() {
 
 				setMessageQueue(status.queue || []);
 			} catch (err) {
+				if (!isCurrent()) return;
 				console.error("Failed to check consultation status:", err);
 				handleApiError(err);
 			}
 		};
 
 		checkConsultation();
+		return () => {
+			disposed = true;
+		};
 	}, [
 		applyConsultationStatusSnapshot,
 		clearStreamingConsultation,
@@ -1098,19 +1112,34 @@ function App() {
 
 	const handleInteractiveSubmit = async (responses) => {
 		if (!interactiveSessionId || !currentInteractivePrompt) return;
+		const conversationId = currentConversationId;
+		const sessionId = interactiveSessionId;
+		const promptId = currentInteractivePrompt.prompt_id;
+		const promptTitle = currentInteractivePrompt.title;
+		// Polling may replace the object, so compare the logical prompt, not identity.
+		const isCurrentPrompt = () => {
+			const state = useAppStore.getState();
+			return (
+				state.currentConversationId === conversationId &&
+				state.interactiveSessionId === sessionId &&
+				state.currentInteractivePrompt?.prompt_id === promptId &&
+				state.currentInteractivePrompt?.title === promptTitle
+			);
+		};
 
 		try {
 			await api.submitInteractiveResponse(
-				interactiveSessionId,
-				currentInteractivePrompt.prompt_id,
+				sessionId,
+				promptId,
 				responses,
 				false,
 			);
+			if (!isCurrentPrompt()) return;
 			setCurrentInteractivePrompt(null);
 			setInteractiveSessionId(null);
 		} catch (err) {
 			console.error("Failed to submit interactive response:", err);
-			if (!handleApiError(err)) {
+			if (!handleApiError(err) && isCurrentPrompt()) {
 				setError({
 					message: "Failed to submit response.",
 					details: err.message,
@@ -1121,19 +1150,29 @@ function App() {
 
 	const handleInteractiveSkip = async () => {
 		if (!interactiveSessionId || !currentInteractivePrompt) return;
+		const conversationId = currentConversationId;
+		const sessionId = interactiveSessionId;
+		const promptId = currentInteractivePrompt.prompt_id;
+		const promptTitle = currentInteractivePrompt.title;
+		// Polling may replace the object, so compare the logical prompt, not identity.
+		const isCurrentPrompt = () => {
+			const state = useAppStore.getState();
+			return (
+				state.currentConversationId === conversationId &&
+				state.interactiveSessionId === sessionId &&
+				state.currentInteractivePrompt?.prompt_id === promptId &&
+				state.currentInteractivePrompt?.title === promptTitle
+			);
+		};
 
 		try {
-			await api.submitInteractiveResponse(
-				interactiveSessionId,
-				currentInteractivePrompt.prompt_id,
-				{},
-				true,
-			);
+			await api.submitInteractiveResponse(sessionId, promptId, {}, true);
+			if (!isCurrentPrompt()) return;
 			setCurrentInteractivePrompt(null);
 			setInteractiveSessionId(null);
 		} catch (err) {
 			console.error("Failed to skip interactive prompt:", err);
-			if (!handleApiError(err)) {
+			if (!handleApiError(err) && isCurrentPrompt()) {
 				setError({ message: "Failed to skip prompt.", details: err.message });
 			}
 		}
@@ -1224,6 +1263,15 @@ function App() {
 			// Delete empty conversation if needed
 			if (conversationToDelete) {
 				await api.deleteConversation(conversationToDelete);
+				// Reconcile the completed deletion even if creating its replacement fails.
+				setConversations((prev) =>
+					prev.filter((c) => c.id !== conversationToDelete),
+				);
+				if (
+					useAppStore.getState().currentConversationId === conversationToDelete
+				) {
+					selectConversation(null, { replace: true });
+				}
 				if (useAppStore.getState().conversationsById[conversationToDelete]) {
 					setConversationsById((prev) => {
 						const next = { ...prev };
@@ -1273,25 +1321,27 @@ function App() {
 
 	const confirmDeleteConversation = async () => {
 		if (!deleteTarget) return;
+		const target = deleteTarget;
+		const conversationId = target.id;
 
 		setError(null);
 		try {
-			await api.deleteConversation(deleteTarget.id);
-			const remaining = conversations.filter(
-				(conv) => conv.id !== deleteTarget.id,
+			await api.deleteConversation(conversationId);
+			// Navigation and list updates may have happened while DELETE was pending.
+			setConversations((prev) =>
+				prev.filter((conv) => conv.id !== conversationId),
 			);
-			setConversations(remaining);
-			if (useAppStore.getState().conversationsById[deleteTarget.id]) {
+			if (useAppStore.getState().conversationsById[conversationId]) {
 				setConversationsById((prev) => {
 					const next = { ...prev };
-					delete next[deleteTarget.id];
+					delete next[conversationId];
 					return next;
 				});
 			}
-			if (currentConversationId === deleteTarget.id) {
+			if (useAppStore.getState().currentConversationId === conversationId) {
 				selectConversation(null, { replace: true });
 			}
-			setDeleteTarget(null);
+			setDeleteTarget((current) => (current === target ? null : current));
 		} catch (err) {
 			console.error("Failed to delete conversation:", err);
 			if (!handleApiError(err)) {
@@ -1359,45 +1409,58 @@ function App() {
 
 	const handleCancelConsultation = useCallback(async () => {
 		if (!currentConversationId) return;
-		if (isCancelling) return;
 
 		const conversationId = currentConversationId;
-		setIsCancelling(true);
+		// Check the live store so a second click before a render cannot send twice.
+		if (useAppStore.getState().cancellingConversations[conversationId]) return;
+		const isCurrent = () =>
+			useAppStore.getState().currentConversationId === conversationId;
+		setCancellingConversations((previous) => ({
+			...previous,
+			[conversationId]: true,
+		}));
 		setError(null);
 
 		try {
 			await api.cancelConsultation(conversationId);
-			setIsLoading(false);
-			setConsultationStatus(null);
 			clearStreamingConsultation(conversationId);
-			setCurrentInteractivePrompt(null);
-			setInteractiveSessionId(null);
-			setMessageQueue([]);
-			await loadConversation(conversationId);
+			if (isCurrent()) {
+				setIsLoading(false);
+				setConsultationStatus(null);
+				setCurrentInteractivePrompt(null);
+				setInteractiveSessionId(null);
+				setMessageQueue([]);
+			}
+			// Refresh the stopped conversation; snapshot handling scopes UI to its ID.
+			const conversation = await api.getConversation(conversationId);
+			applyConversationSnapshot(conversation);
 			await loadConversations();
 		} catch (err) {
 			console.error("Failed to cancel consultation:", err);
-			if (!handleApiError(err)) {
+			if (isCurrent() && !handleApiError(err)) {
 				setError({
 					message: "Failed to cancel consultation.",
 					details: err.message,
 				});
 			}
 		} finally {
-			setIsCancelling(false);
+			setCancellingConversations((previous) => {
+				const next = { ...previous };
+				delete next[conversationId];
+				return next;
+			});
 		}
 	}, [
 		currentConversationId,
+		applyConversationSnapshot,
 		clearStreamingConsultation,
 		handleApiError,
-		isCancelling,
 		loadConversations,
-		loadConversation,
+		setCancellingConversations,
 		setConsultationStatus,
 		setCurrentInteractivePrompt,
 		setError,
 		setInteractiveSessionId,
-		setIsCancelling,
 		setIsLoading,
 		setMessageQueue,
 	]);
@@ -1407,7 +1470,10 @@ function App() {
 	};
 
 	const handleSendMessage = async (content, negativePrompt, skillIds) => {
-		if (!currentConversationId) return;
+		if (!currentConversationId) return false;
+
+		const isCurrent = () =>
+			useAppStore.getState().currentConversationId === currentConversationId;
 
 		// Request notification permission on first message
 		requestPermission();
@@ -1501,6 +1567,7 @@ function App() {
 
 				if (result.status === "queued") {
 					rollbackOptimisticMessagePair();
+					if (!isCurrent()) return true;
 					setMessageQueue((prev) => [
 						...prev,
 						{
@@ -1511,10 +1578,10 @@ function App() {
 					]);
 					setConsultationStatus(activeBeforeSend);
 					setIsLoading(isLoading || Boolean(activeBeforeSend));
-					return;
+					return true;
 				}
 
-				setIsLoading(true);
+				// Cache the result for its owner, even after navigating elsewhere.
 				updateConversationById(conversationId, (draft) => {
 					const lastMsg = draft?.messages?.[draft.messages.length - 1];
 					if (!lastMsg || lastMsg.role !== "assistant") return;
@@ -1524,13 +1591,17 @@ function App() {
 						status: "pending",
 					};
 				});
+				if (!isCurrent()) return true;
+				setIsLoading(true);
 				setConsultationStatus({
 					status: "pending",
 					consultation_id: result.consultation_id,
 				});
+				return true;
 			} catch (err) {
-				setIsLoading(false);
 				rollbackOptimisticMessagePair();
+				if (!isCurrent()) return false;
+				setIsLoading(false);
 				if (!handleApiError(err)) {
 					setError({
 						message: "Failed to send message.",
@@ -1540,13 +1611,14 @@ function App() {
 			}
 		} catch (err) {
 			console.error("Failed to prepare message send:", err);
-			if (!handleApiError(err)) {
+			if (isCurrent() && !handleApiError(err)) {
 				setError({
 					message: "Failed to prepare message.",
 					details: err.message,
 				});
 			}
 		}
+		return false;
 	};
 
 	return (

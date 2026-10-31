@@ -34,7 +34,7 @@ export const useAppStore = create((set) => ({
 	streamingConsultations: {},
 	interactiveSessionId: null,
 	currentInteractivePrompt: null,
-	isCancelling: false,
+	cancellingConversations: {},
 	hasApiKey: initialHasApiKey,
 	showApiKeyModal: !initialHasApiKey,
 	apiKeyError: null,
@@ -111,9 +111,9 @@ export const useAppStore = create((set) => ({
 				next,
 			),
 		})),
-	setIsCancelling: (next) =>
+	setCancellingConversations: (next) =>
 		set((state) => ({
-			isCancelling: applyUpdate(state.isCancelling, next),
+			cancellingConversations: applyUpdate(state.cancellingConversations, next),
 		})),
 	setHasApiKey: (next) =>
 		set((state) => ({

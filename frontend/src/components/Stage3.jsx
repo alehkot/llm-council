@@ -117,6 +117,30 @@ function normalizeStage3(stage3Data) {
 	};
 }
 
+// Cached conversation navigation reuses this component. Keep each message's UI
+// state separate, and let an async handler update only its originating message.
+function useMessageState(messageKey, initialValue) {
+	const [values, setValues] = useState({});
+	const value = Object.hasOwn(values, messageKey)
+		? values[messageKey]
+		: initialValue;
+	const setValue = useCallback(
+		(nextValue) => {
+			setValues((previous) => {
+				const current = Object.hasOwn(previous, messageKey)
+					? previous[messageKey]
+					: initialValue;
+				const next =
+					typeof nextValue === "function" ? nextValue(current) : nextValue;
+				if (Object.is(current, next)) return previous;
+				return { ...previous, [messageKey]: next };
+			});
+		},
+		[messageKey, initialValue],
+	);
+	return [value, setValue];
+}
+
 export default function Stage3({
 	finalResponse, // Can be old format or new format
 	conversationId,
@@ -125,30 +149,37 @@ export default function Stage3({
 	onCurrentChanged,
 	onStartSideChat,
 }) {
-	const [copied, setCopied] = useState(false);
-	const [selectedMode, setSelectedMode] = useState("best_of_breed");
-	const [isResynthesizing, setIsResynthesizing] = useState(false);
-	const [isGeneratingAll, setIsGeneratingAll] = useState(false);
-	const [resynthError, setResynthError] = useState(null);
-
-	// Normalize the stage3 data
+	const messageKey = `${conversationId}:${messageIndex}`;
 	const stage3Data = useMemo(
 		() => normalizeStage3(finalResponse),
 		[finalResponse],
 	);
-
-	// Active tab state - default to showing the current version
-	const [activeVersionIndex, setActiveVersionIndex] = useState(() => {
-		return getCurrentVersionIndex(stage3Data);
-	});
 	const currentVersionIndex = useMemo(
 		() => getCurrentVersionIndex(stage3Data),
 		[stage3Data],
 	);
+	const [copied, setCopied] = useMessageState(messageKey, false);
+	const [selectedMode, setSelectedMode] = useMessageState(
+		messageKey,
+		"best_of_breed",
+	);
+	const [isResynthesizing, setIsResynthesizing] = useMessageState(
+		messageKey,
+		false,
+	);
+	const [isGeneratingAll, setIsGeneratingAll] = useMessageState(
+		messageKey,
+		false,
+	);
+	const [resynthError, setResynthError] = useMessageState(messageKey, null);
+	const [activeVersionIndex, setActiveVersionIndex] = useMessageState(
+		messageKey,
+		currentVersionIndex,
+	);
 
 	useEffect(() => {
 		setActiveVersionIndex(currentVersionIndex);
-	}, [conversationId, currentVersionIndex, messageIndex]);
+	}, [messageKey, currentVersionIndex, setActiveVersionIndex]);
 
 	// Get the currently displayed version
 	const resolvedActiveVersionIndex = stage3Data?.versions?.[activeVersionIndex]
@@ -190,7 +221,7 @@ export default function Stage3({
 		} catch (err) {
 			console.error("Failed to copy to clipboard:", err);
 		}
-	}, [activeVersion?.response]);
+	}, [activeVersion?.response, setCopied]);
 
 	const handleResynthesize = useCallback(async () => {
 		if (!conversationId || messageIndex === undefined) return;
@@ -222,6 +253,9 @@ export default function Stage3({
 		selectedMode,
 		onVersionAdded,
 		stage3Data?.versions?.length,
+		setIsResynthesizing,
+		setResynthError,
+		setActiveVersionIndex,
 	]);
 
 	const handleGenerateAll = useCallback(async () => {
@@ -254,7 +288,14 @@ export default function Stage3({
 		} finally {
 			setIsGeneratingAll(false);
 		}
-	}, [conversationId, messageIndex, missingModes, onVersionAdded]);
+	}, [
+		conversationId,
+		messageIndex,
+		missingModes,
+		onVersionAdded,
+		setIsGeneratingAll,
+		setResynthError,
+	]);
 
 	const handleSetAsCurrent = useCallback(async () => {
 		if (!conversationId || messageIndex === undefined || isActiveVersionCurrent)
@@ -279,6 +320,7 @@ export default function Stage3({
 		isActiveVersionCurrent,
 		onCurrentChanged,
 		resolvedActiveVersionIndex,
+		setResynthError,
 	]);
 
 	if (!stage3Data) {

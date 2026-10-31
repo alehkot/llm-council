@@ -1,9 +1,11 @@
 """OpenRouter API client for making LLM requests."""
 
 import asyncio
+import math
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -38,6 +40,25 @@ def _backoff_seconds(retry_index: int) -> float:
         jitter = backoff * OPENROUTER_RETRY_JITTER
         backoff += random.uniform(0, jitter)
     return backoff
+
+
+def _retry_after_seconds(value: Optional[str]) -> Optional[float]:
+    """Read a standard Retry-After delay without accepting invalid numeric values."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        if value.isascii() and value.isdigit():
+            delay = float(value)
+        else:
+            retry_at = parsedate_to_datetime(value)
+            # Obsolete HTTP asctime dates have no explicit zone but imply GMT.
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            delay = max(0.0, retry_at.timestamp() - time.time())
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return delay if math.isfinite(delay) else None
 
 
 def _content_length(value: Any) -> int:
@@ -146,7 +167,8 @@ def _extract_message_content(message: Dict[str, Any]) -> Optional[str]:
     """Normalize provider message payloads to plain text content."""
     content = message.get("content")
     if isinstance(content, str):
-        return content
+        # Empty completions are failures, but retain formatting of usable answers.
+        return content if content.strip() else None
     if isinstance(content, list):
         parts = []
         for item in content:
@@ -205,9 +227,12 @@ async def _query_model_once(
 
     total_attempts = max(1, OPENROUTER_MAX_RETRIES + 1)
 
+    retry_after = 0.0
     for attempt in range(total_attempts):
         if attempt > 0:
-            await asyncio.sleep(_backoff_seconds(attempt - 1))
+            # A provider cooldown is a minimum, not the exponential backoff cap.
+            await asyncio.sleep(max(_backoff_seconds(attempt - 1), retry_after))
+        retry_after = 0.0
 
         started_at = time.perf_counter()
         started_at_iso = None
@@ -289,6 +314,9 @@ async def _query_model_once(
             except Exception:
                 response_body = {"raw_text": response.text} if response else None
             if _is_retryable_status(response_status) and attempt + 1 < total_attempts:
+                retry_after = (
+                    _retry_after_seconds(response.headers.get("Retry-After")) or 0.0
+                )
                 continue
             print(f"Error querying model {model}: {e}")
             return None
