@@ -37,3 +37,4 @@ docs/
 
 # Woodpecker build logs and test artifacts
 /.ci-output/
+agent-adapters/node_modules/

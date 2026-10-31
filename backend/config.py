@@ -43,9 +43,14 @@ def _get_int_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer (got {value!r})") from exc
 
 
-# OpenRouter API key
+# ACP mode uses local subscription logins for every model call.
+MODEL_BACKEND = os.getenv("MODEL_BACKEND", "openrouter").lower()
+if MODEL_BACKEND not in {"openrouter", "acp"}:
+    raise ValueError("MODEL_BACKEND must be openrouter or acp")
+
+# OpenRouter API key (unused in ACP mode)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-if not OPENROUTER_API_KEY:
+if MODEL_BACKEND == "openrouter" and not OPENROUTER_API_KEY:
     raise ValueError(
         "OPENROUTER_API_KEY environment variable not set. "
         "Please add it to your .env file."
@@ -74,7 +79,7 @@ if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
     if API_KEY_BRUTEFORCE_LOCKOUT_SECONDS <= 0:
         raise ValueError("API_KEY_BRUTEFORCE_LOCKOUT_SECONDS must be > 0")
 
-# Council members - list of OpenRouter model identifiers
+# Council members - OpenRouter IDs or agent/native-model IDs in ACP mode.
 DEFAULT_COUNCIL_MODELS = [
     "openai/gpt-6-astra",
     "google/gemini-3.1-pro-preview",
@@ -84,14 +89,22 @@ DEFAULT_COUNCIL_MODELS = [
     "deepseek/deepseek-v4-pro-0813",
 ]
 COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", DEFAULT_COUNCIL_MODELS)
+if MODEL_BACKEND == "acp":
+    COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", ["codex/default", "claude/default"])
 
-# Chairman model - 1M-token context for final synthesis.
-CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "anthropic/claude-fable-5.1"
+# Chairman model for final synthesis and default helper calls.
+CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or (
+    "codex/default" if MODEL_BACKEND == "acp" else "anthropic/claude-fable-5.1"
+)
 
 # CLI modes use the installed CLI's subscription login and model selection.
-SYNTHESIS_BACKEND = os.getenv("SYNTHESIS_BACKEND", "codex").lower()
-if SYNTHESIS_BACKEND not in {"openrouter", "codex", "claude"}:
-    raise ValueError("SYNTHESIS_BACKEND must be openrouter, codex, or claude")
+SYNTHESIS_BACKEND = (
+    "acp" if MODEL_BACKEND == "acp" else os.getenv("SYNTHESIS_BACKEND", "codex").lower()
+)
+if SYNTHESIS_BACKEND not in {"openrouter", "codex", "claude", "acp"}:
+    raise ValueError("SYNTHESIS_BACKEND must be openrouter, codex, claude, or acp")
+if SYNTHESIS_BACKEND == "acp" and MODEL_BACKEND != "acp":
+    raise ValueError("ACP synthesis requires MODEL_BACKEND=acp")
 SYNTHESIS_AGENT_MODEL = os.getenv("SYNTHESIS_AGENT_MODEL", "gpt-6-astra").strip()
 SYNTHESIS_AGENT_EFFORT = os.getenv("SYNTHESIS_AGENT_EFFORT", "xhigh").strip()
 if SYNTHESIS_AGENT_EFFORT not in {"low", "medium", "high", "xhigh", "max"}:
@@ -102,7 +115,7 @@ if SYNTHESIS_AGENT_TIMEOUT_SECONDS <= 0:
     raise ValueError("SYNTHESIS_AGENT_TIMEOUT_SECONDS must be positive")
 SYNTHESIS_MODEL = (
     CHAIRMAN_MODEL
-    if SYNTHESIS_BACKEND == "openrouter"
+    if SYNTHESIS_BACKEND in {"openrouter", "acp"}
     else f"{SYNTHESIS_BACKEND}-cli/{SYNTHESIS_AGENT_MODEL or 'default'}"
 )
 
@@ -110,7 +123,9 @@ SYNTHESIS_MODEL = (
 PROMPT_REFINEMENT_MODEL = os.getenv("PROMPT_REFINEMENT_MODEL") or CHAIRMAN_MODEL
 
 # Model for conversation title generation
-TITLE_MODEL = os.getenv("TITLE_MODEL") or "google/gemini-3.1-pro-preview"
+TITLE_MODEL = os.getenv("TITLE_MODEL") or (
+    CHAIRMAN_MODEL if MODEL_BACKEND == "acp" else "google/gemini-3.1-pro-preview"
+)
 
 # Feature flags (set to "true" in .env to enable)
 NEGATIVE_MODE_ENABLED = _get_bool_env("NEGATIVE_MODE_ENABLED")
@@ -243,7 +258,9 @@ SKILLS_REFERENCE_SELECTION_MODEL = (
 
 TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY", "").strip()
 TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-latest").strip()
-SKILLS_TYPESAFE_ENABLED = _get_bool_env("SKILLS_TYPESAFE_ENABLED", "true")
+SKILLS_TYPESAFE_ENABLED = MODEL_BACKEND != "acp" and _get_bool_env(
+    "SKILLS_TYPESAFE_ENABLED", "true"
+)
 
 # Automatic skill selection: when a consultation is sent with no skills ticked in
 # the composer, pick up to SKILLS_MAX_SELECTED enabled skills whose description
@@ -255,6 +272,22 @@ SKILLS_AUTO_SELECT_ENABLED = _get_bool_env("SKILLS_AUTO_SELECT_ENABLED", "true")
 SKILLS_AUTO_SELECT_MODEL = (
     os.getenv("SKILLS_AUTO_SELECT_MODEL") or SKILLS_REFERENCE_SELECTION_MODEL
 )
+
+if MODEL_BACKEND == "acp":
+    for _model in [
+        *COUNCIL_MODELS,
+        CHAIRMAN_MODEL,
+        TITLE_MODEL,
+        PROMPT_REFINEMENT_MODEL,
+        SKILLS_REFERENCE_SELECTION_MODEL,
+        SKILLS_AUTO_SELECT_MODEL,
+    ]:
+        _agent, _separator, _native_model = _model.partition("/")
+        if _agent not in {"codex", "claude"} or not _separator or not _native_model:
+            raise ValueError(
+                f"ACP model {_model!r} must be codex/<native-id> or claude/<native-id>; "
+                "use default for the agent's current model. Remove OpenRouter model overrides."
+            )
 
 # Max length of a skill's frontmatter description (not an env knob).
 SKILL_DESCRIPTION_MAX_CHARS = 1024

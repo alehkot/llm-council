@@ -1,0 +1,14 @@
+{
+	"name": "llm-council-agent-adapters",
+	"private": true,
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"test": "node --test codex-safe.test.cjs"
+	},
+	"dependencies": {
+		"@agentclientprotocol/claude-agent-acp": "0.99.1",
+		"@agentclientprotocol/codex-acp": "2.5.0"
+	}
+}

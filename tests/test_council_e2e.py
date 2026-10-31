@@ -27,6 +27,7 @@ from backend import (
     council,
     langgraph_flow,
     main,
+    model_client,
     openrouter,
     skills,
     storage,
@@ -83,6 +84,7 @@ class CouncilE2ETests(unittest.TestCase):
         ):
             replace(langgraph_flow, name, True)
         replace(council, "SKILLS_TYPESAFE_ENABLED", True)
+        replace(model_client, "MODEL_BACKEND", "openrouter")
         replace(typesafe, "TYPESAFE_API_KEY", "mock-jev-key")
         replace(council, "SYNTHESIS_BACKEND", "codex")
         replace(council, "SYNTHESIS_MODEL", "codex-cli/gpt-6-astra")

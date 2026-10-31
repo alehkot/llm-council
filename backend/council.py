@@ -25,7 +25,7 @@ from .config import (
     SYNTHESIS_MODEL,
     TITLE_MODEL,
 )
-from .openrouter import query_model
+from .model_client import query_model
 from .skills import ReferenceCandidate, Skill
 from .trace import TraceCollector
 from .typesafe import select_relevant
@@ -35,6 +35,19 @@ ProgressCallback = Optional[
 ]
 
 SYNTHESIS_MODES = {"consensus", "best_of_breed", "comprehensive", "weighted"}
+
+
+async def _gather_model_calls(calls: List[Awaitable[Any]]) -> List[Any]:
+    tasks = [asyncio.ensure_future(call) for call in calls]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        # Stop sibling agents when a stage fails or the consultation is cancelled.
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
 
 SYNTHESIS_CONTEXT_POLICIES: Dict[str, Dict[str, int]] = {
     "consensus": {
@@ -649,7 +662,7 @@ async def stage1_collect_responses(
         return model, response
 
     tasks = [query_with_progress(model) for model in COUNCIL_MODELS]
-    responses_list = await asyncio.gather(*tasks)
+    responses_list = await _gather_model_calls(tasks)
     responses = {model: response for model, response in responses_list}
 
     # Format results - include all models, marking failures
@@ -1467,7 +1480,7 @@ After the JSON you may add brief notes if helpful."""
         }
 
     tasks = [evaluate_model(idx, result) for idx, result in enumerate(stage1_results)]
-    evaluations = await asyncio.gather(*tasks)
+    evaluations = await _gather_model_calls(tasks)
     return evaluations
 
 
@@ -1561,7 +1574,7 @@ FINAL RANKING:
         return model, response
 
     tasks = [query_with_progress(model) for model in COUNCIL_MODELS]
-    responses_list = await asyncio.gather(*tasks)
+    responses_list = await _gather_model_calls(tasks)
     responses = {model: response for model, response in responses_list}
 
     # Format results with validation status
@@ -1730,7 +1743,7 @@ Provide your REVISED response to the original question. If you believe your orig
 
     # Run deliberation for all models in parallel
     tasks = [deliberate_model(result) for result in stage1_results]
-    revised_results = await asyncio.gather(*tasks)
+    revised_results = await _gather_model_calls(tasks)
 
     return revised_results
 
@@ -1811,6 +1824,7 @@ async def stage3_synthesize_final(
                         "rankings": aggregate_rankings,
                     },
                 },
+                trace=trace,
             )
         except BaseException:
             if progress:

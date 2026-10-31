@@ -45,6 +45,13 @@ class LiveRunnerTests(unittest.TestCase):
             }
             conversation = {"messages": [message]}
             self.assertTrue(all(check_result(conversation, root, 1).values()))
+            message["stage3"]["current"]["model"] = "codex/default"
+            self.assertTrue(
+                all(check_result(conversation, root, 1, "codex/default").values())
+            )
+            self.assertFalse(
+                check_result(conversation, root, 1)["configured_model_synthesized"]
+            )
             result.write_text("different answer")
             self.assertFalse(
                 check_result(conversation, root, 1)["disk_result_matches_saved_answer"]

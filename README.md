@@ -57,6 +57,8 @@ Final Answer
 
 - **Multi-model consensus**: Leverage diverse perspectives from GPT, Claude,
   Gemini, Grok, and more.
+- **Local subscription agents**: Run every model call through Codex and Claude
+  over ACP, with verified account login and no API fallback.
 - **Anonymized evaluation**: Unbiased peer review without model identification.
 - **Invalid ranking handling**: Peer orders marked invalid by Stage 2 (for example,
   unknown labels, including labels that only share a prefix with a valid response,
@@ -71,7 +73,7 @@ Final Answer
   seconds or HTTP dates before retrying. The configured retry count is unchanged;
   `OPENROUTER_RETRY_MAX_SECONDS` caps exponential backoff, not a longer provider
   cooldown. Stop can interrupt the wait. Missing or invalid hints use normal backoff.
-- **Graceful degradation**: Continues with successful responses if some models
+- **Graceful degradation in OpenRouter mode**: Continues with successful responses if some models
   fail. A completed synthesis can still be re-run (one or all modes) when every
   peer reviewer failed; reruns use the saved responses without peer rankings.
   Empty or whitespace-only provider completions use the existing bounded retry
@@ -109,9 +111,10 @@ Final Answer
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+
+- Node.js 22+ for ACP adapters (the frontend follows its Vite requirements)
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
-- [OpenRouter API key](https://openrouter.ai/)
+- [OpenRouter API key](https://openrouter.ai/) or signed-in Codex/Claude accounts
+  for [ACP subscription mode](#all-stages-through-local-subscriptions-acp)
 
 ### Installation
 
@@ -624,9 +627,69 @@ synthetic API responses. It covers both transition directions, button labels and
 one-click reversal, repeated system changes, and saved manual preferences. It does
 not verify physical OS scheduling, other browser engines, or live model providers.
 
+### All stages through local subscriptions (ACP)
+
+Set `MODEL_BACKEND=acp` to use the official ACP Python SDK and pinned local
+Codex/Claude adapters. This covers individual answers, negative reviews, peer
+ranking, deliberation, synthesis, titles, prompt refinement, skill/reference
+selection, and model side chats. The OpenRouter key is optional in this mode;
+the separate paid TypeSafe skill router is disabled even if its flag is enabled.
+
+```bash
+uv sync
+npm ci --prefix agent-adapters
+./agent-adapters/node_modules/.bin/codex login
+claude auth login
+```
+
+The Claude login command requires the native Claude Code CLI to be installed.
+
+Merge [.env.acp.sample](.env.acp.sample) into your `.env`, preserving your real
+`API_AUTH_KEY`, then restart the backend. Every model override must use
+`codex/<native-model-id>` or `claude/<native-model-id>`; old OpenRouter IDs fail
+validation. `codex/default,claude/default` uses the defaults reported by those
+agents. Select only agents you have signed in to. An explicit model must appear
+in the agent's advertised model list and be confirmed by it; no substitute is
+selected. Traces record the actual model used for `default`.
+
+`CHAIRMAN_MODEL` also selects ACP synthesis. In this mode `SYNTHESIS_BACKEND`
+is always `acp`; the legacy `SYNTHESIS_AGENT_MODEL` and effort settings do not
+apply. Existing per-call timeouts still apply, and
+`SYNTHESIS_AGENT_TIMEOUT_SECONDS` bounds synthesis.
+
+Each call gets its own process and temporary session directory. Children receive
+an allowlisted environment without API keys or cloud/gateway routing variables.
+The client requires the adapter to report account authentication before sending
+a prompt and rejects changes to another authentication route. It does not start
+interactive login. Missing authentication, unavailable models, quota errors,
+timeouts, empty answers, and incomplete output fail the call and stop sibling
+calls in that stage. There is no fallback to OpenRouter, TypeSafe, another agent,
+or a different model. Account-side extra usage/credits remain governed by your
+provider settings; verified account login is not a guarantee of zero charges.
+
+ACP filesystem and terminal callbacks are unavailable and permission requests
+are denied. Claude runs with no tools/settings sources in safe mode; Codex uses
+read-only permissions with native shell, browser, computer, plugin, and MCP tools
+disabled. These controls are not an OS sandbox for the adapter process itself.
+Only trusted users should have the backend API key.
+
+Synthesis still exports complete evidence under `data/synthesis/` and saves
+`result.md`, but supplies all evidence as prompt text instead of allowing file
+access. Input/output is bounded at 10 MB; oversized input fails without truncation.
+The agent may have a smaller model context limit. Selected skills retain their
+existing context budgets. Cancellation and timeouts terminate the agent process
+group. Raw vendor stderr is drained and discarded to avoid retaining credentials;
+errors and safe request metadata appear in the normal trace.
+Native agents may retain their own session data in their usual user directories.
+
+This implementation supports Codex and Claude. Gemini, Antigravity, Pi, and Grok
+need separate authentication/permission integrations before they can be enabled;
+an arbitrary ACP command is not accepted as a subscription-safe provider.
+Process-group isolation currently requires macOS or Linux.
+
 ### Synthesis through a local subscription CLI
 
-Stage 3 defaults to `SYNTHESIS_BACKEND=codex`, using `gpt-6-astra` with
+In `MODEL_BACKEND=openrouter` mode, Stage 3 defaults to `SYNTHESIS_BACKEND=codex`, using `gpt-6-astra` with
 `SYNTHESIS_AGENT_EFFORT=xhigh`. Install Codex CLI and run `codex login` as the
 same OS user who runs the backend. Subscription eligibility and usage limits
 are controlled by the CLI service. Earlier council stages still use OpenRouter.
@@ -674,9 +737,18 @@ responses and CLI execution are mocked; no subscription or API usage is incurred
 These tests verify orchestration and persistence, not model answer quality or the
 interactive frontend. All generated data lives in temporary directories.
 
+`tests/test_acp_client.py` uses a real local fake ACP peer to verify authentication
+rejection, exact model selection, independent sessions, complete context,
+permission denial, timeout/cancellation cleanup, and no API fallback without
+consuming a subscription.
+Run `npm test --prefix agent-adapters` for the native launcher's configuration
+and error-privacy checks.
+
 ### On-demand live E2E run
 
-This separate runner makes **real OpenRouter calls and uses your Codex subscription**.
+This separate runner makes **real calls using your configured model backend**.
+In OpenRouter mode it uses OpenRouter plus Codex synthesis; in ACP mode all calls
+use the configured subscription agents, including the configured chairman.
 It is excluded from unittest discovery and CI. It refuses to run without `--run-live`:
 
 ```bash
