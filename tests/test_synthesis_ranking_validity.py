@@ -151,6 +151,7 @@ class RankingValidityProviderFlowTests(unittest.IsolatedAsyncioTestCase):
 
             with (
                 self.subTest(mode=mode),
+                patch.object(council, "SYNTHESIS_BACKEND", "openrouter"),
                 patch.object(council, "query_model", chairman),
             ):
                 result = await council.stage3_synthesize_final(

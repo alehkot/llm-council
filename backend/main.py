@@ -21,7 +21,6 @@ from .config import (
     API_KEY_BRUTEFORCE_LOCKOUT_SECONDS,
     API_KEY_BRUTEFORCE_MAX_ATTEMPTS,
     API_KEY_BRUTEFORCE_WINDOW_SECONDS,
-    CHAIRMAN_MODEL,
     CORS_ALLOW_ORIGINS,
     COUNCIL_MODELS,
     DELIBERATION_ENABLED,
@@ -46,7 +45,9 @@ from .config import (
     STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS,
     STATUS_LONGPOLL_MAX_WAIT_SECONDS,
     STREAM_TIMEOUT_SECONDS,
+    SYNTHESIS_BACKEND,
     SYNTHESIS_CONTEXT_MAX_CHARS,
+    SYNTHESIS_MODEL,
     TITLE_MODEL,
 )
 from .consultation_manager import consultation_manager
@@ -390,7 +391,8 @@ async def get_config():
         "synthesis_context_max_chars": SYNTHESIS_CONTEXT_MAX_CHARS,
         "openrouter_max_tokens": OPENROUTER_MAX_TOKENS,
         "council_models": COUNCIL_MODELS,
-        "chairman_model": CHAIRMAN_MODEL,
+        "chairman_model": SYNTHESIS_MODEL,
+        "synthesis_backend": SYNTHESIS_BACKEND,
         "prompt_refinement_model": PROMPT_REFINEMENT_MODEL,
         "title_model": TITLE_MODEL,
         "skills_enabled": SKILLS_ENABLED,

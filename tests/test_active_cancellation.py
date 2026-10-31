@@ -210,6 +210,7 @@ class ActiveCancellationTests(unittest.TestCase):
             patch("backend.council.query_model", fake_query),
             patch("backend.council.COUNCIL_MODELS", ["a", "b"]),
             patch("backend.langgraph_flow.COUNCIL_MODELS", ["a", "b"]),
+            patch("backend.langgraph_flow.SKILLS_AUTO_SELECT_ENABLED", False),
             patch("backend.consultation_manager.INTERACTIVE_MODE_ENABLED", False),
         ):
             state = self.start("real", "Keep this question")

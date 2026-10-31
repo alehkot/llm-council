@@ -1633,7 +1633,10 @@ class SkillsRuntimeTests(_SkillsDirTestCase):
     def test_no_skill_ids_yields_an_empty_runtime(self) -> None:
         context = FlowContext(trace=TraceCollector())
 
-        with self._no_router():
+        with (
+            self._no_router(),
+            patch.object(langgraph_flow, "SKILLS_AUTO_SELECT_ENABLED", False),
+        ):
             asyncio.run(langgraph_flow._ensure_skills_runtime(context, {}))
 
         runtime = context.skills_runtime

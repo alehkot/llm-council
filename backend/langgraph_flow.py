@@ -25,7 +25,6 @@ from langgraph.graph import END, START, StateGraph
 
 from . import skills, storage
 from .config import (
-    CHAIRMAN_MODEL,
     COUNCIL_MODELS,
     DELIBERATION_ENABLED,
     INTERACTIVE_MODE_ENABLED,
@@ -43,6 +42,7 @@ from .config import (
     SKILLS_REFERENCE_SELECTION_ENABLED,
     SKILLS_REFERENCE_SELECTION_MODEL,
     SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
+    SYNTHESIS_MODEL,
 )
 from .council import (
     SKILL_REFERENCE_ERROR_UNPARSEABLE,
@@ -1893,7 +1893,7 @@ def build_council_graph(context: FlowContext):
         await context.set_status("stage3")
         context.trace.begin_stage("stage3", label="Stage 3")
         await context.emit_event({"type": "stage3_start"})
-        await context.init_stage_progress("stage3", [CHAIRMAN_MODEL])
+        await context.init_stage_progress("stage3", [SYNTHESIS_MODEL])
 
         using_deliberation_revisions = bool(
             ((state.get("metadata") or {}).get("deliberation") or {}).get("results")

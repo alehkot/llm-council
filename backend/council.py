@@ -20,7 +20,9 @@ from .config import (
     SKILLS_MAX_SELECTED,
     SKILLS_REFERENCE_SELECTION_MODEL,
     SKILLS_TYPESAFE_ENABLED,
+    SYNTHESIS_BACKEND,
     SYNTHESIS_CONTEXT_MAX_CHARS,
+    SYNTHESIS_MODEL,
     TITLE_MODEL,
 )
 from .openrouter import query_model
@@ -1781,6 +1783,49 @@ async def stage3_synthesize_final(
         raise RuntimeError("No successful responses are available for final synthesis.")
 
     labels = labels or [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
+
+    if SYNTHESIS_BACKEND != "openrouter":
+        from .agent_synthesis import synthesize
+
+        model = SYNTHESIS_MODEL
+        if progress:
+            await progress(model, "running", None)
+        try:
+            result = await synthesize(
+                SYNTHESIS_BACKEND,
+                {
+                    "question": user_query,
+                    "skills": skills_context,
+                    "guidance": {
+                        "strategy": _normalize_synthesis_mode(synthesis_mode),
+                        "additional_guidance": prompt_modifier,
+                        "using_deliberation_revisions": using_deliberation_revisions,
+                    },
+                    "evidence": {
+                        "responses": stage1_results,
+                        "peer_reviews": stage2_results,
+                        "labels": labels,
+                        "label_to_model": label_to_model,
+                        "negative_evaluations": negative_context,
+                        "gap_scores": aggregate_gap_scores,
+                        "rankings": aggregate_rankings,
+                    },
+                },
+            )
+        except BaseException:
+            if progress:
+                await progress(model, "failed", None)
+            raise
+        if trace:
+            trace.add_event(
+                "agent_synthesis",
+                stage="stage3",
+                workspace=result["workspace"],
+                model=result["model"],
+            )
+        if progress:
+            await progress(model, "complete", None)
+        return result
 
     # Map labels to models, falling back to stage1 ordering if mapping is missing
     label_mapping = [

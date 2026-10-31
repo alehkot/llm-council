@@ -159,6 +159,23 @@
         "tools",
         "top_p"
       ]
+    },
+    "anthropic/claude-fable-5.1": {
+      "context_length": 1000000,
+      "max_completion_tokens": 128000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ]
     }
   }
 }

@@ -85,8 +85,26 @@ DEFAULT_COUNCIL_MODELS = [
 ]
 COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", DEFAULT_COUNCIL_MODELS)
 
-# Chairman model - synthesizes final response
-CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "google/gemini-3.1-pro-preview"
+# Chairman model - 1M-token context for final synthesis.
+CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "anthropic/claude-fable-5.1"
+
+# CLI modes use the installed CLI's subscription login and model selection.
+SYNTHESIS_BACKEND = os.getenv("SYNTHESIS_BACKEND", "codex").lower()
+if SYNTHESIS_BACKEND not in {"openrouter", "codex", "claude"}:
+    raise ValueError("SYNTHESIS_BACKEND must be openrouter, codex, or claude")
+SYNTHESIS_AGENT_MODEL = os.getenv("SYNTHESIS_AGENT_MODEL", "gpt-6-astra").strip()
+SYNTHESIS_AGENT_EFFORT = os.getenv("SYNTHESIS_AGENT_EFFORT", "xhigh").strip()
+if SYNTHESIS_AGENT_EFFORT not in {"low", "medium", "high", "xhigh", "max"}:
+    raise ValueError("Invalid SYNTHESIS_AGENT_EFFORT")
+SYNTHESIS_AGENT_DIR = os.getenv("SYNTHESIS_AGENT_DIR", "data/synthesis")
+SYNTHESIS_AGENT_TIMEOUT_SECONDS = _get_int_env("SYNTHESIS_AGENT_TIMEOUT_SECONDS", 1800)
+if SYNTHESIS_AGENT_TIMEOUT_SECONDS <= 0:
+    raise ValueError("SYNTHESIS_AGENT_TIMEOUT_SECONDS must be positive")
+SYNTHESIS_MODEL = (
+    CHAIRMAN_MODEL
+    if SYNTHESIS_BACKEND == "openrouter"
+    else f"{SYNTHESIS_BACKEND}-cli/{SYNTHESIS_AGENT_MODEL or 'default'}"
+)
 
 # Model for prompt refinement (defaults to chairman)
 PROMPT_REFINEMENT_MODEL = os.getenv("PROMPT_REFINEMENT_MODEL") or CHAIRMAN_MODEL
@@ -225,19 +243,15 @@ SKILLS_REFERENCE_SELECTION_MODEL = (
 
 TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY", "").strip()
 TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-latest").strip()
-SKILLS_TYPESAFE_ENABLED = _get_bool_env(
-    "SKILLS_TYPESAFE_ENABLED", "true" if TYPESAFE_API_KEY else "false"
-)
+SKILLS_TYPESAFE_ENABLED = _get_bool_env("SKILLS_TYPESAFE_ENABLED", "true")
 
 # Automatic skill selection: when a consultation is sent with no skills ticked in
 # the composer, pick up to SKILLS_MAX_SELECTED enabled skills whose description
 # matches the question. Explicit selections always win over auto-selection. Jev
-# enables this by default; deployments without Jev stay manual. The same
+# is the default router. The same
 # SKILLS_REFERENCE_SELECTION_ENABLED switch gates the router: when it is off, a
 # deterministic keyword-overlap fallback runs instead.
-SKILLS_AUTO_SELECT_ENABLED = _get_bool_env(
-    "SKILLS_AUTO_SELECT_ENABLED", "true" if SKILLS_TYPESAFE_ENABLED else "false"
-)
+SKILLS_AUTO_SELECT_ENABLED = _get_bool_env("SKILLS_AUTO_SELECT_ENABLED", "true")
 SKILLS_AUTO_SELECT_MODEL = (
     os.getenv("SKILLS_AUTO_SELECT_MODEL") or SKILLS_REFERENCE_SELECTION_MODEL
 )

@@ -175,7 +175,7 @@ All configuration is managed via `.env`. See `.env.sample` for full options.
 | Variable          | Description              | Default                    |
 |-------------------|--------------------------|----------------------------|
 | `COUNCIL_MODELS`  | Comma-separated model IDs| GPT-6 Astra, Gemini 3.1 Pro, Claude Opus 5, Grok 4.6, Kimi K3, DeepSeek V4 Pro 0813 |
-| `CHAIRMAN_MODEL`  | Synthesis model          | google/gemini-3.1-pro-preview      |
+| `CHAIRMAN_MODEL`  | Synthesis model (1M context) | anthropic/claude-fable-5.1                 |
 | `TITLE_MODEL`     | Title generation model   | google/gemini-3.1-pro-preview    |
 
 ### Feature Flags
@@ -226,9 +226,9 @@ uploaded *and* selected for a consultation.
 | `SKILLS_CONTEXT_MAX_CHARS`           | Stage 1 skill budget       | 48000   |
 | `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` | Stage 3 skill budget       | 24000   |
 | `SKILLS_REFERENCE_SELECTION_ENABLED` | Model-picked references    | true    |
-| `SKILLS_AUTO_SELECT_ENABLED`         | Auto-pick skills when none ticked | true with Jev, otherwise false |
+| `SKILLS_AUTO_SELECT_ENABLED`         | Auto-pick skills when none ticked | true |
 | `TYPESAFE_API_KEY` | Server-side TypeSafe credential | unset |
-| `SKILLS_TYPESAFE_ENABLED` | Use Jev for both selection steps | true when key is set |
+| `SKILLS_TYPESAFE_ENABLED` | Use Jev for both selection steps | true |
 | `TYPESAFE_MODEL` | TypeSafe model | jev-latest |
 | `SKILLS_AUTO_SELECT_MODEL`           | Model for skill auto-selection | reference model |
 | `SKILLS_UPLOAD_MAX_BYTES`            | Max upload size            | 5 MiB   |
@@ -264,17 +264,12 @@ chat only (per-chat override), with a "Reset to default" button to clear the
 overrides. Instructions are injected into **Stage 1** (every council model's
 system prompt) and **Stage 3** (the chairman's synthesis prompt).
 
-Without TypeSafe configured, skill selection is operator-driven by default: tick skills in the composer,
-and only those are used. With `SKILLS_AUTO_SELECT_ENABLED=true`, sending a
-question with **no** skills ticked instead asks a cheap model to pick up to
-`SKILLS_MAX_SELECTED` enabled skills whose description matches the question;
-explicit ticks always win over auto-selection. The pick is recorded in the
-message metadata, so resume and export replay the same skill set.
-
-To use TypeSafe Jev, set `TYPESAFE_API_KEY` in the backend environment and
-restart the backend. This enables Jev routing and automatic skill selection by
-default; explicit `SKILLS_AUTO_SELECT_ENABLED=false` still disables automatic
-skill picks. `SKILLS_TYPESAFE_ENABLED=false` restores the OpenRouter selectors.
+Jev automatically selects skills and relevant references by default. Set
+`TYPESAFE_API_KEY` in the backend environment and restart the backend. Explicit
+skill picks take precedence; `SKILLS_AUTO_SELECT_ENABLED=false` disables automatic
+skill selection. `SKILLS_TYPESAFE_ENABLED=false` selects the OpenRouter routers.
+If Jev has no credential or fails, selection uses the deterministic fallback and
+records that fallback in message metadata. Resume replays the stored selection.
 
 Jev first scores enabled skills by name and description, then scores reference
 sections within the selected skills using their indexed headings, summaries, and
@@ -628,3 +623,88 @@ This sandboxed desktop/mobile check uses emulated system color preferences and
 synthetic API responses. It covers both transition directions, button labels and
 one-click reversal, repeated system changes, and saved manual preferences. It does
 not verify physical OS scheduling, other browser engines, or live model providers.
+
+### Synthesis through a local subscription CLI
+
+Stage 3 defaults to `SYNTHESIS_BACKEND=codex`, using `gpt-6-astra` with
+`SYNTHESIS_AGENT_EFFORT=xhigh`. Install Codex CLI and run `codex login` as the
+same OS user who runs the backend. Subscription eligibility and usage limits
+are controlled by the CLI service. Earlier council stages still use OpenRouter.
+
+Each synthesis creates a private UUID directory under `data/synthesis/` with
+`AGENTS.md`, `CLAUDE.md`, an evidence index, the original question, selected
+skill/reference context, strategy guidance, and complete Stage 3 input artifacts
+(responses or deliberation revisions, reviews, gaps, rankings, and labels).
+The CLI reads these files over multiple turns and returns its final answer;
+the council saves it as `result.md` and imports it into the conversation.
+The API synthesis excerpt limits do not truncate these evidence files. Selected
+skill context still follows the existing skill-selection budgets.
+
+Set `SYNTHESIS_BACKEND=claude` to use a logged-in Claude Code subscription;
+set `SYNTHESIS_AGENT_MODEL` to a Claude CLI model ID or blank for its default.
+Set `SYNTHESIS_BACKEND=openrouter` to use `CHAIRMAN_MODEL` instead.
+Restart the backend after configuration changes.
+
+`SYNTHESIS_AGENT_DIR` changes the artifact location; `SYNTHESIS_AGENT_TIMEOUT_SECONDS`
+(default 1800) bounds each run. Codex uses its read-only sandbox and ignores user
+configuration; Claude runs in safe mode with only Read/Glob/Grep tools. Both use
+existing CLI authentication, with API-key environment variables removed from the
+child process. CLI login must already work without an API key; no automatic API
+fallback occurs. These tool restrictions do not isolate all readable host files.
+Run the backend only for trusted users, under an OS account with appropriate access.
+
+Artifacts and CLI logs are retained for diagnosis (including failed runs), contain
+conversation data, and are not committed. Delete old run directories when no longer
+needed. Timeouts and task cancellation terminate the CLI process group. A failed
+or empty final result fails Stage 3 rather than importing partial output.
+
+### Offline workflow tests
+
+Run `uv run python scripts/test_offline.py` for the backend suite with outbound
+HTTP and TCP connections blocked. The runner fails on attempted network use even
+if application fallback logic catches the exception.
+
+Run `uv run python -m unittest tests.test_council_e2e -v` for the API-to-disk
+scenarios alone. A sample bakery investment question exercises skill ZIP upload,
+Jev skill/reference selection, council answers, gap reviews, peer ranking,
+deliberation, CLI artifact export/import, polling, and saved conversation results.
+Tests cover Codex success, Claude success with a failed council member, CLI failure
+without API fallback, and re-synthesis without repeated provider calls. Provider
+responses and CLI execution are mocked; no subscription or API usage is incurred.
+These tests verify orchestration and persistence, not model answer quality or the
+interactive frontend. All generated data lives in temporary directories.
+
+### On-demand live E2E run
+
+This separate runner makes **real OpenRouter calls and uses your Codex subscription**.
+It is excluded from unittest discovery and CI. It refuses to run without `--run-live`:
+
+```bash
+uv run python scripts/live_e2e.py --run-live
+```
+
+The default [bakery expansion problem](scripts/examples/bakery-expansion.md) asks for
+rental versus purchase analysis, scenario calculations, and a reversible experiment.
+The runner exercises the real authenticated API in-process (no server needs to be
+started), the background manager, skill ZIP upload/selection, answers from all configured
+council models, generated gap review, peer rankings, deliberation, and Codex Astra xhigh
+synthesis. Jev is used when enabled in your environment; otherwise the configured skill
+router/fallback applies. Interactive clarification and browser UI are outside this run.
+
+Use the existing `.env` credentials and `codex login` for the same OS user. Each invocation
+creates isolated storage under `data/live-e2e/<uuid>/`; it does not modify normal
+conversations, installed skills, local source toggles, or `.env`. Stage progress is printed.
+The directory retains the question, conversation JSON, synthesis knowledge base, CLI logs,
+and `report.json`. Exit status 0 means every structural check passed; status 1 means a
+stage failed or evidence was incomplete. Review the answer yourself for numerical accuracy
+and decision quality; this report is not an automatic semantic benchmark.
+
+For a different problem or artifact location:
+
+```bash
+uv run python scripts/live_e2e.py --run-live --problem-file /absolute/path/problem.md --output-dir /absolute/path/runs
+```
+
+Normal offline tests only verify this runner's opt-in guard and result checks. They never
+execute its live workflow. This command can take several minutes and uses the configured
+council's normal request/token limits plus the CLI synthesis timeout.

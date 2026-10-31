@@ -20,6 +20,7 @@ class EmptyContentTests(unittest.IsolatedAsyncioTestCase):
         self.client.__aenter__.return_value = self.client
         self.sleep = AsyncMock()
         for patcher in (
+            patch.object(council, "SYNTHESIS_BACKEND", "openrouter"),
             patch.object(
                 openrouter,
                 "model_limits",

@@ -16,6 +16,9 @@ from backend import council, main, storage  # noqa: E402
 
 class ResynthesisWithoutRankingsTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        backend_patch = patch.object(council, "SYNTHESIS_BACKEND", "openrouter")
+        backend_patch.start()
+        self.addCleanup(backend_patch.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.data_patch = patch.object(storage, "DATA_DIR", self.tempdir.name)
