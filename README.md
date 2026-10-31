@@ -58,6 +58,13 @@ Final Answer
 - **Multi-model consensus**: Leverage diverse perspectives from GPT, Claude,
   Gemini, Grok, and more.
 - **Anonymized evaluation**: Unbiased peer review without model identification.
+- **Invalid ranking handling**: Peer orders marked invalid by Stage 2 (for example,
+  unknown labels, including labels that only share a prefix with a valid response,
+  a truncated order missing a response) are shown to the chairman as invalid,
+  not as usable ranking lines, and do not contribute deliberation position counts.
+  Where a synthesis mode includes reviewer rationale, an invalid review's excerpt
+  remains available but is explicitly labeled as rationale only. Valid rankings,
+  aggregate voting rules, and legacy reviews without validation metadata are unchanged.
 - **Transparent reasoning**: View raw evaluations, debug traces, and validate ranking
   extraction.
 - **Provider cooldowns**: Retryable provider errors honor valid `Retry-After`
@@ -254,6 +261,12 @@ about model quality. Retries do not increase the token budget or change reasonin
 settings; a provider that repeatedly returns empty text may still fail and bill
 for its attempts.
 
+Ranking-validity regressions exercise real Stage 2 validation and capture the
+chairman's request across all four synthesis modes with provider calls mocked.
+They verify that declared-invalid orders stay diagnostic, qualitative rationale
+is qualified, and invalid votes do not inflate deliberation position counts.
+These checks establish prompt construction, not improved live-model answer quality.
+
 ## Frontend Regression Checks
 
 Selected-conversation status checks and polling ignore responses from obsolete
@@ -264,8 +277,14 @@ do not overlap within an active effect.
 Stop requests are tracked per conversation: stopping one conversation does not
 disable another conversation's controls. Late Stop responses and local errors
 are scoped to their conversation, while its saved transcript is still refreshed.
-Repeated Stop clicks for the same pending request are ignored. Other mutation
-flows and global API-key error handling are unchanged.
+Repeated Stop clicks for the same pending request are ignored.
+
+A delayed single-conversation deletion removes only its target from the latest
+sidebar list and cache. It preserves another selected conversation, newly added
+list entries, and a newer delete-confirmation dialog. If the deleted conversation
+is selected when deletion finishes, selection is cleared. Delete failures retain
+local conversation data and keep the existing global error handling. Clear-all
+and other mutation flows are unchanged.
 
 ```bash
 node --test frontend/tests/*.test.mjs
@@ -273,9 +292,10 @@ cd frontend && npm run lint && npm run build
 ```
 
 The dependency-free tests execute the production polling/selection effects and
-Stop/Send callbacks with controlled promises and store/API seams. They cover
+Stop/Send/Delete callbacks with controlled promises and store/API seams. They cover
 navigation, cleanup, late responses, independent and duplicate Stop requests,
-Send rollback/cache ownership, and current-request controls, not rendered browser UI.
+Send rollback/cache ownership, delayed deletion/list/dialog ownership, and
+current-request controls, not rendered browser UI.
 
 ### Optional rendered send/navigation regression test
 
@@ -299,11 +319,166 @@ loading indicator, consultation status, queue, error, and send-button label rema
 unchanged. These are API-mocked UI checks, not live-provider or backend integration
 tests; no real API key or paid provider request is used.
 
+### Optional rendered deletion/navigation regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/delete-navigation.browser.mjs
+```
+
+This script owns local Vite port 5198 and verifies desktop/mobile delayed deletion:
+selecting B while A is being deleted, creating C and opening a newer B confirmation,
+deleting still-selected A, and a failed deletion retaining A. Requests are synthetic
+and intercepted; no provider calls are made. Node tests additionally exercise the
+real selection callback when starting with no selection and selecting A before its
+deletion finishes. Neither suite verifies live network/provider integration.
+
+### Optional rendered interactive-reply regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/interactive-navigation.browser.mjs
+```
+
+Delayed Submit or Skip responses only dismiss the prompt they answered. A newer
+conversation, session, or refinement round keeps its prompt and error state; an
+authentication failure still reaches the global authentication handler. Polling
+refreshes of the same logical prompt do not prevent normal dismissal. The tests
+use intercepted synthetic API responses, not live model providers. Node callback
+regressions additionally verify logical prompt identity and retryable failures.
+
+### Optional rendered side-chat lifecycle regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/side-chat-navigation.browser.mjs
+```
+
+Closing a side chat ends that modal's local UI session. An already submitted
+request may still finish and save to its original thread, but cannot replace the
+thread, draft, or error in another source’s newly opened side chat. Model selection
+is unavailable while opening a thread, as it already is while sending a follow-up.
+These lifecycle
+checks use synthetic intercepted API responses on desktop/mobile; they do not
+verify live provider behavior or cancel server-side work.
+
+### Optional rendered new-consultation recovery regression test
+
+With the same Playwright and sandbox-capable Chromium prerequisites above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/creation-recovery.browser.mjs
+```
+
+When New Consultation removes an empty consultation, that successful deletion is
+reflected immediately. If creating its replacement fails, retry can create a new
+consultation without trying to delete the missing one again. A different
+consultation selected while deletion is pending stays selected if creation fails.
+Desktop/mobile browser checks cover retry, navigation, failed deletion, and normal
+creation with synthetic API responses. Node callback tests additionally verify
+that populated conversations are retained. These checks do not call live providers.
+
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) - Development guidelines and project standards.
 - [.env.sample](.env.sample) - Configuration reference and templates.
 
+### Synthesis navigation regression check
+
+Synthesis controls belong to their conversation and assistant message. Switching
+cached consultations keeps their loading, error, and version-tab state separate;
+a pending result still updates its originating conversation. Returning to that
+conversation before completion retains its busy controls.
+
+The optional sandboxed browser check uses synthetic intercepted API responses,
+including delayed success/failure and same-conversation control recovery. No model
+provider is contacted. From `frontend/`, run:
+
+```bash
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/synthesis-navigation.browser.mjs
+```
+
+Use an installed sandbox-capable Chromium; do not disable its sandbox. This
+checks desktop/mobile UI isolation, not live-provider or model-answer quality.
+
+### Draft preservation during submission
+
+The question and optional Negative Mode instructions remain in memory for their
+conversation until the server accepts the submission (started or queued). A
+failed submission leaves both fields available for editing and manual retry.
+There is no automatic retry: a lost network response does not prove that the
+backend rejected the original request, so check the conversation before resending.
+
+While the initial submission is pending, another send for that conversation is
+disabled, but its draft remains editable. A late success clears only the exact
+submitted draft, never newer edits or another conversation's draft. Navigating
+between consultations keeps their drafts separate. Drafts are not persisted to
+browser storage and do not survive a page reload.
+
+The optional rendered regression uses intercepted synthetic APIs and the same
+sandbox-capable browser setup described above:
+
+```bash
+cd frontend
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright-core/index.mjs \
+CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell \
+node tests/draft-submission.browser.mjs
+```
+
+### Optional rendered IME submission regression test
+
+The main and negative-prompt composers leave IME confirmation Enter events alone;
+a later ordinary Enter still submits, and Shift+Enter inserts a newline.
+
+```bash
+cd frontend
+CHROMIUM_EXECUTABLE=/path/to/chrome-headless-shell \
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
+node tests/composition-submit.browser.mjs
+```
+
+This desktop/mobile Chromium test dispatches composition-marked keyboard events
+and intercepts all API requests. It verifies our event handler, not a native OS
+IME or cross-browser input-method behavior. No real provider calls are made.
+The guard follows [MDN's IME keydown guidance](https://developer.mozilla.org/en-US/docs/Web/API/Element/keydown_event#keydown_events_with_ime).
+
 ## License
 
 MIT
+
+### Optional rendered system-theme regression test
+
+With no saved theme preference, the interface follows operating-system color-scheme
+changes while open. The theme button's label and next click follow the same current
+scheme; choosing a theme explicitly keeps that preference across system changes
+and reloads. React subscribes to the browser media query so context and page styles
+stay in sync ([React browser API subscription guidance](https://react.dev/reference/react/useSyncExternalStore)).
+
+```bash
+cd frontend
+CHROMIUM_EXECUTABLE=/path/to/chrome-headless-shell \
+PLAYWRIGHT_MODULE=/path/to/playwright-core/index.mjs \
+node tests/system-theme.browser.mjs
+```
+
+This sandboxed desktop/mobile check uses emulated system color preferences and
+synthetic API responses. It covers both transition directions, button labels and
+one-click reversal, repeated system changes, and saved manual preferences. It does
+not verify physical OS scheduling, other browser engines, or live model providers.

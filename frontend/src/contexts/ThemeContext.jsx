@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ThemeContext } from './theme-context';
 
 const STORAGE_KEY = 'llm-council-theme';
@@ -6,6 +6,12 @@ const STORAGE_KEY = 'llm-council-theme';
 function getSystemTheme() {
   if (typeof window === 'undefined') return 'light';
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function subscribeToSystemTheme(onChange) {
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  mediaQuery.addEventListener('change', onChange);
+  return () => mediaQuery.removeEventListener('change', onChange);
 }
 
 function getStoredTheme() {
@@ -35,7 +41,8 @@ export function ThemeProvider({ children, defaultTheme = 'system' }) {
     return stored || defaultTheme;
   });
 
-  const resolvedTheme = theme === 'system' ? getSystemTheme() : theme;
+  const systemTheme = useSyncExternalStore(subscribeToSystemTheme, getSystemTheme);
+  const resolvedTheme = theme === 'system' ? systemTheme : theme;
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -47,23 +54,6 @@ export function ThemeProvider({ children, defaultTheme = 'system' }) {
     document.body.classList.remove('light', 'dark');
     document.body.classList.add(resolvedTheme);
   }, [resolvedTheme]);
-
-  useEffect(() => {
-    if (theme !== 'system') return;
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => {
-      const root = window.document.documentElement;
-      const newTheme = getSystemTheme();
-      root.classList.remove('light', 'dark');
-      root.classList.add(newTheme);
-      document.body.classList.remove('light', 'dark');
-      document.body.classList.add(newTheme);
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [theme]);
 
   const setTheme = (newTheme) => {
     setStoredTheme(newTheme === 'system' ? null : newTheme);

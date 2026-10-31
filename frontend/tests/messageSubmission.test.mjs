@@ -72,7 +72,7 @@ for (const loading of [false, true]) {
       const expected = h.controls();
       if (outcome === 'failed') h.pending.reject(new Error('A network error'));
       else h.pending.resolve({ status: outcome, consultation_id: 'A-new' });
-      await running;
+      assert.equal(await running, outcome !== 'failed', 'Report acceptance to the composer even after navigation');
       assert.deepEqual(h.controls(), expected);
       assert.deepEqual(h.calls.requests, [['A', 'A question', 'A review']]);
       assert.deepEqual(h.calls.errors, []);
@@ -92,7 +92,7 @@ test('current accepted submission still starts polling and retains its optimisti
   const h = harness();
   const running = h.callback('A question');
   h.pending.resolve({ status: 'started', consultation_id: 'A-new' });
-  await running;
+  assert.equal(await running, true);
   assert.equal(h.state.isLoading, true);
   assert.deepEqual(clone(h.state.consultationStatus), { status: 'pending', consultation_id: 'A-new' });
   assert.equal(h.state.conversationsById.A.messages[0].content, 'A question');
@@ -103,7 +103,7 @@ test('current queued submission still restores active status and adds its queue 
   const h = harness(true);
   const running = h.callback('A question');
   h.pending.resolve({ status: 'queued', consultation_id: 'A-new' });
-  await running;
+  assert.equal(await running, true);
   assert.equal(h.state.isLoading, true);
   assert.equal(h.state.consultationStatus.consultation_id, 'A-existing');
   assert.deepEqual(clone(h.state.messageQueue.map((message) => message.id)), ['A-queued', 'A-new']);
@@ -115,7 +115,7 @@ test('current failure still rolls back and reports a retryable error', async () 
   const h = harness();
   const running = h.callback('A question');
   h.pending.reject(new Error('Network unavailable'));
-  await running;
+  assert.equal(await running, false);
   assert.equal(h.state.isLoading, false);
   assert.equal(h.state.error.message, 'Failed to send message.');
   assert.equal(h.state.error.details, 'Network unavailable');
@@ -130,7 +130,7 @@ test('returning to A before its submission completes applies the result to A', a
   h.selectB(false);
   h.state.currentConversationId = 'A';
   h.pending.resolve({ status: 'started', consultation_id: 'A-new' });
-  await running;
+  assert.equal(await running, true);
   assert.equal(h.state.isLoading, true);
   assert.equal(h.state.consultationStatus.consultation_id, 'A-new');
 });
