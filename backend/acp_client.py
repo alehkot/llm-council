@@ -31,12 +31,14 @@ class AgentError(RuntimeError):
     """Safe, user-visible failure; never includes raw agent logs or credentials."""
 
 
-def launch_settings(agent: str) -> tuple[list[str], dict[str, str], dict[str, Any]]:
+def launch_settings(
+    agent: str, native_model: str
+) -> tuple[list[str], dict[str, str], dict[str, Any]]:
     if os.name != "posix":
         raise AgentError("ACP process isolation currently requires macOS or Linux.")
-    binaries = {"codex": "codex-acp", "claude": "claude-agent-acp"}
+    binaries = {"codex": "codex-acp", "claude": "claude-agent-acp", "pi": "pi"}
     if agent not in binaries:
-        raise AgentError(f"Unsupported ACP agent: {agent}. Use codex or claude.")
+        raise AgentError(f"Unsupported ACP agent: {agent}. Use codex, claude, or pi.")
     executable = ADAPTER_DIR / "node_modules" / ".bin" / binaries[agent]
     if not executable.is_file():
         raise AgentError(
@@ -56,6 +58,7 @@ def launch_settings(agent: str) -> tuple[list[str], dict[str, str], dict[str, An
             "SYSTEMROOT",
             "CODEX_HOME",
             "CLAUDE_CONFIG_DIR",
+            "PI_CODING_AGENT_DIR",
         )
         if key in os.environ
     }
@@ -78,7 +81,7 @@ def launch_settings(agent: str) -> tuple[list[str], dict[str, str], dict[str, An
                 ),
             }
         )
-    else:
+    elif agent == "claude":
         env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         meta = {
             "claudeCode": {
@@ -90,6 +93,14 @@ def launch_settings(agent: str) -> tuple[list[str], dict[str, str], dict[str, An
                 }
             }
         }
+    else:
+        provider, separator, model = native_model.partition("/")
+        if not provider or not separator or not model or model == "default":
+            raise AgentError(
+                "Pi requires pi/<provider>/<native-model-id>; defaults are refused."
+            )
+        env["PI_OFFLINE"] = "1"  # Use pinned model catalogs, without custom routes.
+        return ["node", str(ADAPTER_DIR / "pi-acp.mjs"), native_model], env, meta
     return [str(executable)], env, meta
 
 
@@ -193,7 +204,7 @@ async def _select_model(connection: Any, session: Any, native_model: str) -> str
 
 
 async def _run(agent: str, native_model: str, prompt: str) -> dict[str, Any]:
-    command, env, meta = launch_settings(agent)
+    command, env, meta = launch_settings(agent, native_model)
     client = TextClient()
     process = connection = stderr_task = failure_task = prompt_task = None
     with tempfile.TemporaryDirectory(prefix="llm-council-acp-") as workspace:
@@ -327,6 +338,8 @@ async def query_model(
     except Exception as exc:
         if isinstance(exc, AgentError):
             error = str(exc)
+        elif isinstance(exc, RequestError) and exc.code == -32000:
+            error = "Agent subscription login is missing or expired. Sign in using its native CLI and retry."
         elif isinstance(exc, asyncio.TimeoutError):
             error = "Agent call timed out."
         else:

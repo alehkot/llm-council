@@ -630,7 +630,8 @@ not verify physical OS scheduling, other browser engines, or live model provider
 ### All stages through local subscriptions (ACP)
 
 Set `MODEL_BACKEND=acp` to use the official ACP Python SDK and pinned local
-Codex/Claude adapters. This covers individual answers, negative reviews, peer
+Codex/Claude adapters, plus a text-only ACP bridge to Pi's native SDK. This covers
+individual answers, negative reviews, peer
 ranking, deliberation, synthesis, titles, prompt refinement, skill/reference
 selection, and model side chats. The OpenRouter key is optional in this mode;
 the separate paid TypeSafe skill router is disabled even if its flag is enabled.
@@ -646,11 +647,25 @@ The Claude login command requires the native Claude Code CLI to be installed.
 
 Merge [.env.acp.sample](.env.acp.sample) into your `.env`, preserving your real
 `API_AUTH_KEY`, then restart the backend. Every model override must use
-`codex/<native-model-id>` or `claude/<native-model-id>`; old OpenRouter IDs fail
+`codex/<native-model-id>`, `claude/<native-model-id>`, or
+`pi/<provider>/<native-model-id>`; old OpenRouter IDs fail
 validation. `codex/default,claude/default` uses the defaults reported by those
 agents. Select only agents you have signed in to. An explicit model must appear
 in the agent's advertised model list and be confirmed by it; no substitute is
 selected. Traces record the actual model used for `default`.
+
+For Pi, run `./agent-adapters/node_modules/.bin/pi` and use `/login` to sign in
+to a subscription provider. For example, set
+`COUNCIL_MODELS=codex/default,pi/openai-codex/gpt-5.6-sol` to pair Codex with Pi
+using its OpenAI OAuth login. Pi can also be the chairman or any helper model.
+Pi requires an explicit provider and model; `pi/default` is rejected. The bridge
+uses the pinned Pi SDK's built-in model catalog and native credential storage
+(`~/.pi/agent`, or `PI_CODING_AGENT_DIR`), including locked OAuth refresh. Only
+providers Pi marks as subscription-backed, with a current OAuth login, are
+accepted. API-key providers, custom `models.json` routes, saved default settings,
+extensions, tools, and session history are not loaded. The bridge verifies the
+resolved OAuth authentication again immediately before generation. Pi's SDK
+integration is separate from the community `pi-acp` package.
 
 `CHAIRMAN_MODEL` also selects ACP synthesis. In this mode `SYNTHESIS_BACKEND`
 is always `acp`; the legacy `SYNTHESIS_AGENT_MODEL` and effort settings do not
@@ -671,6 +686,7 @@ ACP filesystem and terminal callbacks are unavailable and permission requests
 are denied. Claude runs with no tools/settings sources in safe mode; Codex uses
 read-only permissions with native shell, browser, computer, plugin, and MCP tools
 disabled. These controls are not an OS sandbox for the adapter process itself.
+Pi performs one text completion through its model runtime, with no tool loop.
 Only trusted users should have the backend API key.
 
 Synthesis still exports complete evidence under `data/synthesis/` and saves
@@ -682,7 +698,7 @@ group. Raw vendor stderr is drained and discarded to avoid retaining credentials
 errors and safe request metadata appear in the normal trace.
 Native agents may retain their own session data in their usual user directories.
 
-This implementation supports Codex and Claude. Gemini, Antigravity, Pi, and Grok
+This implementation supports Codex, Claude, and Pi. Gemini, Antigravity, and Grok
 need separate authentication/permission integrations before they can be enabled;
 an arbitrary ACP command is not accepted as a subscription-safe provider.
 Process-group isolation currently requires macOS or Linux.
@@ -742,7 +758,9 @@ rejection, exact model selection, independent sessions, complete context,
 permission denial, timeout/cancellation cleanup, and no API fallback without
 consuming a subscription.
 Run `npm test --prefix agent-adapters` for the native launcher's configuration
-and error-privacy checks.
+and error-privacy checks, plus Pi authentication, exact model selection, failure
+handling, and cancellation. Run `node --test frontend/tests/model-names.test.mjs`
+for model labels with Pi's provider/model IDs.
 
 ### On-demand live E2E run
 

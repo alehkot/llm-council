@@ -283,11 +283,26 @@ if MODEL_BACKEND == "acp":
         SKILLS_AUTO_SELECT_MODEL,
     ]:
         _agent, _separator, _native_model = _model.partition("/")
-        if _agent not in {"codex", "claude"} or not _separator or not _native_model:
+        if (
+            _agent not in {"codex", "claude", "pi"}
+            or not _separator
+            or not _native_model
+        ):
             raise ValueError(
-                f"ACP model {_model!r} must be codex/<native-id> or claude/<native-id>; "
-                "use default for the agent's current model. Remove OpenRouter model overrides."
+                f"ACP model {_model!r} must be codex/<native-id>, claude/<native-id>, "
+                "or pi/<provider>/<native-id>. Remove OpenRouter model overrides."
             )
+        if _agent == "pi":
+            _provider, _separator, _pi_model = _native_model.partition("/")
+            if (
+                not _provider
+                or not _separator
+                or not _pi_model
+                or _pi_model == "default"
+            ):
+                raise ValueError(
+                    "Pi requires pi/<provider>/<native-model-id>; defaults are refused."
+                )
 
 # Max length of a skill's frontmatter description (not an env knob).
 SKILL_DESCRIPTION_MAX_CHARS = 1024

@@ -111,6 +111,13 @@ class ACPClientTests(unittest.IsolatedAsyncioTestCase):
                     await acp_client.query_model("claude/default", [], trace=trace)
                 self.assertNotIn("sensitive-vendor-detail", json.dumps(trace.to_dict()))
 
+    async def test_expired_login_has_a_safe_actionable_error(self) -> None:
+        with self.launch("auth_required"):
+            with self.assertRaisesRegex(
+                acp_client.AgentError, "Sign in using its native CLI"
+            ):
+                await acp_client.query_model("pi/provider/native", [])
+
     async def test_timeout_and_cancellation_kill_descendants(self) -> None:
         for cancel in (False, True):
             with self.subTest(cancel=cancel), self.launch("hang"):
@@ -240,7 +247,7 @@ class ACPClientTests(unittest.IsolatedAsyncioTestCase):
         with ExitStack() as patches:
             for module, key, value in (
                 (model_client, "MODEL_BACKEND", "acp"),
-                (council, "COUNCIL_MODELS", ["codex/default", "claude/default"]),
+                (council, "COUNCIL_MODELS", ["codex/default", "pi/provider/native"]),
                 (council, "NEGATIVE_MODE_ENABLED", True),
                 (council, "DELIBERATION_ENABLED", True),
                 (council, "SKILLS_TYPESAFE_ENABLED", False),
@@ -327,14 +334,53 @@ class ACPConfigurationTests(unittest.TestCase):
             patch.dict(os.environ, secrets),
             patch.object(Path, "is_file", return_value=True),
         ):
-            for agent in ("codex", "claude"):
-                _, env, meta = acp_client.launch_settings(agent)
+            for agent in ("codex", "claude", "pi"):
+                command, env, meta = acp_client.launch_settings(
+                    agent, "provider/native"
+                )
                 self.assertFalse(set(env).intersection(secrets))
                 if agent == "claude":
                     self.assertEqual(meta["claudeCode"]["options"]["tools"], [])
                     self.assertEqual(
                         meta["claudeCode"]["options"]["settingSources"], []
                     )
+                elif agent == "pi":
+                    self.assertEqual(command[-1], "provider/native")
+                    self.assertEqual(env["PI_OFFLINE"], "1")
+
+    def test_pi_requires_explicit_provider_and_model(self) -> None:
+        with patch.object(Path, "is_file", return_value=True):
+            for model in ("default", "provider/", "/native", "provider/default"):
+                with (
+                    self.subTest(model=model),
+                    self.assertRaises(acp_client.AgentError),
+                ):
+                    acp_client.launch_settings("pi", model)
+
+    def test_pi_config_accepts_explicit_models_and_rejects_defaults(self) -> None:
+        script = """
+import os, dotenv
+dotenv.load_dotenv = lambda: None
+for key in list(os.environ):
+    if key.endswith('_MODEL') or key == 'COUNCIL_MODELS':
+        del os.environ[key]
+os.environ.update(MODEL_BACKEND='acp', API_AUTH_KEY='test', COUNCIL_MODELS='pi/provider/native', CHAIRMAN_MODEL='pi/provider/native')
+from backend import config
+assert config.COUNCIL_MODELS == ['pi/provider/native']
+assert config.TITLE_MODEL == config.CHAIRMAN_MODEL == 'pi/provider/native'
+"""
+        for model, success in (
+            ("pi/provider/native", True),
+            ("pi/default", False),
+            ("pi/provider/default", False),
+        ):
+            result = subprocess.run(
+                [sys.executable, "-c", script.replace("pi/provider/native", model)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode == 0, success, result.stderr)
 
     def test_acp_config_starts_without_api_key_and_disables_paid_helpers(self) -> None:
         script = """

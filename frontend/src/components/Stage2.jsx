@@ -1,3 +1,4 @@
+import { formatModelName } from "../lib/utils";
 import { useState } from "react";
 import Markdown from "./Markdown";
 import ExportMarkdownButton from "./ExportMarkdownButton";
@@ -19,7 +20,7 @@ function deAnonymizeText(text, labelToModel) {
 
 	let result = text;
 	Object.entries(labelToModel).forEach(([label, model]) => {
-		const modelShortName = model.split("/")[1] || model;
+		const modelShortName = formatModelName(model);
 		result = result.replace(
 			new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
 			`**${modelShortName}**`,
@@ -81,7 +82,7 @@ export default function Stage2({
 					<TabsList className="flex h-auto flex-wrap gap-2">
 						{rankings.map((rank, index) => (
 							<TabsTrigger key={rank.model || index} value={String(index)}>
-								{rank.model.split("/")[1] || rank.model}
+								{formatModelName(rank.model)}
 							</TabsTrigger>
 						))}
 					</TabsList>
@@ -121,8 +122,7 @@ export default function Stage2({
 										{activeRanking.parsed_ranking.map((label, i) => (
 											<li key={i} className="font-mono">
 												{labelToModel && labelToModel[label]
-													? labelToModel[label].split("/")[1] ||
-														labelToModel[label]
+													? formatModelName(labelToModel[label])
 													: label}
 											</li>
 										))}
@@ -162,7 +162,7 @@ export default function Stage2({
 												#{index + 1}
 											</Badge>
 											<span className="flex-1 font-mono text-sm">
-												{agg.model.split("/")[1] || agg.model}
+												{formatModelName(agg.model)}
 											</span>
 											{isPairwise ? (
 												<>

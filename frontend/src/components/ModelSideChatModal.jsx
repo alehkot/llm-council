@@ -1,3 +1,4 @@
+import { formatModelName } from "../lib/utils";
 import { useCallback, useEffect, useState } from "react";
 import { produce } from "immer";
 import { api } from "../api";
@@ -21,11 +22,6 @@ import {
 	SelectValue,
 } from "./ui/select";
 import { Textarea } from "./ui/textarea";
-
-function formatModelName(model) {
-	if (!model) return "unknown";
-	return model.includes("/") ? model.split("/")[1] : model;
-}
 
 function formatTimestamp(value) {
 	if (!value) return "";

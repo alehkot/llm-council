@@ -37,7 +37,7 @@ def main() -> None:
                 "currentValue": current_model,
                 "options": [
                     {"value": item, "name": item}
-                    for item in ("native-default", "native-other")
+                    for item in ("native-default", "native-other", "provider/native")
                 ],
             }
         ]
@@ -144,11 +144,14 @@ def main() -> None:
                         },
                     }
                 )
-            if scenario == "error":
+            if scenario in {"error", "auth_required"}:
                 send(
                     {
                         "id": request["id"],
-                        "error": {"code": -32603, "message": "sensitive-vendor-detail"},
+                        "error": {
+                            "code": -32000 if scenario == "auth_required" else -32603,
+                            "message": "sensitive-vendor-detail",
+                        },
                     }
                 )
                 continue
