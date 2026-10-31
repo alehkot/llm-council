@@ -44,11 +44,14 @@ class RankingValidityContextTests(unittest.TestCase):
                     self.assertNotIn("- reviewer-invalid: Response", text)
                     if mode != "consensus":
                         rationale_lines = [
-                            line for line in text.splitlines()
+                            line
+                            for line in text.splitlines()
                             if "Useful qualitative observation." in line
                         ]
                         self.assertTrue(rationale_lines)
-                        self.assertTrue(all("invalid" in line.lower() for line in rationale_lines))
+                        self.assertTrue(
+                            all("invalid" in line.lower() for line in rationale_lines)
+                        )
 
     def test_explicit_invalid_status_without_error_is_not_a_valid_order(self) -> None:
         review = invalid_review(["Response B", "Response A"], "")
@@ -92,16 +95,23 @@ class RankingValidityContextTests(unittest.TestCase):
         ):
             with self.subTest(parsed=parsed):
                 feedback = council.build_peer_review_feedback(
-                    "model-b", "Response B",
-                    [invalid_review(parsed, error)], [], expected_label_count=2,
+                    "model-b",
+                    "Response B",
+                    [invalid_review(parsed, error)],
+                    [],
+                    expected_label_count=2,
                 )
                 self.assertNotIn("Position distribution", feedback)
 
     def test_mixed_votes_only_count_valid_deliberation_positions(self) -> None:
         reviews = [
             invalid_review(["Response B"], "missing labels: Response A"),
-            {"model": "reviewer-valid", "parsed_ranking": ["Response A", "Response B"],
-             "validation_status": "valid", "validation_error": None},
+            {
+                "model": "reviewer-valid",
+                "parsed_ranking": ["Response A", "Response B"],
+                "validation_status": "valid",
+                "validation_error": None,
+            },
         ]
         feedback = council.build_peer_review_feedback(
             "model-b", "Response B", reviews, [], expected_label_count=2
@@ -111,7 +121,9 @@ class RankingValidityContextTests(unittest.TestCase):
 
 
 class RankingValidityProviderFlowTests(unittest.IsolatedAsyncioTestCase):
-    async def test_truncated_review_stays_invalid_in_actual_chairman_prompt(self) -> None:
+    async def test_truncated_review_stays_invalid_in_actual_chairman_prompt(
+        self,
+    ) -> None:
         stage1 = [
             {"model": "model-a", "response": "Answer A"},
             {"model": "model-b", "response": "Answer B"},
@@ -123,8 +135,9 @@ class RankingValidityProviderFlowTests(unittest.IsolatedAsyncioTestCase):
                 "finish_reason": "length",
             }
 
-        with patch.object(council, "COUNCIL_MODELS", ["reviewer-invalid"]), patch.object(
-            council, "query_model", reviewer
+        with (
+            patch.object(council, "COUNCIL_MODELS", ["reviewer-invalid"]),
+            patch.object(council, "query_model", reviewer),
         ):
             stage2, mapping = await council.stage2_collect_rankings("Question", stage1)
         self.assertEqual(stage2[0]["validation_status"], "invalid")
@@ -136,7 +149,11 @@ class RankingValidityProviderFlowTests(unittest.IsolatedAsyncioTestCase):
         for mode in MODES:
             chairman = AsyncMock(return_value={"content": "Synthetic final answer"})
 
-            with self.subTest(mode=mode), patch.object(council, "query_model", chairman):
+            with (
+                self.subTest(mode=mode),
+                patch.object(council, "SYNTHESIS_BACKEND", "openrouter"),
+                patch.object(council, "query_model", chairman),
+            ):
                 result = await council.stage3_synthesize_final(
                     "Question", stage1, stage2, mapping, synthesis_mode=mode
                 )

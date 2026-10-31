@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-import uuid
 
 from .config import COUNCIL_MODELS
-
 
 SIDE_CHAT_SYSTEM_PROMPT = (
     "You are continuing a focused side conversation about one result from an LLM Council run. "
@@ -52,9 +51,7 @@ def resolve_effective_prompt(
     refined_prompt = str(prompt_refinement.get("refined_prompt") or "").strip()
     decision = str(prompt_refinement.get("decision") or "").strip()
     original = str(
-        prompt_refinement.get("original_prompt")
-        or original_prompt
-        or ""
+        prompt_refinement.get("original_prompt") or original_prompt or ""
     ).strip()
 
     if decision == "use_refined" and refined_prompt:
@@ -103,7 +100,9 @@ def resolve_side_chat_source(
 
     if source_type == "stage1":
         responses = message.get("stage1") or []
-        match = next((item for item in responses if item.get("model") == source_model), None)
+        match = next(
+            (item for item in responses if item.get("model") == source_model), None
+        )
         if match is None:
             raise ValueError("Stage 1 source not found for the requested model")
         if match.get("failed"):
@@ -118,7 +117,9 @@ def resolve_side_chat_source(
     elif source_type == "deliberation":
         deliberation = metadata.get("deliberation") or {}
         results = deliberation.get("results") or []
-        match = next((item for item in results if item.get("model") == source_model), None)
+        match = next(
+            (item for item in results if item.get("model") == source_model), None
+        )
         if match is None:
             raise ValueError("Deliberation source not found for the requested model")
 
@@ -129,10 +130,7 @@ def resolve_side_chat_source(
             "decided whether to revise its earlier response."
         )
         content = str(
-            match.get("revised")
-            or match.get("response")
-            or match.get("original")
-            or ""
+            match.get("revised") or match.get("response") or match.get("original") or ""
         ).strip()
         source_key = f"deliberation::{resolved_model}"
 
@@ -234,8 +232,7 @@ def build_side_chat_messages(
     ]
 
     initial_context = str(
-        ((thread.get("context") or {}).get("initial_context_message"))
-        or ""
+        ((thread.get("context") or {}).get("initial_context_message")) or ""
     ).strip()
     if initial_context:
         messages.append({"role": "user", "content": initial_context})

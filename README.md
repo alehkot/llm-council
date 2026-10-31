@@ -92,6 +92,8 @@ Final Answer
   file and restart to retry recovery. Deleted conversations are not recreated.
 - **Markdown Export**: Export full conversation context and reasoning to Markdown.
 - **Focus View**: Dedicated modal for deep reading of the synthesized answer.
+- **Agent Skills**: Upload a skill as a `.zip` and have its instructions
+  steer the council's answers and the final synthesis.
 
 ### Advanced Features (Optional)
 
@@ -172,9 +174,9 @@ All configuration is managed via `.env`. See `.env.sample` for full options.
 
 | Variable          | Description              | Default                    |
 |-------------------|--------------------------|----------------------------|
-| `COUNCIL_MODELS`  | Comma-separated model IDs| GPT-4o, Gemini-1.5, Claude-3.5, etc. |
-| `CHAIRMAN_MODEL`  | Synthesis model          | google/gemini-pro-1.5      |
-| `TITLE_MODEL`     | Title generation model   | google/gemini-flash-1.5    |
+| `COUNCIL_MODELS`  | Comma-separated model IDs| GPT-6 Astra, Gemini 3.1 Pro, Claude Opus 5, Grok 4.6, Kimi K3, DeepSeek V4 Pro 0813 |
+| `CHAIRMAN_MODEL`  | Synthesis model (1M context) | anthropic/claude-fable-5.1                 |
+| `TITLE_MODEL`     | Title generation model   | google/gemini-3.1-pro-preview    |
 
 ### Feature Flags
 
@@ -184,6 +186,131 @@ All configuration is managed via `.env`. See `.env.sample` for full options.
 | `DELIBERATION_ENABLED`     | Enable revised responses       | false   |
 | `INTERACTIVE_MODE_ENABLED` | Enable inline user prompts     | false   |
 | `PROMPT_REFINEMENT_ENABLED`| Enable query refinement stage  | false   |
+
+### Model context and multi-turn requests
+
+Model IDs were checked against the [OpenRouter catalog](https://openrouter.ai/api/v1/models)
+on 2026-09-20. Explicit environment overrides still take precedence. The shared
+OpenRouter client refreshes model context/output limits hourly and falls back to
+a checked-in snapshot when the catalog is unavailable (8,192 context tokens for
+unknown models). It uses the smaller catalog/provider context limit, reserves
+output space and a safety margin, and sends reasoning parameters only when supported.
+
+Input sizing uses a conservative UTF-8 byte estimate, not an exact model tokenizer.
+Oversized inputs are reduced through bounded calls to the same model: system and
+developer messages remain verbatim, while long message interiors become evidence
+notes with source labels and constraints; prompt beginnings/endings remain intact.
+Summarization can lose detail, and traces explicitly record reduction. The client
+fails rather than silently dropping text when the input still cannot fit.
+
+Prose answers cut off by output limits can continue for up to two additional turns;
+structured router/ranking outputs fail instead of being concatenated as broken JSON.
+Incomplete answers after that limit are reported as failures. Usage includes the
+extra reduction and continuation calls. Configure `OPENROUTER_MAX_CONTEXT_CALLS`
+(default 16; 0 disables reduction) and `OPENROUTER_MAX_CONTINUATIONS` (default 2;
+0 disables continuation) to bound additional spend. Existing prompt/skill character
+caps remain cost controls, independent of the model's maximum context window.
+
+### Skills
+
+Uploaded skills live in `data/skills/`. Unlike the feature flags above,
+`SKILLS_ENABLED` defaults to `true` — skills cost nothing until one is
+uploaded *and* selected for a consultation.
+
+| Variable                             | Description                | Default |
+|--------------------------------------|----------------------------|---------|
+| `SKILLS_ENABLED`                     | Master switch              | true    |
+| `SKILLS_MAX_SELECTED`                | Skills per consultation    | 5       |
+| `SKILLS_MAX_REFERENCES`              | Reference documents per run | 4       |
+| `SKILLS_MAX_REFERENCE_SECTIONS`       | Reference sections inlined per run | 12 |
+| `SKILLS_CONTEXT_MAX_CHARS`           | Stage 1 skill budget       | 48000   |
+| `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` | Stage 3 skill budget       | 24000   |
+| `SKILLS_REFERENCE_SELECTION_ENABLED` | Model-picked references    | true    |
+| `SKILLS_AUTO_SELECT_ENABLED`         | Auto-pick skills when none ticked | true |
+| `TYPESAFE_API_KEY` | Server-side TypeSafe credential | unset |
+| `SKILLS_TYPESAFE_ENABLED` | Use Jev for both selection steps | true |
+| `TYPESAFE_MODEL` | TypeSafe model | jev-latest |
+| `SKILLS_AUTO_SELECT_MODEL`           | Model for skill auto-selection | reference model |
+| `SKILLS_UPLOAD_MAX_BYTES`            | Max upload size            | 5 MiB   |
+
+See `.env.sample` for the remaining ingest limits.
+
+## Agent Skills
+
+An **Agent Skill** is a `.zip` containing a `SKILL.md` with YAML frontmatter
+(`name` and `description`) plus optional `references/*.md`. This is the same
+format Claude Code and Codex use, so existing skills work here unchanged.
+
+Individual ZIPs and combined packs from the `thinking-skills` and
+`business-writing-skills` exporters are accepted, including their plugin layouts.
+All skills in a pack are validated before publication; a conflict requires explicit
+replacement of matching skills, and failed publication rolls back the pack.
+
+In the **Skills** dialog, turn on **~/.codex/skills** and/or **~/.claude/skills**
+to include installed skills from the backend computer. Both default off and the
+settings persist across restarts, applying to all council users. Root skill symlinks
+are supported; nested links are not followed. Only SKILL.md and Markdown references
+are copied into the council's local cache. Original files are never modified.
+Local skills work with the existing picker and Jev auto-selection; uploaded names
+win collisions, followed by Codex, then Claude. Listing the library refreshes changed
+local content. Disable individual local skills or their source to stop using them;
+source toggles also prevent access through skill-content endpoints. Local skills
+cannot be deleted from the UI. Unreadable or incompatible local installations are skipped.
+
+Upload one from the **Skills** button in the console header. The modal's
+**Default skills** list is a global setting: default skills apply to every
+chat. In the composer, unchecking a default skill turns it off for that one
+chat only (per-chat override), with a "Reset to default" button to clear the
+overrides. Instructions are injected into **Stage 1** (every council model's
+system prompt) and **Stage 3** (the chairman's synthesis prompt).
+
+Jev automatically selects skills and relevant references by default. Set
+`TYPESAFE_API_KEY` in the backend environment and restart the backend. Explicit
+skill picks take precedence; `SKILLS_AUTO_SELECT_ENABLED=false` disables automatic
+skill selection. `SKILLS_TYPESAFE_ENABLED=false` selects the OpenRouter routers.
+If Jev has no credential or fails, selection uses the deterministic fallback and
+records that fallback in message metadata. Resume replays the stored selection.
+
+Jev first scores enabled skills by name and description, then scores reference
+sections within the selected skills using their indexed headings, summaries, and
+SKILL.md mentions. The selected SKILL.md instructions and actual section text
+are loaded into Stage 1 and Stage 3 prompts through the existing context budgets.
+The query and candidate metadata are sent to TypeSafe; credentials stay server-side.
+The integration uses the [TypeSafe HTTP API](https://docs.typesafe.ai/api) with
+one Score question per candidate, in batches of 16. It selects scores at least
+1.5 on a 0–2 relevance scale, up to the existing selection limits; no match can
+select nothing. This is an initial routing policy, not a measured quality guarantee.
+Traces record scores and the model, without candidate text. Provider errors or
+invalid responses use the existing deterministic fallback. Existing persisted
+plans are reused on resume.
+
+Because council models have no tools, they cannot open a skill's
+`references/*.md` on demand. Instead a cheap model is asked once per
+consultation which reference **sections** the question actually needs, and
+only those are inlined. Each reference file is indexed at ingest into
+self-contained heading-delimited sections, so the selector can inline one
+section of a large document without paying for the rest; selecting every
+section of a document equals the whole file. Set
+`SKILLS_REFERENCE_SELECTION_ENABLED=false` to use a deterministic
+keyword-overlap picker instead and skip the extra model call.
+
+Only `SKILL.md` and `references/*.md` ever reach a prompt. Anything else in
+the bundle — `scripts/`, `assets/`, `evals/` — is stored for fidelity but
+never executed and never injected. `evals/` in particular is an answer key,
+and three independent layers keep it out of every prompt.
+
+### Caveats
+
+- **Stage 2 ranks skill-shaped answers without seeing the skill's rules.**
+  Peer review is deliberately not skill-aware, so a model that correctly
+  followed a terse house-style skill can be ranked down *for being terse*.
+- **Verbose skills raise the odds of a truncated synthesis.** A larger prompt
+  plus instructions encouraging long output makes Stage 3 more likely to hit
+  `OPENROUTER_MAX_TOKENS` (default 10000), which fails the run rather than
+  truncating silently. Lower `SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS` or raise
+  `OPENROUTER_MAX_TOKENS` if you hit it.
+- **Skill text is untrusted input that reaches every council model.** Only
+  upload bundles you trust.
 
 ## Project Structure
 
@@ -195,6 +322,7 @@ llm-council/
 │   ├── council.py          # Deliberation & Synthesis logic
 │   ├── langgraph_flow.py   # LangGraph workflow orchestration
 │   ├── consultation_manager.py # Async task orchestration
+│   ├── skills.py           # Agent Skill ingest, storage & prompt rendering
 │   └── storage.py          # JSON conversation persistence
 ├── frontend/               # React + Vite + Tailwind
 │   ├── src/
@@ -204,7 +332,8 @@ llm-council/
 │   │   └── components/     # UI components (Stage1-3, etc.)
 │   └── package.json
 ├── data/                   # Conversation storage
-│   └── conversations/      # JSON files per conversation
+│   ├── conversations/      # JSON files per conversation
+│   └── skills/             # Uploaded Agent Skill bundles
 ├── AGENTS.md               # Development guidelines
 ├── start.sh                # Combined startup script
 └── pyproject.toml          # Python dependencies
@@ -232,6 +361,17 @@ llm-council/
 | `.../consultation/status`          | GET    | Check processing status |
 | `.../consultation/cancel`          | POST   | Cancel consultation     |
 
+### Skill Library
+
+| Endpoint                    | Method | Description                  |
+|-----------------------------|--------|------------------------------|
+| `/api/skills`               | GET    | List installed skills        |
+| `/api/skills`               | POST   | Upload a `.zip` (raw body)   |
+| `/api/skills/{id}`          | GET    | Skill detail                 |
+| `/api/skills/{id}/markdown` | GET    | Raw `SKILL.md`               |
+| `/api/skills/{id}`          | PATCH  | Enable/disable               |
+| `/api/skills/{id}`          | DELETE | Remove a skill               |
+
 ### Config & Interactive
 
 | Endpoint                    | Method | Description              |
@@ -246,7 +386,8 @@ llm-council/
 - **Workflow**: LangGraph for complex 3-stage deliberation state management.
 - **Frontend**: React 19, Vite 7, Tailwind CSS 4, and Zustand.
 - **Storage**: Lightweight JSON file persistence in `data/conversations/`.
-- **Sync**: Robust polling mechanism replaces SSE for state consistency.
+- **Sync**: Cursor-based long-polling replaces SSE - full state snapshots with
+  near-instant updates and nothing lost on dropped connections.
 
 ## Backend Regression Checks
 
@@ -482,3 +623,88 @@ This sandboxed desktop/mobile check uses emulated system color preferences and
 synthetic API responses. It covers both transition directions, button labels and
 one-click reversal, repeated system changes, and saved manual preferences. It does
 not verify physical OS scheduling, other browser engines, or live model providers.
+
+### Synthesis through a local subscription CLI
+
+Stage 3 defaults to `SYNTHESIS_BACKEND=codex`, using `gpt-6-astra` with
+`SYNTHESIS_AGENT_EFFORT=xhigh`. Install Codex CLI and run `codex login` as the
+same OS user who runs the backend. Subscription eligibility and usage limits
+are controlled by the CLI service. Earlier council stages still use OpenRouter.
+
+Each synthesis creates a private UUID directory under `data/synthesis/` with
+`AGENTS.md`, `CLAUDE.md`, an evidence index, the original question, selected
+skill/reference context, strategy guidance, and complete Stage 3 input artifacts
+(responses or deliberation revisions, reviews, gaps, rankings, and labels).
+The CLI reads these files over multiple turns and returns its final answer;
+the council saves it as `result.md` and imports it into the conversation.
+The API synthesis excerpt limits do not truncate these evidence files. Selected
+skill context still follows the existing skill-selection budgets.
+
+Set `SYNTHESIS_BACKEND=claude` to use a logged-in Claude Code subscription;
+set `SYNTHESIS_AGENT_MODEL` to a Claude CLI model ID or blank for its default.
+Set `SYNTHESIS_BACKEND=openrouter` to use `CHAIRMAN_MODEL` instead.
+Restart the backend after configuration changes.
+
+`SYNTHESIS_AGENT_DIR` changes the artifact location; `SYNTHESIS_AGENT_TIMEOUT_SECONDS`
+(default 1800) bounds each run. Codex uses its read-only sandbox and ignores user
+configuration; Claude runs in safe mode with only Read/Glob/Grep tools. Both use
+existing CLI authentication, with API-key environment variables removed from the
+child process. CLI login must already work without an API key; no automatic API
+fallback occurs. These tool restrictions do not isolate all readable host files.
+Run the backend only for trusted users, under an OS account with appropriate access.
+
+Artifacts and CLI logs are retained for diagnosis (including failed runs), contain
+conversation data, and are not committed. Delete old run directories when no longer
+needed. Timeouts and task cancellation terminate the CLI process group. A failed
+or empty final result fails Stage 3 rather than importing partial output.
+
+### Offline workflow tests
+
+Run `uv run python scripts/test_offline.py` for the backend suite with outbound
+HTTP and TCP connections blocked. The runner fails on attempted network use even
+if application fallback logic catches the exception.
+
+Run `uv run python -m unittest tests.test_council_e2e -v` for the API-to-disk
+scenarios alone. A sample bakery investment question exercises skill ZIP upload,
+Jev skill/reference selection, council answers, gap reviews, peer ranking,
+deliberation, CLI artifact export/import, polling, and saved conversation results.
+Tests cover Codex success, Claude success with a failed council member, CLI failure
+without API fallback, and re-synthesis without repeated provider calls. Provider
+responses and CLI execution are mocked; no subscription or API usage is incurred.
+These tests verify orchestration and persistence, not model answer quality or the
+interactive frontend. All generated data lives in temporary directories.
+
+### On-demand live E2E run
+
+This separate runner makes **real OpenRouter calls and uses your Codex subscription**.
+It is excluded from unittest discovery and CI. It refuses to run without `--run-live`:
+
+```bash
+uv run python scripts/live_e2e.py --run-live
+```
+
+The default [bakery expansion problem](scripts/examples/bakery-expansion.md) asks for
+rental versus purchase analysis, scenario calculations, and a reversible experiment.
+The runner exercises the real authenticated API in-process (no server needs to be
+started), the background manager, skill ZIP upload/selection, answers from all configured
+council models, generated gap review, peer rankings, deliberation, and Codex Astra xhigh
+synthesis. Jev is used when enabled in your environment; otherwise the configured skill
+router/fallback applies. Interactive clarification and browser UI are outside this run.
+
+Use the existing `.env` credentials and `codex login` for the same OS user. Each invocation
+creates isolated storage under `data/live-e2e/<uuid>/`; it does not modify normal
+conversations, installed skills, local source toggles, or `.env`. Stage progress is printed.
+The directory retains the question, conversation JSON, synthesis knowledge base, CLI logs,
+and `report.json`. Exit status 0 means every structural check passed; status 1 means a
+stage failed or evidence was incomplete. Review the answer yourself for numerical accuracy
+and decision quality; this report is not an automatic semantic benchmark.
+
+For a different problem or artifact location:
+
+```bash
+uv run python scripts/live_e2e.py --run-live --problem-file /absolute/path/problem.md --output-dir /absolute/path/runs
+```
+
+Normal offline tests only verify this runner's opt-in guard and result checks. They never
+execute its live workflow. This command can take several minutes and uses the configured
+council's normal request/token limits plus the CLI synthesis timeout.

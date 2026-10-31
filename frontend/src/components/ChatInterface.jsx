@@ -10,6 +10,8 @@ import DebugTrace from "./DebugTrace";
 import InteractivePrompt from "./InteractivePrompt";
 import ModelSideChatModal from "./ModelSideChatModal";
 import PromptRefinementSummary from "./PromptRefinementSummary";
+import SkillPicker from "./SkillPicker";
+import SkillsUsedSummary from "./SkillsUsedSummary";
 import StageProgress from "./StageProgress";
 import StatusModal from "./StatusModal";
 import ApiKeyStatus from "./ApiKeyStatus";
@@ -70,6 +72,11 @@ export default function ChatInterface({
 	onCancelConsultation,
 	onVersionAdded,
 	onCurrentChanged,
+	selectedSkillIds,
+	defaultSkillIds,
+	onSkillIdsChange,
+	onResetSkillOverrides,
+	onOpenSkillsModal,
 }) {
 	const {
 		conversationsById,
@@ -82,6 +89,7 @@ export default function ChatInterface({
 		messageQueue,
 		streamingConsultations,
 		isCancelling,
+		skills,
 		setError,
 	} = useAppStore(
 		useShallow((state) => ({
@@ -97,6 +105,7 @@ export default function ChatInterface({
 			isCancelling: Boolean(
 				state.cancellingConversations[state.currentConversationId],
 			),
+			skills: state.skills,
 			setError: state.setError,
 		})),
 	);
@@ -118,7 +127,7 @@ export default function ChatInterface({
 	const draft = drafts[currentConversationId] || EMPTY_DRAFT;
 	const { input, negativePrompt } = draft;
 	const updateDraft = (field, value) => {
-		setDrafts(previous => ({
+		setDrafts((previous) => ({
 			...previous,
 			[currentConversationId]: {
 				...(previous[currentConversationId] || EMPTY_DRAFT),
@@ -126,8 +135,8 @@ export default function ChatInterface({
 			},
 		}));
 	};
-	const setInput = value => updateDraft("input", value);
-	const setNegativePrompt = value => updateDraft("negativePrompt", value);
+	const setInput = (value) => updateDraft("input", value);
+	const setNegativePrompt = (value) => updateDraft("negativePrompt", value);
 	const pendingSends = useRef(new Set());
 	const [submittingIds, setSubmittingIds] = useState({});
 	const isSubmitting = Boolean(submittingIds[currentConversationId]);
@@ -151,6 +160,8 @@ export default function ChatInterface({
 			? config.negative_prompt_max_chars
 			: DEFAULT_NEGATIVE_PROMPT_MAX_CHARS;
 	const isNegativeModeDisabled = config?.negative_mode_enabled === false;
+	const isSkillsEnabled = Boolean(config?.skills_enabled);
+	const skillDraftIds = Array.isArray(selectedSkillIds) ? selectedSkillIds : [];
 	const interactivePromptKey = currentInteractivePrompt
 		? [
 				currentInteractivePrompt.session_id ?? "no-session",
@@ -256,14 +267,23 @@ export default function ChatInterface({
 			return;
 		}
 		const conversationId = currentConversationId;
-		if (!conversationId || isCancelling || pendingSends.current.has(conversationId)) return;
+		if (
+			!conversationId ||
+			isCancelling ||
+			pendingSends.current.has(conversationId)
+		)
+			return;
 
 		pendingSends.current.add(conversationId);
-		setSubmittingIds(previous => ({ ...previous, [conversationId]: true }));
+		setSubmittingIds((previous) => ({ ...previous, [conversationId]: true }));
 		try {
-			const accepted = await onSendMessage(input, negativePrompt);
+			const accepted = await onSendMessage(
+				input,
+				negativePrompt,
+				skillDraftIds,
+			);
 			if (accepted === true) {
-				setDrafts(previous => {
+				setDrafts((previous) => {
 					if (previous[conversationId] !== draft) return previous;
 					const next = { ...previous };
 					delete next[conversationId];
@@ -272,7 +292,7 @@ export default function ChatInterface({
 			}
 		} finally {
 			pendingSends.current.delete(conversationId);
-			setSubmittingIds(previous => {
+			setSubmittingIds((previous) => {
 				const next = { ...previous };
 				delete next[conversationId];
 				return next;
@@ -355,6 +375,37 @@ export default function ChatInterface({
 						className="console-stop-btn"
 					>
 						{isCancelling ? "Stopping…" : "Stop"}
+					</Button>
+				)}
+				{isSkillsEnabled && onOpenSkillsModal && (
+					<Button
+						onClick={() => onOpenSkillsModal()}
+						variant="ghost"
+						size="sm"
+						aria-label="Manage agent skills"
+						className="console-skills-btn"
+					>
+						<svg
+							aria-hidden="true"
+							className="h-4 w-4"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								strokeWidth={2}
+								d="M4 19.5A2.5 2.5 0 016.5 17H20"
+							/>
+							<path
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								strokeWidth={2}
+								d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"
+							/>
+						</svg>
+						<span>Skills</span>
 					</Button>
 				)}
 				<Button
@@ -636,6 +687,12 @@ export default function ChatInterface({
 															</div>
 														</div>
 														<div className="stages-container mt-4 flex w-full flex-col gap-4">
+															{msg.metadata?.skills && (
+																<div className="stage-block stage-block-skills">
+																	<SkillsUsedSummary metadata={msg.metadata} />
+																</div>
+															)}
+
 															{(msg.loading?.stage1 || msg.stage1) && (
 																<div className="stage-block stage-block-stage1">
 																	{msg.loading?.stage1 && (
@@ -1024,17 +1081,36 @@ export default function ChatInterface({
 						</div>
 					</div>
 				</div>
-				<div className="chat-input-footer mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-					<p className="chat-input-hint text-xs text-muted-foreground">
-						Press Enter to send, Shift+Enter for a new line.
-					</p>
+				<div className="chat-input-footer mt-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+					<div className="chat-input-footer-meta flex min-w-0 flex-col gap-2">
+						{isSkillsEnabled && (
+							<SkillPicker
+								skills={skills}
+								selectedIds={skillDraftIds}
+								defaultSkillIds={defaultSkillIds}
+								onChange={onSkillIdsChange}
+								onResetToDefault={onResetSkillOverrides}
+								maxSelected={config?.skills_max_selected}
+								autoSelectEnabled={Boolean(config?.skills_auto_select_enabled)}
+								disabled={isCancelling}
+								onManage={onOpenSkillsModal}
+							/>
+						)}
+						<p className="chat-input-hint text-xs text-muted-foreground">
+							Press Enter to send, Shift+Enter for a new line.
+						</p>
+					</div>
 					<Button
 						type="submit"
 						disabled={!input.trim() || isCancelling || isSubmitting}
 						className="chat-send-btn sm:min-w-[160px]"
 					>
 						<span className="chat-send-btn-text">
-							{isSubmitting ? "Sending…" : isLoading ? "Queue for Council" : "Send to Council"}
+							{isSubmitting
+								? "Sending…"
+								: isLoading
+									? "Queue for Council"
+									: "Send to Council"}
 						</span>
 					</Button>
 				</div>

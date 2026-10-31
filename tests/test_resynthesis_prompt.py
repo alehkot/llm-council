@@ -22,7 +22,9 @@ class ResynthesisPromptTests(unittest.IsolatedAsyncioTestCase):
         self.original = "Help me choose a database."
         self.refined = "Compare PostgreSQL and SQLite for an offline-first desktop app."
         self.initial_version = {
-            "model": "chair", "response": "Original synthesis", "mode": "best_of_breed",
+            "model": "chair",
+            "response": "Original synthesis",
+            "mode": "best_of_breed",
             "timestamp": "2026-01-01T00:00:00",
         }
 
@@ -41,13 +43,18 @@ class ResynthesisPromptTests(unittest.IsolatedAsyncioTestCase):
             [{"model": "model-a", "response": "Evidence"}],
             None,
             [{"model": "model-a", "ranking": "Response A"}],
-            {"current": deepcopy(self.initial_version), "versions": [deepcopy(self.initial_version)]},
+            {
+                "current": deepcopy(self.initial_version),
+                "versions": [deepcopy(self.initial_version)],
+            },
             metadata=metadata,
         )
         return deepcopy(metadata)
 
     async def request_synthesis(self, endpoint: str, payload: dict) -> tuple:
-        synthesis = AsyncMock(return_value={"model": "chair", "response": "New synthesis"})
+        synthesis = AsyncMock(
+            return_value={"model": "chair", "response": "New synthesis"}
+        )
         with patch.object(main, "stage3_synthesize_final", synthesis):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=main.app), base_url="http://test"
@@ -60,20 +67,30 @@ class ResynthesisPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json(), synthesis
 
-    async def test_single_rerun_uses_accepted_refinement_and_preserves_history(self) -> None:
-        metadata = self.create_run({
-            "decision": "use_refined", "original_prompt": self.original,
-            "refined_prompt": self.refined,
-        })
+    async def test_single_rerun_uses_accepted_refinement_and_preserves_history(
+        self,
+    ) -> None:
+        metadata = self.create_run(
+            {
+                "decision": "use_refined",
+                "original_prompt": self.original,
+                "refined_prompt": self.refined,
+            }
+        )
         response, synthesis = await self.request_synthesis(
-            "resynthesize", {"synthesis_mode": "consensus", "focus_areas": "Portability"}
+            "resynthesize",
+            {"synthesis_mode": "consensus", "focus_areas": "Portability"},
         )
         self.assertEqual(synthesis.await_args.kwargs["user_query"], self.refined)
-        self.assertIn("Focus areas: Portability", synthesis.await_args.kwargs["prompt_modifier"])
+        self.assertIn(
+            "Focus areas: Portability", synthesis.await_args.kwargs["prompt_modifier"]
+        )
         persisted = storage.get_conversation("test-run")
         self.assertEqual(persisted["messages"][0]["content"], self.original)
         message = persisted["messages"][1]
-        self.assertEqual(message["metadata"]["prompt_refinement"], metadata["prompt_refinement"])
+        self.assertEqual(
+            message["metadata"]["prompt_refinement"], metadata["prompt_refinement"]
+        )
         self.assertEqual(message["stage3"]["versions"][0], self.initial_version)
         self.assertEqual(message["stage3"]["current"], response["version"])
 
@@ -89,10 +106,13 @@ class ResynthesisPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(message["stage3"]["versions"]), 4)
 
     async def test_rejected_refinement_keeps_original_prompt(self) -> None:
-        self.create_run({
-            "decision": "use_original", "original_prompt": self.original,
-            "refined_prompt": self.refined,
-        })
+        self.create_run(
+            {
+                "decision": "use_original",
+                "original_prompt": self.original,
+                "refined_prompt": self.refined,
+            }
+        )
         _, synthesis = await self.request_synthesis(
             "resynthesize", {"synthesis_mode": "weighted"}
         )

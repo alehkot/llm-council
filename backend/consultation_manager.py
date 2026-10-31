@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -45,6 +47,7 @@ class QueuedMessage:
     id: str
     content: str
     negative_prompt: Optional[str]
+    skill_ids: List[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -56,6 +59,7 @@ class ConsultationState:
     conversation_id: str
     message_content: str
     negative_prompt: Optional[str]
+    skill_ids: List[str] = field(default_factory=list)
     status: ConsultationStatus = ConsultationStatus.PENDING
     assistant_index: Optional[int] = None
     stage1_results: Optional[List[Dict[str, Any]]] = None
@@ -97,6 +101,13 @@ class ConsultationState:
         if self.error is not None:
             result["error"] = self.error
         return result
+
+
+def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
+    """Stable digest of a snapshot used as a long-poll change cursor."""
+
+    serialized = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
 
 
 class ConsultationManager:
@@ -150,30 +161,54 @@ class ConsultationManager:
             return ConsultationStatus.PENDING
 
     @staticmethod
+    def _coerce_skill_ids(value: Any) -> Optional[List[str]]:
+        """Normalize a journalled/persisted skill id list, or None when absent."""
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value]
+        return None
+
+    @staticmethod
     def _build_resume_metadata(
         consultation_id: str,
         content: str,
         negative_prompt: Optional[str],
         existing: Optional[Dict[str, Any]] = None,
+        skill_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        existing_resume = dict((existing or {}).get("resume") or {})
+        existing_metadata = existing or {}
+        existing_resume = dict(existing_metadata.get("resume") or {})
+        # Merge, never overwrite: a resume path that passes skill_ids=None must keep
+        # whatever selection was journalled with the original submission.
+        resolved_skill_ids = (
+            list(skill_ids)
+            if skill_ids is not None
+            else list(existing_resume.get("skill_ids") or [])
+        )
         resume = {
             **existing_resume,
             "user_query": existing_resume.get("user_query")
-            or (existing or {}).get("user_query")
+            or existing_metadata.get("user_query")
             or content,
             "negative_prompt": negative_prompt,
+            "skill_ids": resolved_skill_ids,
             "collected_responses": dict(
                 existing_resume.get("collected_responses") or {}
             ),
             "updated_at": datetime.utcnow().isoformat(),
         }
-        return {
+        metadata: Dict[str, Any] = {
             "consultation_id": consultation_id,
-            "status": (existing or {}).get("status")
+            "status": existing_metadata.get("status")
             or ConsultationStatus.PENDING.value,
             "resume": resume,
         }
+        if resolved_skill_ids and not (existing_metadata.get("skills") or {}):
+            # Seed the requested selection (written whole) so the UI can show it while
+            # Stage 1 runs. Only when absent, so a resolved plan is never clobbered.
+            metadata["skills"] = {"requested": list(resolved_skill_ids)}
+        return metadata
 
     @staticmethod
     def _find_persisted_assistant_index(
@@ -196,6 +231,7 @@ class ConsultationManager:
         conversation_id: str,
         content: str,
         negative_prompt: Optional[str],
+        skill_ids: Optional[List[str]] = None,
     ) -> int:
         """Persist the user message and assistant placeholder for a job."""
 
@@ -223,6 +259,7 @@ class ConsultationManager:
             content,
             negative_prompt,
             existing={"status": ConsultationStatus.PENDING.value},
+            skill_ids=skill_ids,
         )
         assistant_index = storage.add_assistant_placeholder(
             conversation_id,
@@ -361,6 +398,7 @@ class ConsultationManager:
         assistant_index: Optional[int] = None,
         created_at: Optional[str] = None,
         status: Optional[str] = None,
+        skill_ids: Optional[List[str]] = None,
     ) -> ConsultationState:
         if assistant_index is None:
             assistant_index = self._ensure_assistant_placeholder(
@@ -368,6 +406,7 @@ class ConsultationManager:
                 conversation_id,
                 content,
                 negative_prompt,
+                skill_ids=skill_ids,
             )
         else:
             existing_message = self._load_assistant_message(
@@ -379,6 +418,7 @@ class ConsultationManager:
                     conversation_id,
                     content,
                     negative_prompt,
+                    skill_ids=skill_ids,
                 )
             else:
                 metadata = {
@@ -395,6 +435,7 @@ class ConsultationManager:
                                 "resume"
                             ),
                         },
+                        skill_ids=skill_ids,
                     ),
                 }
                 storage.update_assistant_message(
@@ -414,11 +455,17 @@ class ConsultationManager:
             conversation_id, assistant_index
         )
         metadata = dict((assistant_message or {}).get("metadata") or {})
+        resolved_skill_ids = (
+            list(skill_ids)
+            if skill_ids is not None
+            else list((metadata.get("resume") or {}).get("skill_ids") or [])
+        )
         state = ConsultationState(
             id=consultation_id,
             conversation_id=conversation_id,
             message_content=content,
             negative_prompt=negative_prompt,
+            skill_ids=resolved_skill_ids,
             status=self._coerce_status(metadata.get("status") or status),
             assistant_index=assistant_index,
             stage1_results=(assistant_message or {}).get("stage1"),
@@ -437,12 +484,15 @@ class ConsultationManager:
         conversation_id: str,
         content: str,
         negative_prompt: Optional[str] = None,
+        skill_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Submit a message for consultation.
 
         Returns immediately with consultation_id and status (started/queued).
         """
+
+        selected_skill_ids = list(skill_ids or [])
 
         with self._lock:
             active = self._consultations.get(conversation_id)
@@ -455,6 +505,7 @@ class ConsultationManager:
                     id=consultation_id,
                     content=content,
                     negative_prompt=negative_prompt,
+                    skill_ids=list(selected_skill_ids),
                 )
                 consultation_journal.create_job(
                     consultation_id,
@@ -462,6 +513,7 @@ class ConsultationManager:
                     content,
                     negative_prompt,
                     status="queued",
+                    skill_ids=selected_skill_ids,
                 )
                 self._queues.setdefault(conversation_id, []).append(queued)
                 return {
@@ -477,6 +529,7 @@ class ConsultationManager:
                 content,
                 negative_prompt,
                 status=ConsultationStatus.PENDING.value,
+                skill_ids=selected_skill_ids,
             )
             state = self._create_started_state(
                 consultation_id,
@@ -484,6 +537,7 @@ class ConsultationManager:
                 content,
                 negative_prompt,
                 resume_from_storage=False,
+                skill_ids=list(selected_skill_ids),
             )
             self._start_state_locked(state)
             return {
@@ -515,19 +569,47 @@ class ConsultationManager:
                 return None
             return state.to_dict()
 
+    def _queue_payload_locked(self, conversation_id: str) -> List[Dict[str, Any]]:
+        """Serialize the queued messages for a conversation. Caller holds the lock."""
+
+        return [
+            {
+                "id": msg.id,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+            }
+            for msg in self._queues.get(conversation_id, [])
+        ]
+
     def get_queue(self, conversation_id: str) -> List[Dict[str, Any]]:
         """Get queued messages for a conversation."""
 
         with self._lock:
-            queue = self._queues.get(conversation_id, [])
-            return [
-                {
-                    "id": msg.id,
-                    "content": msg.content,
-                    "created_at": msg.created_at.isoformat(),
-                }
-                for msg in queue
-            ]
+            return self._queue_payload_locked(conversation_id)
+
+    def get_sync_snapshot(self, conversation_id: str) -> Dict[str, Any]:
+        """Combined status-plus-queue snapshot with a change cursor.
+
+        The cursor is a digest of the snapshot itself, so any observable change
+        (stage transition, partial results, queue mutation) yields a new cursor
+        without relying on mutation sites remembering to bump a counter.
+        """
+
+        with self._lock:
+            state = self._consultations.get(conversation_id)
+            payload: Dict[str, Any] = (
+                state.to_dict() if state is not None else {"status": "none"}
+            )
+            payload["queue"] = self._queue_payload_locked(conversation_id)
+        payload["cursor"] = _snapshot_fingerprint(payload)
+        return payload
+
+    def get_global_snapshot(self) -> Dict[str, Any]:
+        """Global status snapshot with a change cursor for long-polling."""
+
+        payload = self.get_global_status()
+        payload["cursor"] = _snapshot_fingerprint(payload)
+        return payload
 
     def get_global_status(self) -> Dict[str, Any]:
         """Get global system status including feature flags and pool status."""
@@ -730,6 +812,7 @@ class ConsultationManager:
                     state.conversation_id,
                     state.message_content,
                     state.negative_prompt,
+                    skill_ids=list(state.skill_ids),
                 )
                 consultation_journal.update_job(
                     state.id,
@@ -773,6 +856,7 @@ class ConsultationManager:
                     consultation_id=state.id,
                     user_message_length=len(state.message_content or ""),
                     negative_prompt_length=len(state.negative_prompt or ""),
+                    skill_ids=list(state.skill_ids),
                     async_mode=True,
                 )
 
@@ -871,6 +955,7 @@ class ConsultationManager:
                 is_resume=state.resume_from_storage,
                 cancel_requested=state.cancel_event.is_set,
                 resume_metadata=resume_payload,
+                skill_ids=list(state.skill_ids),
             )
             if restored_responses:
                 context.refresh_interactive_config()
@@ -1003,7 +1088,9 @@ class ConsultationManager:
             for task in pending:
                 task.cancel()
             if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
             loop.close()
             self._on_consultation_complete(state)
 
@@ -1085,6 +1172,7 @@ class ConsultationManager:
                         assistant_index=active_job.get("assistant_index"),
                         created_at=active_job.get("created_at"),
                         status=active_job.get("status"),
+                        skill_ids=self._coerce_skill_ids(active_job.get("skill_ids")),
                     )
                     self._consultations[conversation_id] = state
                     to_start.append(state)
@@ -1096,6 +1184,8 @@ class ConsultationManager:
                             id=job["consultation_id"],
                             content=job.get("content", ""),
                             negative_prompt=job.get("negative_prompt"),
+                            skill_ids=self._coerce_skill_ids(job.get("skill_ids"))
+                            or [],
                             created_at=self._parse_datetime(job.get("created_at")),
                         )
                         for job in queued_jobs
@@ -1111,6 +1201,7 @@ class ConsultationManager:
                         next_msg.content,
                         next_msg.negative_prompt,
                         resume_from_storage=True,
+                        skill_ids=list(next_msg.skill_ids),
                     )
                     self._consultations[conversation_id] = next_state
                     to_start.append(next_state)
@@ -1122,6 +1213,7 @@ class ConsultationManager:
                 continue
 
             consultation_id = candidate.get("consultation_id") or str(uuid.uuid4())
+            candidate_skill_ids = self._coerce_skill_ids(candidate.get("skill_ids"))
             consultation_journal.create_job(
                 consultation_id,
                 conversation_id,
@@ -1129,6 +1221,7 @@ class ConsultationManager:
                 candidate.get("negative_prompt"),
                 status=candidate.get("status") or ConsultationStatus.PENDING.value,
                 assistant_index=candidate["assistant_index"],
+                skill_ids=candidate_skill_ids,
             )
             state = self._create_started_state(
                 consultation_id,
@@ -1138,6 +1231,7 @@ class ConsultationManager:
                 resume_from_storage=True,
                 assistant_index=candidate["assistant_index"],
                 status=candidate.get("status"),
+                skill_ids=candidate_skill_ids,
             )
             with self._lock:
                 self._consultations[conversation_id] = state
@@ -1175,6 +1269,7 @@ class ConsultationManager:
                 next_msg.content,
                 next_msg.negative_prompt,
                 resume_from_storage=False,
+                skill_ids=list(next_msg.skill_ids),
             )
             self._consultations[conversation_id] = state
             future = self._executor.submit(self._run_consultation, state)

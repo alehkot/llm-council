@@ -1,8 +1,9 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useMemo, useState } from "react";
 import { produce } from "immer";
 import Sidebar from "./components/Sidebar";
 import ChatInterface from "./components/ChatInterface";
 import ApiKeyModal from "./components/ApiKeyModal";
+import SkillsModal from "./components/SkillsModal";
 import { Sheet, SheetContent } from "./components/ui/sheet";
 import {
 	AlertDialog,
@@ -16,6 +17,7 @@ import {
 } from "./components/ui/alert-dialog";
 import { api, API_AUTH_ERROR_EVENT } from "./api";
 import { apiKeyStorage } from "./utils/apiKeyStorage";
+import { skillSelectionStorage } from "./utils/skillSelectionStorage";
 import { useNotifications } from "./hooks/useNotifications";
 import {
 	mergeConversation,
@@ -85,16 +87,85 @@ function isActiveConsultationStatus(status) {
 	);
 }
 
+const EMPTY_SKILL_IDS = [];
+
+// Drop unknown/duplicate ids so a deleted skill silently leaves the draft
+// selection instead of failing validation on send.
+function normalizeSkillIds(candidateIds, availableIds) {
+	if (!Array.isArray(candidateIds)) {
+		return [];
+	}
+	const seen = new Set();
+	const normalized = [];
+	for (const skillId of candidateIds) {
+		if (typeof skillId !== "string") continue;
+		if (seen.has(skillId) || !availableIds.has(skillId)) continue;
+		seen.add(skillId);
+		normalized.push(skillId);
+	}
+	return normalized;
+}
+
+function sameSkillIds(left, right) {
+	if (left === right) return true;
+	if (!Array.isArray(left) || !Array.isArray(right)) return false;
+	if (left.length !== right.length) return false;
+	return left.every((value, index) => value === right[index]);
+}
+
+function collectAvailableSkillIds(skills) {
+	const availableIds = new Set();
+	if (!Array.isArray(skills)) return availableIds;
+	for (const skill of skills) {
+		// Disabled skills are rejected by the backend on send, so treat them exactly
+		// like deleted ones and let them drop out of the draft silently.
+		if (skill?.id && skill.enabled !== false) availableIds.add(skill.id);
+	}
+	return availableIds;
+}
+
+// The read-only applied record on the most recent assistant message seeds the
+// first-ever shared draft (and absorbs legacy per-chat drafts). Auto-selected
+// runs store the picked skills under "resolved", so fall back to that when
+// "requested" is empty.
+function findLastRequestedSkillIds(conversations, conversationsById) {
+	if (!Array.isArray(conversations)) return EMPTY_SKILL_IDS;
+	for (let c = conversations.length - 1; c >= 0; c--) {
+		const conversationId = conversations[c]?.id;
+		const messages = conversationsById[conversationId]?.messages;
+		if (!Array.isArray(messages)) continue;
+		for (let m = messages.length - 1; m >= 0; m--) {
+			const message = messages[m];
+			if (message?.role !== "assistant") continue;
+			const skillsMeta = message.metadata?.skills;
+			const requested = skillsMeta?.requested;
+			if (Array.isArray(requested) && requested.length) {
+				return requested;
+			}
+			const resolved = skillsMeta?.resolved;
+			if (Array.isArray(resolved)) {
+				const ids = resolved
+					.map((entry) => entry?.id)
+					.filter((id) => typeof id === "string" && id);
+				if (ids.length) return ids;
+			}
+		}
+	}
+	return EMPTY_SKILL_IDS;
+}
+
 function App() {
 	const {
 		conversations,
 		setConversations,
 		currentConversationId,
+		conversationsById,
 		isLoading,
 		setCurrentConversationId,
 		setConversationsById,
 		setIsLoading,
 		setError,
+		config,
 		setConfig,
 		isSidebarOpen,
 		setIsSidebarOpen,
@@ -118,7 +189,23 @@ function App() {
 		setShowApiKeyModal,
 		apiKeyError,
 		setApiKeyError,
+		skills,
+		setSkills,
+		skillsLoaded,
+		setSkillsLoaded,
+		selectedSkillIds: rawSelectedSkillIds,
+		setSelectedSkillIds,
+		excludedSkillIdsByConversation,
+		setExcludedSkillIdsByConversation,
+		isSkillsModalOpen,
+		setIsSkillsModalOpen,
 	} = useAppStore();
+
+	const [skillsModalFocusId, setSkillsModalFocusId] = useState(null);
+	const [skillSources, setSkillSources] = useState({
+		codex: false,
+		claude: false,
+	});
 
 	// Notifications
 	const { requestPermission, notifyInputNeeded } = useNotifications();
@@ -459,6 +546,7 @@ function App() {
 					negative_mode_enabled: false,
 					deliberation_enabled: false,
 					interactive_mode_enabled: false,
+					skills_enabled: false,
 					prompt_max_chars: null,
 					negative_prompt_max_chars: null,
 					synthesis_context_max_chars: null,
@@ -470,13 +558,214 @@ function App() {
 		}
 	}, [handleApiError, setConfig]);
 
+	const loadSkills = useCallback(async () => {
+		try {
+			const data = await api.listSkills();
+			setSkills(Array.isArray(data?.skills) ? data.skills : []);
+			setSkillSources(data?.sources || { codex: false, claude: false });
+		} catch (err) {
+			// Skills are disabled server-side (404) or unreachable; the picker
+			// simply stays hidden instead of blocking the console.
+			console.error("Failed to load skills:", err);
+			handleApiError(err);
+			setSkills([]);
+		} finally {
+			setSkillsLoaded(true);
+		}
+	}, [handleApiError, setSkills, setSkillsLoaded]);
+
 	// Load conversations on mount (only if API key exists)
 	useEffect(() => {
 		if (hasApiKey) {
 			loadConversations();
 			loadConfig();
+			loadSkills();
 		}
-	}, [hasApiKey, loadConfig, loadConversations]);
+	}, [hasApiKey, loadConfig, loadConversations, loadSkills]);
+
+	const availableSkillIds = useMemo(
+		() => collectAvailableSkillIds(skills),
+		[skills],
+	);
+
+	// The GLOBAL DEFAULT skill selection: seeded once from localStorage - or from
+	// the last applied assistant message when nothing was ever stored - and
+	// always filtered against the installed skills. Per-chat toggles only ever
+	// subtract from this default (see handleSkillIdsChange).
+	useEffect(() => {
+		if (!skillsLoaded || rawSelectedSkillIds !== null) return;
+
+		const stored = skillSelectionStorage.getDefault();
+		const source =
+			stored !== null
+				? stored
+				: findLastRequestedSkillIds(conversations, conversationsById);
+
+		const normalized = normalizeSkillIds(source, availableSkillIds);
+		setSelectedSkillIds(normalized);
+		skillSelectionStorage.setDefault(normalized);
+	}, [
+		availableSkillIds,
+		conversations,
+		conversationsById,
+		rawSelectedSkillIds,
+		setSelectedSkillIds,
+		skillsLoaded,
+	]);
+
+	// A deleted or disabled skill silently drops out of the default.
+	useEffect(() => {
+		if (!skillsLoaded || rawSelectedSkillIds === null) return;
+		const normalized = normalizeSkillIds(
+			rawSelectedSkillIds,
+			availableSkillIds,
+		);
+		if (sameSkillIds(rawSelectedSkillIds, normalized)) return;
+		setSelectedSkillIds(normalized);
+		skillSelectionStorage.setDefault(normalized);
+	}, [
+		availableSkillIds,
+		rawSelectedSkillIds,
+		setSelectedSkillIds,
+		skillsLoaded,
+	]);
+
+	// The effective per-chat selection: the global default minus this chat's
+	// toggled-off skills.
+	const currentExclusions = new Set(
+		(currentConversationId &&
+			excludedSkillIdsByConversation[currentConversationId]) ||
+			EMPTY_SKILL_IDS,
+	);
+	const selectedSkillIds = (rawSelectedSkillIds || EMPTY_SKILL_IDS).filter(
+		(id) => !currentExclusions.has(id),
+	);
+
+	// Composer toggles write per-chat exclusions, never the default itself:
+	// unchecking a default skill turns it off for this chat only.
+	const handleSkillIdsChange = useCallback(
+		(nextIds) => {
+			if (!currentConversationId) return;
+			const normalized = normalizeSkillIds(nextIds, availableSkillIds);
+			const defaultIds = rawSelectedSkillIds || EMPTY_SKILL_IDS;
+			const exclusions = defaultIds.filter((id) => !normalized.includes(id));
+			setExcludedSkillIdsByConversation((prev) => ({
+				...prev,
+				[currentConversationId]: exclusions,
+			}));
+			skillSelectionStorage.setExclusions(currentConversationId, exclusions);
+		},
+		[
+			availableSkillIds,
+			currentConversationId,
+			rawSelectedSkillIds,
+			setExcludedSkillIdsByConversation,
+		],
+	);
+
+	// The Skills modal edits the global default, capped at the backend's
+	// per-consultation limit so an oversized default can never fail on send.
+	const handleDefaultSkillIdsChange = useCallback(
+		(nextIds) => {
+			const normalized = normalizeSkillIds(nextIds, availableSkillIds);
+			const cap = Number(config?.skills_max_selected);
+			const capped = cap > 0 ? normalized.slice(0, cap) : normalized;
+			setSelectedSkillIds(capped);
+			skillSelectionStorage.setDefault(capped);
+		},
+		[availableSkillIds, config?.skills_max_selected, setSelectedSkillIds],
+	);
+
+	const handleResetSkillOverrides = useCallback(() => {
+		if (!currentConversationId) return;
+		setExcludedSkillIdsByConversation((prev) => {
+			const next = { ...prev };
+			delete next[currentConversationId];
+			return next;
+		});
+		skillSelectionStorage.setExclusions(currentConversationId, []);
+	}, [currentConversationId, setExcludedSkillIdsByConversation]);
+
+	const handleOpenSkillsModal = useCallback(
+		(focusSkillId) => {
+			setSkillsModalFocusId(
+				typeof focusSkillId === "string" ? focusSkillId : null,
+			);
+			setIsSkillsModalOpen(true);
+		},
+		[setIsSkillsModalOpen],
+	);
+
+	const handleCloseSkillsModal = useCallback(() => {
+		setIsSkillsModalOpen(false);
+		setSkillsModalFocusId(null);
+	}, [setIsSkillsModalOpen]);
+
+	// A 409 means the skill id is already installed: confirm, then retry with
+	// replace=true. Returning null on a declined replace keeps the modal quiet.
+	const handleUploadSkill = useCallback(
+		async (file) => {
+			try {
+				const result = await api.uploadSkill(file);
+				await loadSkills();
+				return result;
+			} catch (err) {
+				if (err?.status === 409) {
+					const existingId = err.existing?.id || "That skill";
+					const existingVersion = err.existing?.version;
+					const confirmed = window.confirm(
+						`${existingId} is already installed${
+							existingVersion ? ` (v${existingVersion})` : ""
+						}. Replace all matching skills in the uploaded bundle?`,
+					);
+					if (!confirmed) {
+						return null;
+					}
+					try {
+						const replacedResult = await api.uploadSkill(file, {
+							replace: true,
+						});
+						await loadSkills();
+						return replacedResult;
+					} catch (replaceErr) {
+						handleApiError(replaceErr);
+						throw replaceErr;
+					}
+				}
+				handleApiError(err);
+				throw err;
+			}
+		},
+		[handleApiError, loadSkills],
+	);
+
+	const handleDeleteSkill = useCallback(
+		async (skillId) => {
+			try {
+				const result = await api.deleteSkill(skillId);
+				await loadSkills();
+				return result;
+			} catch (err) {
+				handleApiError(err);
+				throw err;
+			}
+		},
+		[handleApiError, loadSkills],
+	);
+
+	const handleToggleSkillEnabled = useCallback(
+		async (skillId, enabled) => {
+			try {
+				const result = await api.setSkillEnabled(skillId, enabled);
+				await loadSkills();
+				return result;
+			} catch (err) {
+				handleApiError(err);
+				throw err;
+			}
+		},
+		[handleApiError, loadSkills],
+	);
 
 	useEffect(() => {
 		if (!hasApiKey) return;
@@ -512,154 +801,165 @@ function App() {
 		setInteractiveSessionId,
 	]);
 
-	// Poll for consultation status
+	// Gate the status loop on a boolean so per-snapshot state updates don't tear
+	// down and restart the long-poll request.
+	const isConsultationActive = isActiveConsultationStatus(consultationStatus);
+
+	// Long-poll for consultation status. Each response is a full snapshot (status
+	// plus queue) with a change cursor; the server holds the request until the
+	// snapshot differs from the cursor we last saw, so updates arrive near-instantly
+	// while idle waits cost one request per wait window. A dropped request loses
+	// nothing - the next poll returns the complete current state.
 	useEffect(() => {
-		if (!currentConversationId || !consultationStatus) {
+		if (!hasApiKey || !currentConversationId || !isConsultationActive) {
 			return;
 		}
 
-		// Don't poll if consultation is done
-		if (!isActiveConsultationStatus(consultationStatus)) {
-			return;
-		}
-
-		// Cleanup invalidates old visits, even when navigation returns to the same ID.
-		let disposed = false;
-		let polling = false;
+		const controller = new AbortController();
+		let stopped = false;
+		let cursor = null;
 		const isCurrent = () =>
-			!disposed &&
+			!stopped &&
 			useAppStore.getState().currentConversationId === currentConversationId;
 
-		const interval = setInterval(async () => {
-			if (polling || !isCurrent()) return;
-			polling = true;
-			try {
-				const status = await api.getConsultationStatus(currentConversationId);
-				if (!isCurrent()) return;
-				const queueData = await api.getConversationQueue(currentConversationId);
-				if (!isCurrent()) return;
-				const queuedMessages = queueData.queue || [];
-				setMessageQueue(queuedMessages);
+		const applySnapshot = async (status) => {
+			const queuedMessages = status.queue || [];
+			setMessageQueue(queuedMessages);
 
-				if (status.status === "none") {
-					setIsLoading(false);
-					setConsultationStatus(null);
-					clearStreamingConsultation(currentConversationId);
-				} else {
-					if (Number.isInteger(status.assistant_index)) {
-						const localConversation =
-							useAppStore.getState().conversationsById[currentConversationId];
-						if (
-							localConversation?.messages?.[status.assistant_index]?.role !==
-							"assistant"
-						) {
-							const conv = await api.getConversation(currentConversationId);
-							if (!isCurrent()) return;
-							applyConversationSnapshot(conv);
-						}
-					}
-
-					setConsultationStatus(status);
-					applyConsultationStatusSnapshot(currentConversationId, status);
-
-					// Update conversation with partial results
-					updateConversationById(currentConversationId, (draft) => {
-						if (!draft || !draft.messages || draft.messages.length === 0)
-							return;
-						const targetIndex = findAssistantMessageIndexForStatus(
-							draft.messages,
-							status,
-						);
-						const lastMsg =
-							targetIndex >= 0 ? draft.messages[targetIndex] : null;
-						if (!lastMsg || lastMsg.role !== "assistant") return;
-
-						if (status.stage1) lastMsg.stage1 = status.stage1;
-						if (status.negative) lastMsg.negative = status.negative;
-						if (status.stage2) {
-							lastMsg.stage2 = status.stage2;
-						}
-						if (status.stage3) lastMsg.stage3 = status.stage3;
-						if (status.metadata) {
-							lastMsg.metadata = {
-								...(lastMsg.metadata || {}),
-								...status.metadata,
-							};
-
-							const interactivePrompt = status.metadata.interactive_prompt;
-							if (interactivePrompt) {
-								if (interactivePrompt.session_id) {
-									setInteractiveSessionId(interactivePrompt.session_id);
-								}
-								setCurrentInteractivePrompt(interactivePrompt);
-							} else if (interactivePrompt === null) {
-								setCurrentInteractivePrompt(null);
-								setInteractiveSessionId(null);
-							}
-						}
-
-						const loading = ensureLoadingState(lastMsg);
-						loading.stage1 = status.status === "stage1";
-						loading.negative = status.status === "negative";
-						loading.stage2 = status.status === "stage2";
-						loading.deliberation = status.status === "deliberation";
-						loading.stage3 = status.status === "stage3";
-					});
-
-					// Handle completion
-					if (status.status === "complete") {
-						clearStreamingConsultation(currentConversationId);
-						loadConversations(); // Refresh list for title update
-						if (queuedMessages.length > 0) {
-							setIsLoading(true);
-							setConsultationStatus({
-								status: "pending",
-								consultation_id: queuedMessages[0].id,
-							});
-						} else {
-							setIsLoading(false);
-							setConsultationStatus(null);
-						}
-					} else if (status.status === "failed") {
-						clearStreamingConsultation(currentConversationId);
-						if (status.error !== "Cancelled") {
-							setError({
-								message: "Consultation failed",
-								details: status.error,
-							});
-						}
-						if (queuedMessages.length > 0) {
-							setIsLoading(true);
-							setConsultationStatus({
-								status: "pending",
-								consultation_id: queuedMessages[0].id,
-							});
-						} else {
-							setIsLoading(false);
-							setConsultationStatus(null);
-						}
+			if (status.status === "none") {
+				setIsLoading(false);
+				setConsultationStatus(null);
+				clearStreamingConsultation(currentConversationId);
+			} else {
+				if (Number.isInteger(status.assistant_index)) {
+					const localConversation =
+						useAppStore.getState().conversationsById[currentConversationId];
+					if (
+						localConversation?.messages?.[status.assistant_index]?.role !==
+						"assistant"
+					) {
+						const conv = await api.getConversation(currentConversationId);
+						if (!isCurrent()) return;
+						applyConversationSnapshot(conv);
 					}
 				}
-			} catch (err) {
-				if (!isCurrent()) return;
-				console.error("Failed to poll consultation status:", err);
-				handleApiError(err);
-			} finally {
-				polling = false;
+
+				setConsultationStatus(status);
+				applyConsultationStatusSnapshot(currentConversationId, status);
+
+				// Update conversation with partial results
+				updateConversationById(currentConversationId, (draft) => {
+					if (!draft || !draft.messages || draft.messages.length === 0) return;
+					const targetIndex = findAssistantMessageIndexForStatus(
+						draft.messages,
+						status,
+					);
+					const lastMsg = targetIndex >= 0 ? draft.messages[targetIndex] : null;
+					if (!lastMsg || lastMsg.role !== "assistant") return;
+
+					if (status.stage1) lastMsg.stage1 = status.stage1;
+					if (status.negative) lastMsg.negative = status.negative;
+					if (status.stage2) {
+						lastMsg.stage2 = status.stage2;
+					}
+					if (status.stage3) lastMsg.stage3 = status.stage3;
+					if (status.metadata) {
+						lastMsg.metadata = {
+							...(lastMsg.metadata || {}),
+							...status.metadata,
+						};
+
+						const interactivePrompt = status.metadata.interactive_prompt;
+						if (interactivePrompt) {
+							if (interactivePrompt.session_id) {
+								setInteractiveSessionId(interactivePrompt.session_id);
+							}
+							setCurrentInteractivePrompt(interactivePrompt);
+						} else if (interactivePrompt === null) {
+							setCurrentInteractivePrompt(null);
+							setInteractiveSessionId(null);
+						}
+					}
+
+					const loading = ensureLoadingState(lastMsg);
+					loading.stage1 = status.status === "stage1";
+					loading.negative = status.status === "negative";
+					loading.stage2 = status.status === "stage2";
+					loading.deliberation = status.status === "deliberation";
+					loading.stage3 = status.status === "stage3";
+				});
+
+				// Handle completion
+				if (status.status === "complete") {
+					clearStreamingConsultation(currentConversationId);
+					loadConversations(); // Refresh list for title update
+					if (queuedMessages.length > 0) {
+						setIsLoading(true);
+						setConsultationStatus({
+							status: "pending",
+							consultation_id: queuedMessages[0].id,
+						});
+					} else {
+						setIsLoading(false);
+						setConsultationStatus(null);
+					}
+				} else if (status.status === "failed") {
+					clearStreamingConsultation(currentConversationId);
+					if (status.error !== "Cancelled") {
+						setError({
+							message: "Consultation failed",
+							details: status.error,
+						});
+					}
+					if (queuedMessages.length > 0) {
+						setIsLoading(true);
+						setConsultationStatus({
+							status: "pending",
+							consultation_id: queuedMessages[0].id,
+						});
+					} else {
+						setIsLoading(false);
+						setConsultationStatus(null);
+					}
+				}
 			}
-		}, 2000);
+		};
+
+		const runLoop = async () => {
+			while (isCurrent()) {
+				try {
+					const status = await api.getConsultationStatus(
+						currentConversationId,
+						{ wait: 25, cursor, signal: controller.signal },
+					);
+					if (!isCurrent()) break;
+					cursor = status.cursor || null;
+					await applySnapshot(status);
+				} catch (err) {
+					if (!isCurrent() || err?.name === "AbortError") break;
+					console.error("Failed to poll consultation status:", err);
+					handleApiError(err);
+					// Back off before retrying so transient failures (server restart,
+					// network blip, auth latch) don't spin the loop.
+					await new Promise((resolve) => setTimeout(resolve, 2000));
+				}
+			}
+		};
+
+		runLoop();
 
 		return () => {
-			disposed = true;
-			clearInterval(interval);
+			stopped = true;
+			controller.abort();
 		};
 	}, [
 		applyConsultationStatusSnapshot,
 		applyConversationSnapshot,
 		clearStreamingConsultation,
-		consultationStatus,
+		isConsultationActive,
 		currentConversationId,
 		handleApiError,
+		hasApiKey,
 		loadConversations,
 		setConsultationStatus,
 		setCurrentInteractivePrompt,
@@ -672,7 +972,7 @@ function App() {
 
 	// Check for active consultation when switching conversations
 	useEffect(() => {
-		if (!currentConversationId) {
+		if (!hasApiKey || !currentConversationId) {
 			setConsultationStatus(null);
 			setMessageQueue([]);
 			setIsLoading(false);
@@ -707,9 +1007,7 @@ function App() {
 					setIsLoading(true);
 				}
 
-				const queueData = await api.getConversationQueue(currentConversationId);
-				if (!isCurrent()) return;
-				setMessageQueue(queueData.queue);
+				setMessageQueue(status.queue || []);
 			} catch (err) {
 				if (!isCurrent()) return;
 				console.error("Failed to check consultation status:", err);
@@ -726,6 +1024,7 @@ function App() {
 		clearStreamingConsultation,
 		currentConversationId,
 		handleApiError,
+		hasApiKey,
 		setConsultationStatus,
 		setError,
 		setIsLoading,
@@ -733,27 +1032,44 @@ function App() {
 		setStreamingConsultations,
 	]);
 
-	// Poll for global consultation status (for sidebar indicators)
+	// Long-poll for global consultation status (for sidebar indicators)
 	useEffect(() => {
 		if (!hasApiKey) return;
 
-		const fetchGlobalStatus = async () => {
-			try {
-				const status = await api.getGlobalConsultationStatus();
-				const consultations = {};
-				for (const active of status.active) {
-					consultations[active.conversation_id] = active.status;
+		const controller = new AbortController();
+		let stopped = false;
+		let cursor = null;
+
+		const runLoop = async () => {
+			while (!stopped) {
+				try {
+					const status = await api.getGlobalConsultationStatus({
+						wait: 25,
+						cursor,
+						signal: controller.signal,
+					});
+					if (stopped) break;
+					cursor = status.cursor || null;
+					const consultations = {};
+					for (const active of status.active) {
+						consultations[active.conversation_id] = active.status;
+					}
+					setBackendConsultations(consultations);
+				} catch (err) {
+					if (stopped || err?.name === "AbortError") break;
+					console.error("Failed to fetch global consultation status:", err);
+					handleApiError(err);
+					await new Promise((resolve) => setTimeout(resolve, 5000));
 				}
-				setBackendConsultations(consultations);
-			} catch (err) {
-				console.error("Failed to fetch global consultation status:", err);
-				handleApiError(err);
 			}
 		};
 
-		fetchGlobalStatus();
-		const interval = setInterval(fetchGlobalStatus, 5000);
-		return () => clearInterval(interval);
+		runLoop();
+
+		return () => {
+			stopped = true;
+			controller.abort();
+		};
 	}, [handleApiError, hasApiKey, setBackendConsultations]);
 
 	// Notify when interactive prompt arrives
@@ -803,10 +1119,12 @@ function App() {
 		// Polling may replace the object, so compare the logical prompt, not identity.
 		const isCurrentPrompt = () => {
 			const state = useAppStore.getState();
-			return state.currentConversationId === conversationId &&
+			return (
+				state.currentConversationId === conversationId &&
 				state.interactiveSessionId === sessionId &&
 				state.currentInteractivePrompt?.prompt_id === promptId &&
-				state.currentInteractivePrompt?.title === promptTitle;
+				state.currentInteractivePrompt?.title === promptTitle
+			);
 		};
 
 		try {
@@ -839,19 +1157,16 @@ function App() {
 		// Polling may replace the object, so compare the logical prompt, not identity.
 		const isCurrentPrompt = () => {
 			const state = useAppStore.getState();
-			return state.currentConversationId === conversationId &&
+			return (
+				state.currentConversationId === conversationId &&
 				state.interactiveSessionId === sessionId &&
 				state.currentInteractivePrompt?.prompt_id === promptId &&
-				state.currentInteractivePrompt?.title === promptTitle;
+				state.currentInteractivePrompt?.title === promptTitle
+			);
 		};
 
 		try {
-			await api.submitInteractiveResponse(
-				sessionId,
-				promptId,
-				{},
-				true,
-			);
+			await api.submitInteractiveResponse(sessionId, promptId, {}, true);
 			if (!isCurrentPrompt()) return;
 			setCurrentInteractivePrompt(null);
 			setInteractiveSessionId(null);
@@ -949,8 +1264,12 @@ function App() {
 			if (conversationToDelete) {
 				await api.deleteConversation(conversationToDelete);
 				// Reconcile the completed deletion even if creating its replacement fails.
-				setConversations((prev) => prev.filter((c) => c.id !== conversationToDelete));
-				if (useAppStore.getState().currentConversationId === conversationToDelete) {
+				setConversations((prev) =>
+					prev.filter((c) => c.id !== conversationToDelete),
+				);
+				if (
+					useAppStore.getState().currentConversationId === conversationToDelete
+				) {
 					selectConversation(null, { replace: true });
 				}
 				if (useAppStore.getState().conversationsById[conversationToDelete]) {
@@ -1009,7 +1328,9 @@ function App() {
 		try {
 			await api.deleteConversation(conversationId);
 			// Navigation and list updates may have happened while DELETE was pending.
-			setConversations((prev) => prev.filter((conv) => conv.id !== conversationId));
+			setConversations((prev) =>
+				prev.filter((conv) => conv.id !== conversationId),
+			);
 			if (useAppStore.getState().conversationsById[conversationId]) {
 				setConversationsById((prev) => {
 					const next = { ...prev };
@@ -1020,7 +1341,7 @@ function App() {
 			if (useAppStore.getState().currentConversationId === conversationId) {
 				selectConversation(null, { replace: true });
 			}
-			setDeleteTarget((current) => current === target ? null : current);
+			setDeleteTarget((current) => (current === target ? null : current));
 		} catch (err) {
 			console.error("Failed to delete conversation:", err);
 			if (!handleApiError(err)) {
@@ -1061,6 +1382,7 @@ function App() {
 	// API key handlers
 	const handleApiKeySubmit = (key) => {
 		apiKeyStorage.set(key);
+		api.resetAuthState();
 		setHasApiKey(true);
 		setShowApiKeyModal(false);
 		setApiKeyError(null);
@@ -1147,7 +1469,7 @@ function App() {
 		selectConversation(id);
 	};
 
-	const handleSendMessage = async (content, negativePrompt) => {
+	const handleSendMessage = async (content, negativePrompt, skillIds) => {
 		if (!currentConversationId) return false;
 
 		const isCurrent = () =>
@@ -1162,6 +1484,10 @@ function App() {
 
 		try {
 			const conversationId = currentConversationId;
+			const requestedSkillIds = normalizeSkillIds(
+				skillIds === undefined ? selectedSkillIds : skillIds,
+				availableSkillIds,
+			);
 			const userMessage = { role: "user", content };
 			const assistantMessage = {
 				role: "assistant",
@@ -1236,6 +1562,7 @@ function App() {
 					conversationId,
 					content,
 					negativePrompt,
+					requestedSkillIds,
 				);
 
 				if (result.status === "queued") {
@@ -1353,6 +1680,22 @@ function App() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+			<SkillsModal
+				isOpen={isSkillsModalOpen}
+				onClose={handleCloseSkillsModal}
+				skills={skills}
+				sources={skillSources}
+				onSourcesChange={async (sources) => {
+					await api.setSkillSources(sources);
+					await loadSkills();
+				}}
+				onUpload={handleUploadSkill}
+				onDelete={handleDeleteSkill}
+				onToggleEnabled={handleToggleSkillEnabled}
+				focusSkillId={skillsModalFocusId}
+				defaultSkillIds={rawSelectedSkillIds || EMPTY_SKILL_IDS}
+				onDefaultSkillIdsChange={handleDefaultSkillIdsChange}
+			/>
 			<Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
 				<SheetContent side="left" className="p-0">
 					<Sidebar
@@ -1394,6 +1737,11 @@ function App() {
 							onCancelConsultation={handleCancelConsultation}
 							onVersionAdded={handleVersionAdded}
 							onCurrentChanged={handleCurrentChanged}
+							selectedSkillIds={selectedSkillIds}
+							defaultSkillIds={rawSelectedSkillIds || EMPTY_SKILL_IDS}
+							onSkillIdsChange={handleSkillIdsChange}
+							onResetSkillOverrides={handleResetSkillOverrides}
+							onOpenSkillsModal={handleOpenSkillsModal}
 						/>
 					</div>
 				</main>

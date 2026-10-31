@@ -107,12 +107,14 @@ class SynthesisContextTests(unittest.TestCase):
 
     def test_global_budget_compression_keeps_each_response_represented(self) -> None:
         long_stage1 = [
-            {"model": f"model-{index}", "response": _response(str(index), paragraphs=30)}
+            {
+                "model": f"model-{index}",
+                "response": _response(str(index), paragraphs=30),
+            }
             for index in range(4)
         ]
         label_to_model = {
-            f"Response {chr(65 + index)}": f"model-{index}"
-            for index in range(4)
+            f"Response {chr(65 + index)}": f"model-{index}" for index in range(4)
         }
 
         text, note = build_synthesis_response_context(

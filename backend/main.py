@@ -1,46 +1,61 @@
 """FastAPI backend for LLM Council."""
 
+import asyncio
+import re
+import uuid
+from collections import deque
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from time import monotonic
+from typing import Any, Deque, Dict, List, Optional, Set
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Deque
-from collections import deque
-from dataclasses import dataclass
-from datetime import datetime
-from time import monotonic
-import uuid
-import asyncio
 
-from . import storage
+from . import skill_sources, skills, storage
 from .config import (
     API_AUTH_KEY,
     API_KEY_BRUTEFORCE_LOCKOUT_SECONDS,
     API_KEY_BRUTEFORCE_MAX_ATTEMPTS,
     API_KEY_BRUTEFORCE_WINDOW_SECONDS,
-    CHAIRMAN_MODEL,
     CORS_ALLOW_ORIGINS,
     COUNCIL_MODELS,
     DELIBERATION_ENABLED,
     INTERACTIVE_MODE_ENABLED,
-    NEGATIVE_MODE_ENABLED,
     MAX_NEGATIVE_PROMPT_CHARS,
     MAX_PROMPT_CHARS,
+    NEGATIVE_MODE_ENABLED,
+    OPENROUTER_MAX_TOKENS,
     PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
     PROMPT_REFINEMENT_MODEL,
-    OPENROUTER_MAX_TOKENS,
+    SKILLS_AUTO_SELECT_ENABLED,
+    SKILLS_CONTEXT_MAX_CHARS,
+    SKILLS_ENABLED,
+    SKILLS_MAX_REFERENCE_SECTIONS,
+    SKILLS_MAX_REFERENCES,
+    SKILLS_MAX_SELECTED,
+    SKILLS_REFERENCE_SELECTION_ENABLED,
+    SKILLS_REFERENCE_SELECTION_MODEL,
+    SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
+    SKILLS_UPLOAD_MAX_BYTES,
+    STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS,
+    STATUS_LONGPOLL_MAX_WAIT_SECONDS,
     STREAM_TIMEOUT_SECONDS,
+    SYNTHESIS_BACKEND,
     SYNTHESIS_CONTEXT_MAX_CHARS,
+    SYNTHESIS_MODEL,
     TITLE_MODEL,
 )
-from .council import build_responses_for_synthesis, stage3_synthesize_final
 from .consultation_manager import consultation_manager
+from .council import build_responses_for_synthesis, stage3_synthesize_final
+from .export_markdown import build_export_filename, build_markdown_export
 from .interactive import (
     PromptResponse,
 )
-from .export_markdown import build_markdown_export, build_export_filename
 from .openrouter import query_model
 from .side_chat import (
     build_side_chat_messages,
@@ -119,6 +134,54 @@ def _validate_message_lengths(content: str, negative_prompt: Optional[str]) -> N
             status_code=413,
             detail=f"Negative prompt too long (max {MAX_NEGATIVE_PROMPT_CHARS} characters).",
         )
+
+
+def _validate_skill_ids(skill_ids: Optional[List[str]]) -> List[str]:
+    """
+    Normalize a requested skill selection for a new consultation.
+
+    Dedupes while preserving order, caps at SKILLS_MAX_SELECTED, and requires every
+    id to be a safe storage id that exists on disk and is enabled. Enabled-gating
+    applies to new selections only: queued, in-flight and resumed consultations
+    render whatever still exists on disk.
+    """
+    if not skill_ids:
+        return []
+    if not SKILLS_ENABLED:
+        raise HTTPException(status_code=400, detail="Agent skills are disabled.")
+
+    requested: List[str] = []
+    seen: Set[str] = set()
+    for raw_id in skill_ids:
+        candidate = str(raw_id or "").strip().lower()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        requested.append(candidate)
+
+    if len(requested) > SKILLS_MAX_SELECTED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many skills selected (max {SKILLS_MAX_SELECTED}).",
+        )
+
+    for candidate in requested:
+        try:
+            storage.validate_storage_id(candidate, "skill_id")
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid skill id: {candidate[:64]!r}"
+            )
+
+    found, missing = skills.load_skills(requested)
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Unknown skill: {missing[0]}")
+    for skill in found:
+        if not skill.enabled:
+            raise HTTPException(
+                status_code=400, detail=f"Skill '{skill.id}' is disabled."
+            )
+    return [skill.id for skill in found]
 
 
 def _normalize_optional_text(
@@ -244,6 +307,7 @@ class SendMessageRequest(BaseModel):
 
     content: str
     negative_prompt: Optional[str] = None
+    skill_ids: Optional[List[str]] = None
 
 
 class OpenSideChatRequest(BaseModel):
@@ -327,10 +391,200 @@ async def get_config():
         "synthesis_context_max_chars": SYNTHESIS_CONTEXT_MAX_CHARS,
         "openrouter_max_tokens": OPENROUTER_MAX_TOKENS,
         "council_models": COUNCIL_MODELS,
-        "chairman_model": CHAIRMAN_MODEL,
+        "chairman_model": SYNTHESIS_MODEL,
+        "synthesis_backend": SYNTHESIS_BACKEND,
         "prompt_refinement_model": PROMPT_REFINEMENT_MODEL,
         "title_model": TITLE_MODEL,
+        "skills_enabled": SKILLS_ENABLED,
+        "skills_max_selected": SKILLS_MAX_SELECTED,
+        "skills_auto_select_enabled": SKILLS_AUTO_SELECT_ENABLED,
+        "skills_upload_max_bytes": SKILLS_UPLOAD_MAX_BYTES,
+        "skills_context_max_chars": SKILLS_CONTEXT_MAX_CHARS,
+        "skills_synthesis_context_max_chars": SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
+        "skills_max_references": SKILLS_MAX_REFERENCES,
+        "skills_max_reference_sections": SKILLS_MAX_REFERENCE_SECTIONS,
+        "skills_reference_selection_enabled": SKILLS_REFERENCE_SELECTION_ENABLED,
+        "skills_reference_selection_model": SKILLS_REFERENCE_SELECTION_MODEL,
     }
+
+
+# ---------------------------------------------------------------------------
+# Agent Skills library
+# ---------------------------------------------------------------------------
+
+_SKILL_UPLOAD_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _sanitize_upload_filename(filename: Optional[str]) -> Optional[str]:
+    """Display-only upload filename; never used as a path."""
+    if not filename:
+        return None
+    candidate = filename.strip()
+    if not _SKILL_UPLOAD_FILENAME_PATTERN.fullmatch(candidate):
+        return None
+    return candidate
+
+
+async def _read_upload_body(request: Request, max_bytes: int) -> bytes:
+    """
+    Read a raw request body with a hard size ceiling.
+
+    Content-Length is checked first, then the stream is accumulated chunk by chunk
+    and abandoned the moment the running total passes the ceiling. Never
+    ``await request.body()``: that buffers an arbitrarily large chunked body before
+    any check can run.
+    """
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            declared_length = int(declared)
+        except ValueError:
+            declared_length = -1
+        if declared_length > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload too large (max {max_bytes} bytes).",
+            )
+
+    chunks: List[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload too large (max {max_bytes} bytes).",
+            )
+        chunks.append(chunk)
+
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Upload body was empty.")
+    return b"".join(chunks)
+
+
+def _skill_conflict_payload(error: skills.SkillError) -> Dict[str, Any]:
+    """409 body: the message plus the summary of the skill already installed."""
+    payload: Dict[str, Any] = {"detail": str(error), "existing": None}
+    existing = getattr(error, "existing", None)
+    if existing is None:
+        existing_id = getattr(error, "skill_id", None)
+        if existing_id:
+            existing = skills.get_skill(existing_id)
+    if existing is not None:
+        payload["existing"] = existing.to_summary()
+    return payload
+
+
+def _skill_http_error(error: skills.SkillError) -> HTTPException:
+    """Map a SkillError onto the status code it declares."""
+    return HTTPException(
+        status_code=getattr(error, "status_code", 400), detail=str(error)
+    )
+
+
+if SKILLS_ENABLED:
+
+    class SetSkillEnabledRequest(BaseModel):
+        """Request to enable or disable an installed skill."""
+
+        enabled: bool
+
+    @app.get("/api/skills")
+    async def list_skills() -> Dict[str, Any]:
+        """List every installed skill (manifest-derived summaries)."""
+        found = await asyncio.to_thread(skills.list_skills)
+        return {
+            "skills": [skill.to_summary() for skill in found],
+            "sources": skill_sources.settings(),
+        }
+
+    class SkillSourcesRequest(BaseModel):
+        codex: bool
+        claude: bool
+
+    @app.put("/api/skills/sources")
+    async def set_skill_sources(request: SkillSourcesRequest) -> Dict[str, Any]:
+        sources = await asyncio.to_thread(
+            skill_sources.configure, request.codex, request.claude
+        )
+        return {"sources": sources}
+
+    @app.post("/api/skills")
+    async def upload_skill(
+        request: Request,
+        filename: Optional[str] = None,
+        replace: bool = False,
+    ) -> JSONResponse:
+        """
+        Install a skill from a raw ``.zip`` request body.
+
+        201 on a fresh install, 200 when an existing skill was replaced, 409 with the
+        existing summary when the id is taken and ``replace`` was not requested.
+        """
+        data = await _read_upload_body(request, SKILLS_UPLOAD_MAX_BYTES)
+        try:
+            installed, replaced = await asyncio.to_thread(
+                skills.install_skill_pack,
+                data,
+                _sanitize_upload_filename(filename),
+                bool(replace),
+            )
+        except skills.SkillError as e:
+            if getattr(e, "status_code", 400) == 409:
+                return JSONResponse(
+                    status_code=409,
+                    content=_skill_conflict_payload(e),
+                )
+            raise _skill_http_error(e)
+
+        return JSONResponse(
+            status_code=200 if replaced else 201,
+            content={
+                "skill": installed[0].to_detail(),
+                "skills": [skill.to_detail() for skill in installed],
+                "replaced": replaced,
+            },
+        )
+
+    @app.get("/api/skills/{skill_id}")
+    async def get_skill(skill_id: str) -> Dict[str, Any]:
+        """Full manifest detail for one installed skill."""
+        skill = skills.get_skill(skill_id)
+        if skill is None:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        return skill.to_detail()
+
+    @app.get("/api/skills/{skill_id}/markdown")
+    async def get_skill_markdown(skill_id: str) -> Dict[str, Any]:
+        """Raw SKILL.md text - the only file-content route the library exposes."""
+        markdown = skills.read_skill_markdown(skill_id)
+        if markdown is None:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        return {"markdown": markdown}
+
+    @app.patch("/api/skills/{skill_id}")
+    async def set_skill_enabled(
+        skill_id: str, request: SetSkillEnabledRequest
+    ) -> Dict[str, Any]:
+        """Enable or disable a skill without touching the rest of its manifest."""
+        try:
+            skill = skills.set_skill_enabled(skill_id, request.enabled)
+        except skills.SkillError as e:
+            raise _skill_http_error(e)
+        return skill.to_summary()
+
+    @app.delete("/api/skills/{skill_id}")
+    async def delete_skill(skill_id: str) -> Dict[str, Any]:
+        """Delete an installed skill and its stored bundle."""
+        try:
+            deleted = skills.delete_skill(skill_id)
+        except skills.SkillError as e:
+            raise _skill_http_error(e)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        return {"status": "ok", "deleted": True}
 
 
 @app.post("/api/interactive-response")
@@ -528,6 +782,72 @@ async def export_markdown(conversation_id: str, message_index: int):
     )
 
 
+def _render_persisted_skills_context(metadata: Dict[str, Any]) -> Optional[str]:
+    """
+    Re-render the Stage 3 skills block from a message's persisted skill plan.
+
+    Deterministic and LLM-free: the reference selection recorded when the message was
+    produced is replayed against the current manifests, so every resynthesis - including
+    the parallel modes of /resynthesize-all - runs under the same skill rules that
+    shaped the original answer.
+    """
+    if not SKILLS_ENABLED:
+        return None
+
+    persisted = (metadata or {}).get("skills") or {}
+    resolved = persisted.get("resolved")
+    if not isinstance(resolved, list):
+        return None
+
+    skill_ids: List[str] = []
+    selected_sections: Dict[str, List[skills.SectionSelection]] = {}
+    reasons: Dict[str, Dict[str, str]] = {}
+    for entry in resolved:
+        if not isinstance(entry, dict):
+            continue
+        skill_id = str(entry.get("id") or "").strip().lower()
+        if not skill_id or skill_id in selected_sections:
+            continue
+        selections: List[skills.SectionSelection] = []
+        entry_reasons: Dict[str, str] = {}
+        for reference in entry.get("references") or []:
+            if not isinstance(reference, dict):
+                continue
+            path = str(reference.get("path") or "")
+            if not path:
+                continue
+            raw_ids = reference.get("section_ids")
+            section_ids = (
+                tuple(str(section_id) for section_id in raw_ids)
+                if isinstance(raw_ids, list)
+                else ()
+            )
+            selections.append(
+                skills.SectionSelection(path=path, section_ids=section_ids)
+            )
+            reason = reference.get("reason")
+            if reason:
+                entry_reasons[path] = str(reason)
+        skill_ids.append(skill_id)
+        selected_sections[skill_id] = selections
+        reasons[skill_id] = entry_reasons
+
+    if not skill_ids:
+        return None
+
+    loaded, _missing = skills.load_skills(skill_ids)
+    if not loaded:
+        return None
+
+    block, _report = skills.render_skills_context(
+        loaded,
+        {skill.id: selected_sections.get(skill.id, []) for skill in loaded},
+        SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS,
+        reasons,
+    )
+    return block
+
+
 async def _run_synthesis(
     user_query: str,
     target_msg: Dict[str, Any],
@@ -577,6 +897,9 @@ async def _run_synthesis(
             "evaluations": target_msg["negative"].get("evaluations", []),
         }
 
+    # Replay the persisted skill plan; blocking disk reads stay off the event loop.
+    skills_context = await asyncio.to_thread(_render_persisted_skills_context, metadata)
+
     new_stage3 = await stage3_synthesize_final(
         user_query=user_query,
         stage1_results=responses_for_synthesis,
@@ -588,6 +911,7 @@ async def _run_synthesis(
         prompt_modifier=prompt_modifier,
         synthesis_mode=synthesis_mode,
         using_deliberation_revisions=using_deliberation_revisions,
+        skills_context=skills_context,
     )
 
     # Create version entry
@@ -931,29 +1255,71 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     _validate_message_lengths(request.content, request.negative_prompt)
+    skill_ids = _validate_skill_ids(request.skill_ids)
 
     # Submit to consultation manager
     result = consultation_manager.submit(
         conversation_id,
         request.content,
         request.negative_prompt,
+        skill_ids=skill_ids,
     )
 
     return result
 
 
+async def _hold_for_change(
+    request: Request,
+    fetch_snapshot,
+    cursor: Optional[str],
+    wait: float,
+) -> Dict[str, Any]:
+    """Return the current snapshot, long-polling when the client sent a cursor.
+
+    Holds the request (up to the clamped wait) until the snapshot's cursor
+    differs from the one the client last saw, then returns the full snapshot.
+    On timeout the unchanged snapshot is returned; the client simply re-polls,
+    so a dropped or timed-out request never loses state.
+    """
+
+    snapshot = fetch_snapshot()
+    if not (wait > 0) or cursor is None or snapshot.get("cursor") != cursor:
+        return snapshot
+
+    deadline = monotonic() + min(wait, STATUS_LONGPOLL_MAX_WAIT_SECONDS)
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0 or await request.is_disconnected():
+            return snapshot
+        await asyncio.sleep(min(STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS, remaining))
+        snapshot = fetch_snapshot()
+        if snapshot.get("cursor") != cursor:
+            return snapshot
+
+
 @app.get("/api/conversations/{conversation_id}/consultation/status")
-async def get_consultation_status(conversation_id: str):
-    """Get current consultation status for a conversation."""
+async def get_consultation_status(
+    conversation_id: str,
+    request: Request,
+    wait: float = 0,
+    cursor: Optional[str] = None,
+):
+    """Get consultation status plus queue for a conversation.
+
+    With ``wait`` and ``cursor`` query params the request long-polls: it is held
+    until the snapshot changes from ``cursor`` or the wait window lapses.
+    """
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    status = consultation_manager.get_status(conversation_id)
-    if status is None:
-        return {"status": "none"}
-    return status
+    return await _hold_for_change(
+        request,
+        lambda: consultation_manager.get_sync_snapshot(conversation_id),
+        cursor,
+        wait,
+    )
 
 
 @app.post("/api/conversations/{conversation_id}/consultation/cancel")
@@ -981,9 +1347,18 @@ async def get_conversation_queue(conversation_id: str):
 
 
 @app.get("/api/consultations/status")
-async def get_global_consultation_status():
-    """Get global consultation system status."""
-    return consultation_manager.get_global_status()
+async def get_global_consultation_status(
+    request: Request,
+    wait: float = 0,
+    cursor: Optional[str] = None,
+):
+    """Get global consultation system status, long-polling when a cursor is sent."""
+    return await _hold_for_change(
+        request,
+        consultation_manager.get_global_snapshot,
+        cursor,
+        wait,
+    )
 
 
 if __name__ == "__main__":

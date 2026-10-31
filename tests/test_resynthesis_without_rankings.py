@@ -16,6 +16,9 @@ from backend import council, main, storage  # noqa: E402
 
 class ResynthesisWithoutRankingsTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        backend_patch = patch.object(council, "SYNTHESIS_BACKEND", "openrouter")
+        backend_patch.start()
+        self.addCleanup(backend_patch.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.data_patch = patch.object(storage, "DATA_DIR", self.tempdir.name)
@@ -23,22 +26,27 @@ class ResynthesisWithoutRankingsTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.data_patch.stop)
         self.refined = "Compare PostgreSQL and SQLite for offline use."
         self.version = {
-            "model": "chair", "response": "Original synthesis",
-            "mode": "best_of_breed", "timestamp": "2026-01-01T00:00:00",
+            "model": "chair",
+            "response": "Original synthesis",
+            "mode": "best_of_breed",
+            "timestamp": "2026-01-01T00:00:00",
         }
         self.metadata = {
             "status": "complete",
             "label_to_model": {"Response A": "model-a"},
             "aggregate_rankings": [],
             "prompt_refinement": {
-                "decision": "use_refined", "refined_prompt": self.refined,
+                "decision": "use_refined",
+                "refined_prompt": self.refined,
             },
         }
         storage.create_conversation("no-reviews")
         storage.add_user_message("no-reviews", "Choose a database.")
         storage.add_assistant_message(
-            "no-reviews", [{"model": "model-a", "response": "SQLite works offline."}],
-            None, [],
+            "no-reviews",
+            [{"model": "model-a", "response": "SQLite works offline."}],
+            None,
+            [],
             {"current": deepcopy(self.version), "versions": [deepcopy(self.version)]},
             metadata=deepcopy(self.metadata),
         )
@@ -70,7 +78,9 @@ class ResynthesisWithoutRankingsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message["stage2"], [])
         self.assertEqual(message["stage3"]["versions"][0], self.version)
         self.assertEqual(len(message["stage3"]["versions"]), count + 1)
-        self.assertEqual(message["metadata"]["prompt_refinement"], self.metadata["prompt_refinement"])
+        self.assertEqual(
+            message["metadata"]["prompt_refinement"], self.metadata["prompt_refinement"]
+        )
         if endpoint == "resynthesize":
             self.assertEqual(message["stage3"]["current"], response.json()["version"])
         else:
@@ -85,8 +95,11 @@ class ResynthesisWithoutRankingsTests(unittest.IsolatedAsyncioTestCase):
     async def test_incomplete_or_invalid_data_never_calls_provider(self) -> None:
         original = storage.get_conversation("no-reviews")
         cases = [
-            ("stage2", None), ("stage2", {}), ("stage2", "invalid"),
-            ("stage1", []), ("stage3", None),
+            ("stage2", None),
+            ("stage2", {}),
+            ("stage2", "invalid"),
+            ("stage1", []),
+            ("stage3", None),
         ]
         # Missing stage2 is distinct from the persisted empty-list outcome.
         cases.append(("stage2", "missing"))
@@ -101,10 +114,14 @@ class ResynthesisWithoutRankingsTests(unittest.IsolatedAsyncioTestCase):
                     storage.save_conversation(conversation)
                     provider = AsyncMock()
                     with patch.object(council, "query_model", provider):
-                        response = await self.request(endpoint, {"synthesis_mode": "weighted"})
+                        response = await self.request(
+                            endpoint, {"synthesis_mode": "weighted"}
+                        )
                     self.assertEqual(response.status_code, 400, response.text)
                     provider.assert_not_awaited()
-                    self.assertEqual(storage.get_conversation("no-reviews"), conversation)
+                    self.assertEqual(
+                        storage.get_conversation("no-reviews"), conversation
+                    )
 
 
 if __name__ == "__main__":

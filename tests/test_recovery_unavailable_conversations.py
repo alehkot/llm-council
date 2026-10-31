@@ -36,7 +36,9 @@ class UnavailableConversationRecoveryTests(unittest.TestCase):
 
     def create_active(self, conversation_id: str, job_id: str) -> None:
         storage.create_conversation(conversation_id)
-        consultation_journal.create_job(job_id, conversation_id, "Question", None, "pending")
+        consultation_journal.create_job(
+            job_id, conversation_id, "Question", None, "pending"
+        )
         state = self.manager._create_started_state(
             job_id, conversation_id, "Question", None, resume_from_storage=False
         )
@@ -49,7 +51,9 @@ class UnavailableConversationRecoveryTests(unittest.TestCase):
         self.manager._restored = False
         self.submit.reset_mock()
 
-    def test_cancel_delete_then_restart_does_not_recreate_or_run_conversation(self) -> None:
+    def test_cancel_delete_then_restart_does_not_recreate_or_run_conversation(
+        self,
+    ) -> None:
         self.create_active("deleted", "cancelled-job")
         self.assertTrue(self.manager.cancel_consultation("deleted"))
         self.assertTrue(storage.delete_conversation("deleted"))
@@ -64,7 +68,9 @@ class UnavailableConversationRecoveryTests(unittest.TestCase):
         self.assertFalse((self.conversations / "deleted.json").exists())
         self.assertEqual((self.journals / "cancelled-job.json").read_bytes(), before)
 
-    def test_missing_queued_conversation_does_not_block_healthy_active_and_queue(self) -> None:
+    def test_missing_queued_conversation_does_not_block_healthy_active_and_queue(
+        self,
+    ) -> None:
         consultation_journal.create_job("orphan", "a-missing", "Gone", None, "queued")
         orphan = (self.journals / "orphan.json").read_bytes()
         self.create_active("healthy", "active")
@@ -78,7 +84,9 @@ class UnavailableConversationRecoveryTests(unittest.TestCase):
         state = self.submit.call_args.args[1]
         self.assertEqual(state.id, "active")
         self.assertTrue(state.resume_from_storage)
-        self.assertEqual([item["id"] for item in self.manager.get_queue("healthy")], ["queued"])
+        self.assertEqual(
+            [item["id"] for item in self.manager.get_queue("healthy")], ["queued"]
+        )
         self.assertEqual(self.manager.get_queue("a-missing"), [])
         self.assertEqual((self.journals / "orphan.json").read_bytes(), orphan)
         self.assertFalse((self.conversations / "a-missing.json").exists())
@@ -104,7 +112,9 @@ class UnavailableConversationRecoveryTests(unittest.TestCase):
 
     def test_healthy_queued_only_job_still_starts(self) -> None:
         storage.create_conversation("queued-conversation")
-        consultation_journal.create_job("queued", "queued-conversation", "Next", None, "queued")
+        consultation_journal.create_job(
+            "queued", "queued-conversation", "Next", None, "queued"
+        )
 
         self.manager.restore_incomplete_consultations()
 
@@ -112,7 +122,9 @@ class UnavailableConversationRecoveryTests(unittest.TestCase):
         self.assertEqual(self.submit.call_args.args[1].id, "queued")
         self.assertEqual(self.manager.get_queue("queued-conversation"), [])
 
-    def test_legacy_incomplete_conversation_without_journal_still_recovers(self) -> None:
+    def test_legacy_incomplete_conversation_without_journal_still_recovers(
+        self,
+    ) -> None:
         self.create_active("legacy", "legacy-job")
         consultation_journal.delete_job("legacy-job")
         self.simulate_restart()

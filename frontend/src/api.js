@@ -11,6 +11,7 @@ export const API_AUTH_ERROR_EVENT = "llm-council:api-auth-error";
 const pathSegment = (value) => encodeURIComponent(String(value));
 const conversationPath = (conversationId) =>
 	`/api/conversations/${pathSegment(conversationId)}`;
+const skillPath = (skillId) => `/api/skills/${pathSegment(skillId)}`;
 
 const notifyApiAuthError = (message, detail = {}) => {
 	if (
@@ -37,6 +38,78 @@ const isSecureContext = () => {
 };
 
 /**
+ * Auth failure latch. Once the backend rejects the key (401/403), rate-limits it
+ * (429), or no key is stored, we remember the failure and short-circuit every
+ * subsequent request without touching the network. This stops polling loops from
+ * hammering the backend and tripping the server-side brute-force lockout. The
+ * latch clears when the user submits a new key (or, for 429, once the lockout
+ * window expires).
+ */
+let authFailure = null;
+
+const makeAuthError = (type, retryAfterSeconds) => {
+	const error = new Error(type);
+	if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+		error.retryAfterSeconds = retryAfterSeconds;
+	}
+	return error;
+};
+
+const throwAuthError = (type, retryAfterSeconds) => {
+	const error = makeAuthError(type, retryAfterSeconds);
+	notifyApiAuthError(type, {
+		retryAfterSeconds: error.retryAfterSeconds,
+	});
+	throw error;
+};
+
+/**
+ * Single-flight auth probe. The first request of a session is sent alone (as a
+ * cheap GET /api/config) and every concurrent request waits for it instead of
+ * firing in parallel. A wrong key therefore costs the backend exactly one
+ * failed attempt, not a burst of many that could trip the brute-force lockout.
+ * The probe is cached for the session and cleared whenever the auth latch is
+ * cleared.
+ */
+let authProbe = null;
+
+const probeAuth = () => {
+	if (authProbe) return authProbe;
+	authProbe = (async () => {
+		const apiKey = apiKeyStorage.get();
+		if (!apiKey) {
+			authFailure = { type: "NO_API_KEY" };
+			throwAuthError("NO_API_KEY");
+		}
+
+		const response = await fetch(`${API_BASE}/api/config`, {
+			headers: { [API_KEY_HEADER]: apiKey },
+		});
+
+		if (response.status === 429) {
+			const retryAfter = response.headers.get("Retry-After");
+			const retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
+			authFailure = {
+				type: "API_KEY_RATE_LIMITED",
+				retryAfterSeconds,
+				expiresAt:
+					Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+						? Date.now() + retryAfterSeconds * 1000
+						: undefined,
+			};
+			throwAuthError("API_KEY_RATE_LIMITED", retryAfterSeconds);
+		}
+
+		if (response.status === 401 || response.status === 403) {
+			apiKeyStorage.clear();
+			authFailure = { type: "INVALID_API_KEY" };
+			throwAuthError("INVALID_API_KEY");
+		}
+	})();
+	return authProbe;
+};
+
+/**
  * Make an API request with the stored API key.
  * Throws typed errors for the UI to handle:
  * - 'NO_API_KEY' - No API key in storage
@@ -50,10 +123,23 @@ const apiFetch = async (path, options = {}) => {
 		throw new Error("INSECURE_CONTEXT");
 	}
 
+	// Don't hit the network again once we know auth is broken.
+	if (authFailure) {
+		if (authFailure.expiresAt && Date.now() >= authFailure.expiresAt) {
+			authFailure = null;
+			authProbe = null;
+		} else {
+			throwAuthError(authFailure.type, authFailure.retryAfterSeconds);
+		}
+	}
+
+	// Collapse parallel requests behind one auth check.
+	await probeAuth();
+
 	const apiKey = apiKeyStorage.get();
 	if (!apiKey) {
-		notifyApiAuthError("NO_API_KEY");
-		throw new Error("NO_API_KEY");
+		authFailure = { type: "NO_API_KEY" };
+		throwAuthError("NO_API_KEY");
 	}
 
 	const response = await fetch(`${API_BASE}${path}`, {
@@ -67,21 +153,22 @@ const apiFetch = async (path, options = {}) => {
 	if (response.status === 429) {
 		const retryAfter = response.headers.get("Retry-After");
 		const retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
-		const error = new Error("API_KEY_RATE_LIMITED");
-		if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
-			error.retryAfterSeconds = retryAfterSeconds;
-		}
-		notifyApiAuthError("API_KEY_RATE_LIMITED", {
-			retryAfterSeconds: error.retryAfterSeconds,
-		});
-		throw error;
+		authFailure = {
+			type: "API_KEY_RATE_LIMITED",
+			retryAfterSeconds,
+			expiresAt:
+				Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+					? Date.now() + retryAfterSeconds * 1000
+					: undefined,
+		};
+		throwAuthError("API_KEY_RATE_LIMITED", retryAfterSeconds);
 	}
 
 	// Auto-clear on auth failure and throw typed error
 	if (response.status === 401 || response.status === 403) {
 		apiKeyStorage.clear();
-		notifyApiAuthError("INVALID_API_KEY");
-		throw new Error("INVALID_API_KEY");
+		authFailure = { type: "INVALID_API_KEY" };
+		throwAuthError("INVALID_API_KEY");
 	}
 
 	return response;
@@ -201,11 +288,155 @@ export const api = {
 	},
 
 	/**
+	 * List installed agent skills.
+	 * @returns {Promise<{skills: object[]}>}
+	 */
+	async listSkills() {
+		const response = await apiFetch("/api/skills");
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to list skills"),
+			);
+		}
+		return response.json();
+	},
+
+	async setSkillSources(sources) {
+		const response = await apiFetch("/api/skills/sources", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(sources),
+		});
+		if (!response.ok)
+			throw new Error(
+				await parseErrorDetail(response, "Failed to update skill sources"),
+			);
+		return response.json();
+	},
+
+	/**
+	 * Upload an agent skill as a .zip archive.
+	 * The File is sent as the raw request body (no multipart).
+	 * A 409 (skill id already exists) throws an Error carrying `status` 409 and
+	 * `existing` (the existing skill summary) so the caller can offer to replace.
+	 * @param {File|Blob} file - The .zip archive
+	 * @param {{filename?: string, replace?: boolean}} [options]
+	 * @returns {Promise<{skill: object, replaced: boolean}>}
+	 */
+	async uploadSkill(file, { filename, replace = false } = {}) {
+		const params = new URLSearchParams();
+		const resolvedFilename = filename || file?.name;
+		if (resolvedFilename) {
+			params.set("filename", resolvedFilename);
+		}
+		if (replace) {
+			params.set("replace", "true");
+		}
+		const query = params.toString();
+		const response = await apiFetch(`/api/skills${query ? `?${query}` : ""}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/zip",
+			},
+			body: file,
+		});
+
+		if (response.status === 409) {
+			const payload = await response.json().catch(() => null);
+			const detail = payload?.detail;
+			const error = new Error(
+				typeof detail === "string" && detail.trim()
+					? detail
+					: "A skill with this name already exists",
+			);
+			error.status = 409;
+			error.existing = payload?.existing || null;
+			throw error;
+		}
+
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to upload skill"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Get the detail record for one skill.
+	 * @param {string} skillId - The skill id
+	 */
+	async getSkill(skillId) {
+		const response = await apiFetch(skillPath(skillId));
+		if (!response.ok) {
+			throw new Error(await parseErrorDetail(response, "Failed to get skill"));
+		}
+		return response.json();
+	},
+
+	/**
+	 * Get the raw SKILL.md text for one skill.
+	 * @param {string} skillId - The skill id
+	 * @returns {Promise<{markdown: string}>}
+	 */
+	async getSkillMarkdown(skillId) {
+		const response = await apiFetch(`${skillPath(skillId)}/markdown`);
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to get skill markdown"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Enable or disable a skill.
+	 * @param {string} skillId - The skill id
+	 * @param {boolean} enabled - Whether the skill can be selected
+	 */
+	async setSkillEnabled(skillId, enabled) {
+		const response = await apiFetch(skillPath(skillId), {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ enabled }),
+		});
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to update skill"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
+	 * Delete a skill and its stored bundle.
+	 * @param {string} skillId - The skill id
+	 * @returns {Promise<{status: string, deleted: boolean}>}
+	 */
+	async deleteSkill(skillId) {
+		const response = await apiFetch(skillPath(skillId), {
+			method: "DELETE",
+		});
+		if (!response.ok) {
+			throw new Error(
+				await parseErrorDetail(response, "Failed to delete skill"),
+			);
+		}
+		return response.json();
+	},
+
+	/**
 	 * Send a message in a conversation.
 	 * Returns immediately with consultation_id and status (started/queued).
 	 * Use getConsultationStatus to poll for results.
+	 * @param {string} conversationId - The conversation ID
+	 * @param {string} content - The message text
+	 * @param {string} [negativePrompt] - Optional negative-mode prompt
+	 * @param {string[]} [skillIds] - Optional agent skill ids to apply
 	 */
-	async sendMessage(conversationId, content, negativePrompt) {
+	async sendMessage(conversationId, content, negativePrompt, skillIds) {
 		const response = await apiFetch(
 			`${conversationPath(conversationId)}/message`,
 			{
@@ -216,6 +447,8 @@ export const api = {
 				body: JSON.stringify({
 					content,
 					negative_prompt: negativePrompt || undefined,
+					skill_ids:
+						Array.isArray(skillIds) && skillIds.length ? skillIds : undefined,
 				}),
 			},
 		);
@@ -432,11 +665,21 @@ export const api = {
 	},
 
 	/**
-	 * Get consultation status for a conversation.
+	 * Get consultation status (including the message queue) for a conversation.
+	 * Pass {wait, cursor} to long-poll: the server holds the request until the
+	 * snapshot changes from `cursor` or the wait window lapses, then returns
+	 * the full snapshot with a fresh `cursor`.
+	 * @param {string} conversationId - The conversation ID
+	 * @param {{wait?: number, cursor?: string, signal?: AbortSignal}} [options]
 	 */
-	async getConsultationStatus(conversationId) {
+	async getConsultationStatus(conversationId, { wait, cursor, signal } = {}) {
+		const params = new URLSearchParams();
+		if (wait) params.set("wait", String(wait));
+		if (cursor) params.set("cursor", cursor);
+		const query = params.toString();
 		const response = await apiFetch(
-			`${conversationPath(conversationId)}/consultation/status`,
+			`${conversationPath(conversationId)}/consultation/status${query ? `?${query}` : ""}`,
+			{ signal },
 		);
 		if (!response.ok) {
 			throw new Error("Failed to get consultation status");
@@ -445,23 +688,19 @@ export const api = {
 	},
 
 	/**
-	 * Get message queue for a conversation.
-	 */
-	async getConversationQueue(conversationId) {
-		const response = await apiFetch(
-			`${conversationPath(conversationId)}/queue`,
-		);
-		if (!response.ok) {
-			throw new Error("Failed to get conversation queue");
-		}
-		return response.json();
-	},
-
-	/**
 	 * Get global consultation system status.
+	 * Supports the same {wait, cursor} long-poll options as getConsultationStatus.
+	 * @param {{wait?: number, cursor?: string, signal?: AbortSignal}} [options]
 	 */
-	async getGlobalConsultationStatus() {
-		const response = await apiFetch("/api/consultations/status");
+	async getGlobalConsultationStatus({ wait, cursor, signal } = {}) {
+		const params = new URLSearchParams();
+		if (wait) params.set("wait", String(wait));
+		if (cursor) params.set("cursor", cursor);
+		const query = params.toString();
+		const response = await apiFetch(
+			`/api/consultations/status${query ? `?${query}` : ""}`,
+			{ signal },
+		);
 		if (!response.ok) {
 			throw new Error("Failed to get consultation status");
 		}
@@ -482,5 +721,14 @@ export const api = {
 			throw new Error("Failed to cancel consultation");
 		}
 		return response.json();
+	},
+
+	/**
+	 * Clear any remembered auth failure so the next request retries the backend.
+	 * Call this after the user submits a new API key.
+	 */
+	resetAuthState() {
+		authFailure = null;
+		authProbe = null;
 	},
 };

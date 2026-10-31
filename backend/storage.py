@@ -6,8 +6,9 @@ import re
 import tempfile
 import threading
 from datetime import datetime
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from .config import DATA_DIR
 
 SAFE_STORAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -721,6 +722,9 @@ def list_incomplete_assistant_messages() -> List[Dict[str, Any]]:
                         "content": user_message,
                         "negative_prompt": (
                             (metadata.get("resume") or {}).get("negative_prompt")
+                        ),
+                        "skill_ids": list(
+                            (metadata.get("resume") or {}).get("skill_ids") or []
                         ),
                         "consultation_id": metadata.get("consultation_id"),
                         "status": status,

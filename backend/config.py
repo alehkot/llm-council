@@ -55,14 +55,17 @@ if not OPENROUTER_API_KEY:
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 if not API_AUTH_KEY:
     raise ValueError(
-        "API_AUTH_KEY environment variable not set. "
-        "Please add it to your .env file."
+        "API_AUTH_KEY environment variable not set. Please add it to your .env file."
     )
 
 # Basic brute-force protection for API auth key
 API_KEY_BRUTEFORCE_MAX_ATTEMPTS = _get_int_env("API_KEY_BRUTEFORCE_MAX_ATTEMPTS", 8)
-API_KEY_BRUTEFORCE_WINDOW_SECONDS = _get_int_env("API_KEY_BRUTEFORCE_WINDOW_SECONDS", 300)
-API_KEY_BRUTEFORCE_LOCKOUT_SECONDS = _get_int_env("API_KEY_BRUTEFORCE_LOCKOUT_SECONDS", 300)
+API_KEY_BRUTEFORCE_WINDOW_SECONDS = _get_int_env(
+    "API_KEY_BRUTEFORCE_WINDOW_SECONDS", 300
+)
+API_KEY_BRUTEFORCE_LOCKOUT_SECONDS = _get_int_env(
+    "API_KEY_BRUTEFORCE_LOCKOUT_SECONDS", 300
+)
 if API_KEY_BRUTEFORCE_MAX_ATTEMPTS < 0:
     raise ValueError("API_KEY_BRUTEFORCE_MAX_ATTEMPTS must be >= 0")
 if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
@@ -73,17 +76,35 @@ if API_KEY_BRUTEFORCE_MAX_ATTEMPTS > 0:
 
 # Council members - list of OpenRouter model identifiers
 DEFAULT_COUNCIL_MODELS = [
-    "openai/gpt-5.5",
+    "openai/gpt-6-astra",
     "google/gemini-3.1-pro-preview",
-    "anthropic/claude-opus-4.7",
-    "x-ai/grok-4.3",
-    "moonshotai/kimi-k2.6",
-    "deepseek/deepseek-v4-pro",
+    "anthropic/claude-opus-5",
+    "x-ai/grok-4.6",
+    "moonshotai/kimi-k3",
+    "deepseek/deepseek-v4-pro-0813",
 ]
 COUNCIL_MODELS = _get_csv_env("COUNCIL_MODELS", DEFAULT_COUNCIL_MODELS)
 
-# Chairman model - synthesizes final response
-CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "google/gemini-3.1-pro-preview"
+# Chairman model - 1M-token context for final synthesis.
+CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL") or "anthropic/claude-fable-5.1"
+
+# CLI modes use the installed CLI's subscription login and model selection.
+SYNTHESIS_BACKEND = os.getenv("SYNTHESIS_BACKEND", "codex").lower()
+if SYNTHESIS_BACKEND not in {"openrouter", "codex", "claude"}:
+    raise ValueError("SYNTHESIS_BACKEND must be openrouter, codex, or claude")
+SYNTHESIS_AGENT_MODEL = os.getenv("SYNTHESIS_AGENT_MODEL", "gpt-6-astra").strip()
+SYNTHESIS_AGENT_EFFORT = os.getenv("SYNTHESIS_AGENT_EFFORT", "xhigh").strip()
+if SYNTHESIS_AGENT_EFFORT not in {"low", "medium", "high", "xhigh", "max"}:
+    raise ValueError("Invalid SYNTHESIS_AGENT_EFFORT")
+SYNTHESIS_AGENT_DIR = os.getenv("SYNTHESIS_AGENT_DIR", "data/synthesis")
+SYNTHESIS_AGENT_TIMEOUT_SECONDS = _get_int_env("SYNTHESIS_AGENT_TIMEOUT_SECONDS", 1800)
+if SYNTHESIS_AGENT_TIMEOUT_SECONDS <= 0:
+    raise ValueError("SYNTHESIS_AGENT_TIMEOUT_SECONDS must be positive")
+SYNTHESIS_MODEL = (
+    CHAIRMAN_MODEL
+    if SYNTHESIS_BACKEND == "openrouter"
+    else f"{SYNTHESIS_BACKEND}-cli/{SYNTHESIS_AGENT_MODEL or 'default'}"
+)
 
 # Model for prompt refinement (defaults to chairman)
 PROMPT_REFINEMENT_MODEL = os.getenv("PROMPT_REFINEMENT_MODEL") or CHAIRMAN_MODEL
@@ -100,14 +121,19 @@ PAIRWISE_RANKING_ENABLED = _get_bool_env("PAIRWISE_RANKING_ENABLED")
 
 # OpenRouter API endpoint
 OPENROUTER_API_URL = (
-    os.getenv("OPENROUTER_API_URL")
-    or "https://openrouter.ai/api/v1/chat/completions"
+    os.getenv("OPENROUTER_API_URL") or "https://openrouter.ai/api/v1/chat/completions"
 )
 
 # OpenRouter response length limit
 OPENROUTER_MAX_TOKENS = _get_int_env("OPENROUTER_MAX_TOKENS", 10000)
 if OPENROUTER_MAX_TOKENS <= 0:
     raise ValueError("OPENROUTER_MAX_TOKENS must be > 0")
+
+# Bounded extra calls for oversized inputs and interrupted prose answers.
+OPENROUTER_MAX_CONTEXT_CALLS = _get_int_env("OPENROUTER_MAX_CONTEXT_CALLS", 16)
+OPENROUTER_MAX_CONTINUATIONS = _get_int_env("OPENROUTER_MAX_CONTINUATIONS", 2)
+if OPENROUTER_MAX_CONTEXT_CALLS < 0 or OPENROUTER_MAX_CONTINUATIONS < 0:
+    raise ValueError("OpenRouter context/continuation call limits must be >= 0")
 
 # OpenRouter retry configuration
 OPENROUTER_MAX_RETRIES = _get_int_env("OPENROUTER_MAX_RETRIES", 2)
@@ -121,7 +147,9 @@ if OPENROUTER_RETRY_BASE_SECONDS <= 0:
 if OPENROUTER_RETRY_MAX_SECONDS <= 0:
     raise ValueError("OPENROUTER_RETRY_MAX_SECONDS must be > 0")
 if OPENROUTER_RETRY_MAX_SECONDS < OPENROUTER_RETRY_BASE_SECONDS:
-    raise ValueError("OPENROUTER_RETRY_MAX_SECONDS must be >= OPENROUTER_RETRY_BASE_SECONDS")
+    raise ValueError(
+        "OPENROUTER_RETRY_MAX_SECONDS must be >= OPENROUTER_RETRY_BASE_SECONDS"
+    )
 if OPENROUTER_RETRY_JITTER < 0:
     raise ValueError("OPENROUTER_RETRY_JITTER must be >= 0")
 
@@ -145,6 +173,21 @@ STREAM_TIMEOUT_SECONDS = _get_float_env("STREAM_TIMEOUT_SECONDS", 1200.0)
 if STREAM_TIMEOUT_SECONDS <= 0:
     raise ValueError("STREAM_TIMEOUT_SECONDS must be > 0")
 
+# Long-poll settings for the consultation status endpoints. A client may ask
+# the server to hold a status request open (up to the max wait) until the
+# snapshot changes from the cursor it last saw; the server re-checks the
+# snapshot at the check interval while holding.
+STATUS_LONGPOLL_MAX_WAIT_SECONDS = _get_float_env(
+    "STATUS_LONGPOLL_MAX_WAIT_SECONDS", 30.0
+)
+STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS = _get_float_env(
+    "STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS", 0.25
+)
+if STATUS_LONGPOLL_MAX_WAIT_SECONDS <= 0:
+    raise ValueError("STATUS_LONGPOLL_MAX_WAIT_SECONDS must be > 0")
+if STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS <= 0:
+    raise ValueError("STATUS_LONGPOLL_CHECK_INTERVAL_SECONDS must be > 0")
+
 # Prompt length limits (characters)
 MAX_PROMPT_CHARS = _get_int_env("MAX_PROMPT_CHARS", 15000)
 MAX_NEGATIVE_PROMPT_CHARS = _get_int_env("MAX_NEGATIVE_PROMPT_CHARS", 15000)
@@ -155,6 +198,89 @@ if MAX_NEGATIVE_PROMPT_CHARS <= 0:
     raise ValueError("MAX_NEGATIVE_PROMPT_CHARS must be > 0")
 if SYNTHESIS_CONTEXT_MAX_CHARS <= 0:
     raise ValueError("SYNTHESIS_CONTEXT_MAX_CHARS must be > 0")
+
+# -----------------------------------------------------------------------------
+# Agent skills
+# -----------------------------------------------------------------------------
+# Uploadable Agent Skills (a SKILL.md bundle plus optional references/*.md)
+# injected into the Stage 1 council prompts and the Stage 3 chairman prompt.
+# Enabled by default - unlike the feature flags above, skills cost nothing until
+# one is uploaded *and* selected for a consultation.
+SKILLS_ENABLED = _get_bool_env("SKILLS_ENABLED", "true")
+
+# Zip upload hardening limits (see backend/skills.py inspect_archive).
+SKILLS_UPLOAD_MAX_BYTES = _get_int_env("SKILLS_UPLOAD_MAX_BYTES", 5_242_880)  # 5 MiB
+SKILLS_MAX_ENTRIES = _get_int_env("SKILLS_MAX_ENTRIES", 500)
+SKILLS_MAX_UNCOMPRESSED_BYTES = _get_int_env(
+    "SKILLS_MAX_UNCOMPRESSED_BYTES", 20_971_520
+)
+SKILLS_MAX_COMPRESSION_RATIO = _get_int_env("SKILLS_MAX_COMPRESSION_RATIO", 100)
+
+# How many skills a single consultation may select, how many reference
+# documents the two-pass selector may draw from, and how many reference sections
+# it may inline across all of them. A "section" is one heading-delimited chunk of
+# a references/*.md file; selecting every section of a document equals the whole
+# file, so whole-file selections remain expressible.
+SKILLS_MAX_SELECTED = _get_int_env("SKILLS_MAX_SELECTED", 5)
+SKILLS_MAX_REFERENCES = _get_int_env("SKILLS_MAX_REFERENCES", 4)
+SKILLS_MAX_REFERENCE_SECTIONS = _get_int_env("SKILLS_MAX_REFERENCE_SECTIONS", 12)
+
+# Character budgets for the rendered <skills> block, per stage.
+SKILLS_CONTEXT_MAX_CHARS = _get_int_env("SKILLS_CONTEXT_MAX_CHARS", 48000)
+SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS = _get_int_env(
+    "SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS", 24000
+)
+
+# Two-pass reference selection: a cheap model picks which references/*.md the
+# query actually needs. When disabled, a deterministic keyword-overlap fallback
+# runs instead (no extra model call).
+SKILLS_REFERENCE_SELECTION_ENABLED = _get_bool_env(
+    "SKILLS_REFERENCE_SELECTION_ENABLED", "true"
+)
+SKILLS_REFERENCE_SELECTION_MODEL = (
+    os.getenv("SKILLS_REFERENCE_SELECTION_MODEL") or PROMPT_REFINEMENT_MODEL
+)
+
+TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY", "").strip()
+TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-latest").strip()
+SKILLS_TYPESAFE_ENABLED = _get_bool_env("SKILLS_TYPESAFE_ENABLED", "true")
+
+# Automatic skill selection: when a consultation is sent with no skills ticked in
+# the composer, pick up to SKILLS_MAX_SELECTED enabled skills whose description
+# matches the question. Explicit selections always win over auto-selection. Jev
+# is the default router. The same
+# SKILLS_REFERENCE_SELECTION_ENABLED switch gates the router: when it is off, a
+# deterministic keyword-overlap fallback runs instead.
+SKILLS_AUTO_SELECT_ENABLED = _get_bool_env("SKILLS_AUTO_SELECT_ENABLED", "true")
+SKILLS_AUTO_SELECT_MODEL = (
+    os.getenv("SKILLS_AUTO_SELECT_MODEL") or SKILLS_REFERENCE_SELECTION_MODEL
+)
+
+# Max length of a skill's frontmatter description (not an env knob).
+SKILL_DESCRIPTION_MAX_CHARS = 1024
+
+if SKILLS_UPLOAD_MAX_BYTES <= 0:
+    raise ValueError("SKILLS_UPLOAD_MAX_BYTES must be > 0")
+if SKILLS_MAX_ENTRIES <= 0:
+    raise ValueError("SKILLS_MAX_ENTRIES must be > 0")
+if SKILLS_MAX_UNCOMPRESSED_BYTES <= 0:
+    raise ValueError("SKILLS_MAX_UNCOMPRESSED_BYTES must be > 0")
+if SKILLS_MAX_COMPRESSION_RATIO <= 0:
+    raise ValueError("SKILLS_MAX_COMPRESSION_RATIO must be > 0")
+if SKILLS_MAX_SELECTED <= 0:
+    raise ValueError("SKILLS_MAX_SELECTED must be > 0")
+if SKILLS_MAX_REFERENCES <= 0:
+    raise ValueError("SKILLS_MAX_REFERENCES must be > 0")
+if SKILLS_MAX_REFERENCE_SECTIONS <= 0:
+    raise ValueError("SKILLS_MAX_REFERENCE_SECTIONS must be > 0")
+if SKILLS_CONTEXT_MAX_CHARS <= 0:
+    raise ValueError("SKILLS_CONTEXT_MAX_CHARS must be > 0")
+if SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS <= 0:
+    raise ValueError("SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS must be > 0")
+if SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS > SKILLS_CONTEXT_MAX_CHARS:
+    raise ValueError(
+        "SKILLS_SYNTHESIS_CONTEXT_MAX_CHARS must be <= SKILLS_CONTEXT_MAX_CHARS"
+    )
 
 # Consultation thread pool size
 CONSULTATION_POOL_SIZE = _get_int_env("CONSULTATION_POOL_SIZE", 4)
