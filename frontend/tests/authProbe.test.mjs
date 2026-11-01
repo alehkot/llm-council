@@ -30,8 +30,8 @@ function harness() {
 	const requests = [];
 	const events = [];
 	const context = vm.createContext({
-		fetch: (url) => {
-			const request = { url, ...deferred() };
+		fetch: (url, options) => {
+			const request = { url, options, ...deferred() };
 			requests.push(request);
 			return request.promise;
 		},
@@ -57,6 +57,7 @@ function harness() {
 		api: context.testApi,
 		requests,
 		events,
+		getKey: () => key,
 		setKey: (value) => {
 			key = value;
 		},
@@ -161,4 +162,69 @@ test("missing credentials remain latched without network access", async () => {
 	await assert.rejects(h.api.listConversations(), /NO_API_KEY/);
 	await assert.rejects(h.api.listConversations(), /NO_API_KEY/);
 	assert.equal(h.requests.length, 0);
+});
+
+for (const phase of ["probe", "request"]) {
+	for (const status of [200, 401, 403, 429]) {
+		test(`obsolete ${phase} HTTP ${status} cannot affect replacement credentials`, async () => {
+			const h = harness();
+			const old = h.api.createConversation();
+			const oldSettled = Promise.allSettled([old]);
+			if (phase === "request") {
+				h.requests[0].resolve(reply());
+				await flush();
+			}
+			const delayed = h.requests.at(-1);
+			h.setKey("replacement-synthetic-key");
+			h.api.resetAuthState();
+			const fresh = h.api.listConversations();
+			const freshProbe = h.requests.at(-1);
+			delayed.resolve(reply(status, "30"));
+			await flush();
+			assert.equal(h.getKey(), "replacement-synthetic-key");
+			assert.equal(
+				h.events.length,
+				0,
+				"obsolete responses must not reopen login or lock out the new key",
+			);
+			assert.equal(
+				h.requests.length,
+				phase === "probe" ? 2 : 3,
+				"old work must not be replayed with the new key",
+			);
+			assert.equal((await oldSettled)[0].reason?.name, "AbortError");
+			freshProbe.resolve(reply());
+			await flush();
+			assert.equal(
+				h.requests.at(-1).options.headers["X-API-Key"],
+				"replacement-synthetic-key",
+			);
+			h.requests.at(-1).resolve(reply());
+			await fresh;
+		});
+	}
+}
+
+test("reset fences a delayed probe even when the same key is re-entered", async () => {
+	const h = harness();
+	const old = h.api.createConversation();
+	const settled = Promise.allSettled([old]);
+	h.api.resetAuthState();
+	h.requests[0].resolve(reply());
+	await flush();
+	assert.equal(h.requests.length, 1);
+	assert.equal((await settled)[0].reason?.name, "AbortError");
+});
+
+test("clearing credentials while a probe waits cannot send a queued mutation", async () => {
+	const h = harness();
+	const old = h.api.createConversation();
+	const settled = Promise.allSettled([old]);
+	h.setKey(null);
+	h.api.resetAuthState();
+	h.requests[0].resolve(reply());
+	await flush();
+	assert.equal(h.requests.length, 1);
+	assert.equal(h.events.length, 0);
+	assert.equal((await settled)[0].reason?.name, "AbortError");
 });

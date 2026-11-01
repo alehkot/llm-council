@@ -213,6 +213,7 @@ function App() {
 	// Handle API errors that require re-authentication
 	const handleApiError = useCallback(
 		(err) => {
+			if (err.name === "AbortError") return true;
 			if (err.message === "NO_API_KEY" || err.message === "INVALID_API_KEY") {
 				setApiKeyError(
 					err.message === "INVALID_API_KEY"
@@ -1390,6 +1391,7 @@ function App() {
 
 	const handleApiKeyClear = useCallback(() => {
 		apiKeyStorage.clear();
+		api.resetAuthState();
 		setHasApiKey(false);
 		setShowApiKeyModal(true);
 		setConversations([]);

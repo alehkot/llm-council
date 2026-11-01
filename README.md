@@ -648,6 +648,21 @@ checks at desktop/mobile viewport sizes. The latter imports the real API module
 with synthetic responses; it is not a rendered UI or live-provider evaluation.
 See [Fetch rejection behavior](https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch).
 
+Authentication resets also fence outstanding probes and requests. Delayed responses
+from the previous credential generation cannot clear a replacement key, latch its
+session as invalid/rate-limited, or send queued work under that replacement key.
+Explicitly clearing credentials invalidates outstanding work even when the same
+key is later entered again. Obsolete requests reject as `AbortError`, without an
+authentication notification or automatic mutation retry. Current-session failures
+still retain the existing latch and cooldown behavior.
+
+Run `node frontend/tests/auth-replacement.browser.mjs` with the browser variables
+above for the rendered desktop/mobile replacement regression. These synthetic
+checks do not exercise real credentials or providers. The ownership fence acts at
+response arrival; it does not cancel server-side work already accepted, nor does
+it fence response-body parsing that began before credentials changed.
+See [React's guidance on ignoring obsolete asynchronous results](https://react.dev/reference/react/useEffect#fetching-data-with-effects).
+
 ### Synthesis through a local subscription CLI
 
 Stage 3 defaults to `SYNTHESIS_BACKEND=codex`, using `gpt-6-astra` with

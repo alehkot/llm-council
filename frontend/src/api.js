@@ -46,6 +46,20 @@ const isSecureContext = () => {
  * window expires).
  */
 let authFailure = null;
+let authGeneration = 0;
+
+// Requests belong to the credentials present when they started. A delayed
+// response must not clear a replacement key, relatch auth, or send old work
+// under a newly entered key. This never retries mutations automatically.
+const assertCurrentAuth = (generation, key) => {
+	if (generation !== authGeneration || key !== apiKeyStorage.get()) {
+		const error = new Error(
+			"Authentication changed; obsolete request discarded",
+		);
+		error.name = "AbortError";
+		throw error;
+	}
+};
 
 const makeAuthError = (type, retryAfterSeconds) => {
 	const error = new Error(type);
@@ -73,10 +87,9 @@ const throwAuthError = (type, retryAfterSeconds) => {
  */
 let authProbe = null;
 
-const probeAuth = () => {
+const probeAuth = (generation, apiKey) => {
 	if (authProbe) return authProbe;
 	const probe = (async () => {
-		const apiKey = apiKeyStorage.get();
 		if (!apiKey) {
 			authFailure = { type: "NO_API_KEY" };
 			throwAuthError("NO_API_KEY");
@@ -86,6 +99,7 @@ const probeAuth = () => {
 			headers: { [API_KEY_HEADER]: apiKey },
 		});
 
+		assertCurrentAuth(generation, apiKey);
 		if (response.status === 429) {
 			const retryAfter = response.headers.get("Retry-After");
 			const retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
@@ -140,10 +154,13 @@ const apiFetch = async (path, options = {}) => {
 		}
 	}
 
-	// Collapse parallel requests behind one auth check.
-	await probeAuth();
-
+	const generation = authGeneration;
 	const apiKey = apiKeyStorage.get();
+	// Collapse parallel requests behind one auth check, then recheck ownership
+	// before a queued operation can use the credentials.
+	await probeAuth(generation, apiKey);
+	assertCurrentAuth(generation, apiKey);
+
 	if (!apiKey) {
 		authFailure = { type: "NO_API_KEY" };
 		throwAuthError("NO_API_KEY");
@@ -157,6 +174,7 @@ const apiFetch = async (path, options = {}) => {
 		},
 	});
 
+	assertCurrentAuth(generation, apiKey);
 	if (response.status === 429) {
 		const retryAfter = response.headers.get("Retry-After");
 		const retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
@@ -735,6 +753,7 @@ export const api = {
 	 * Call this after the user submits a new API key.
 	 */
 	resetAuthState() {
+		authGeneration++;
 		authFailure = null;
 		authProbe = null;
 	},
