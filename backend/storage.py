@@ -582,6 +582,9 @@ def clear_conversations() -> int:
         Number of files deleted.
     """
     with _storage_lock:
+        from . import run_admission
+
+        run_admission.tombstone_all()
         data_path = Path(DATA_DIR)
         if not data_path.exists():
             return 0
@@ -612,6 +615,9 @@ def delete_conversation(conversation_id: str) -> bool:
             path = Path(get_conversation_path(conversation_id))
         except ValueError:
             return False
+        from . import run_admission
+
+        run_admission.tombstone_conversation(conversation_id)
         try:
             path.unlink()
             return True

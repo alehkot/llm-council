@@ -63,17 +63,53 @@ detached from the input. Reading a legacy conversation no longer rewrites its
 JSON file; an explicit later mutation can save the normalized representation.
 Terminal escaping belongs to the future client, not saved result normalization.
 
+## Internal admission foundation (not an HTTP API)
+
+`ConsultationManager.prepare_cli_run` now serializes a validated request under
+its existing lock and `backend/run_admission.py` stores the canonical request and
+fixed conversation reference before initializing that conversation. A repeated
+identity/payload returns the same admission; a different payload conflicts. A
+retry repairs interruption before conversation creation or before acknowledgment
+without adding another user message or assistant placeholder. Missing or damaged
+accepted state fails closed for repair rather than being overwritten.
+
+Receipts live in `run_receipts/` beside the conversation directory, separately
+from disposable execution journals. They survive journal cleanup and retain the
+accepted request even when a synthetic saved result becomes terminal. Internal
+`get`/`list_receipts` read detached records with bounded result counts; these are
+not the proposed public lifecycle snapshots/history endpoint. The `prepared`
+phase means **not scheduled**, not queued or running. It is deliberately excluded
+from legacy startup recovery. No provider call, HTTP creation route or new worker
+scheduling is introduced by this milestone.
+
+Single and bulk conversation deletion serialize against preparation using the
+existing storage lock. They write a minimal ID/deletion-time tombstone before
+removing the conversation, including partially initialized admissions. Request
+text, negative prompt and skills are removed from that receipt. A delayed retry
+cannot resurrect deleted work. If the tombstone cannot be written, deletion fails
+rather than removing the evidence needed to reject a retry. A later filesystem
+unlink failure may leave a tombstoned conversation file for an explicit repeat
+of deletion; preparation will not reuse it.
+
+This is the existing single-process JSON architecture, using its atomic file
+replacement writer. Tests establish process-interruption repair, not filesystem
+power-loss durability or cross-process concurrent writers. Do not manually remove
+receipt files to retry a run. Skill validation/canonicalization, effective model
+provenance, execution handoff, durable prompt continuation and explicit retry must
+be integrated before exposing these operations. API version remains **0**.
+
 ## Verification and next step
 
-Offline fixtures exercise all four prompt field types, repeated prompt identities,
-strict request/answer types, lifecycle ownership constraints, legacy export
-references, stable normalization, byte-for-byte read preservation, and explicit
-writes. These are not end-to-end durable run or CLI acceptance tests.
+Offline fixtures exercise wire models and legacy normalization. Admission tests
+cover duplicate identities, exact text/defaults, crash windows, corruption,
+terminal journal cleanup, deletion, history and startup isolation. They do not
+establish exactly-once provider execution or end-to-end CLI orchestration.
 
-Next: implement durable idempotent run creation/lookup using the existing manager
-lock/journal/storage, with lost-reply, duplicate, restart, terminal receipt and
-deletion-tombstone tests **before** connecting a Rust client. Keep version 0 until
-the complete advertised contract is safe.
+Next: persistent execution checkpoints and safe admission-to-worker handoff,
+including resolved skills/settings provenance, before public create/lookup/history
+routes or a Rust client. Keep the second PLAN item incomplete until its HTTP and
+execution acceptance cases pass; do not advertise version 1 early.
 
-Implementation reference: Pydantic [strict fields](https://docs.pydantic.dev/latest/concepts/strict_mode/)
-and [forbidden extra data](https://docs.pydantic.dev/latest/concepts/models/#extra-data).
+Implementation references: Pydantic [strict fields](https://docs.pydantic.dev/latest/concepts/strict_mode/),
+[forbidden extra data](https://docs.pydantic.dev/latest/concepts/models/#extra-data),
+and Python [file synchronization and atomic replacement](https://docs.python.org/3.10/library/os.html).

@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, cast
 
-from . import consultation_journal, storage
+from . import consultation_journal, run_admission, storage
 from .config import (
     CONSULTATION_POOL_SIZE,
     DELIBERATION_ENABLED,
@@ -23,6 +23,7 @@ from .config import (
     PAIRWISE_RANKING_ENABLED,
     PROMPT_REFINEMENT_ENABLED,
 )
+from .consultation_contract import CreateRunRequest
 from .interactive import deserialize_prompt_responses
 
 
@@ -478,6 +479,15 @@ class ConsultationManager:
             resume_from_storage=resume_from_storage,
         )
         return state
+
+    def prepare_cli_run(self, run_id: str, request: CreateRunRequest) -> Dict[str, Any]:
+        """Internal durable admission only; never schedule legacy execution.
+
+        No HTTP route calls this until persistent interaction/retry is supported.
+        Lock order is manager then storage, matching existing submission paths.
+        """
+        with self._lock:
+            return run_admission.prepare(run_id, request)
 
     def submit(
         self,

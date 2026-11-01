@@ -8,7 +8,8 @@ submission, durable human input, and recovery require it.
 
 Date: 2026-11-01. Decision status: **implementation authorized**.
 Implementation started with the backend contract milestone; see
-[contract status](CONTRACT.md). Durable run operations and the Rust client remain
+[contract status](CONTRACT.md). Internal durable admission is implemented without
+worker scheduling; public durable run operations and the Rust client remain
 unimplemented. The decisions below were confirmed with the user; command spellings,
 API shapes, and module boundaries are engineering proposals for implementation.
 
@@ -31,7 +32,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
 - [ ] Add durable, idempotent run creation and lookup/history by consultation ID,
   reusing `consultation_manager.py`, `consultation_journal.py`, and `storage.py`.
   Cover lost acknowledgments, concurrent duplicates, restart, completed runs,
-  and deletion before connecting the Rust client.
+  and deletion before connecting the Rust client. Internal admission/receipt
+  persistence is complete; public routes, execution handoff and full run snapshots
+  remain pending (see [contract boundaries](CONTRACT.md)).
 - [ ] Implement persistent human-input checkpoints in `langgraph_flow.py` and
   the manager. Persist the exact prompt and resume location, release the worker
   while waiting, and consume each accepted answer once. Recover uncertain model
