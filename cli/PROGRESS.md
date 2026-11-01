@@ -2,72 +2,90 @@
 
 ## Baseline and preserved work
 
-- Working branch: `development`, verified existing Repo Care branch, starting at
-  [77b3250249aa791871a41eec6f5b4933eb8ef2a6](https://github.com/alehkot/llm-council/commit/77b3250249aa791871a41eec6f5b4933eb8ef2a6).
+- Persistent working branch: `development`, starting at
+  [cd2f12f1abbea95d60311c09b3b68d3ba70aa189](https://github.com/alehkot/llm-council/commit/cd2f12f1abbea95d60311c09b3b68d3ba70aa189).
 - Observed upstream `main`:
   [96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
-  Its separate ACP transport/model-routing changes are not integrated or replaced
-  by this milestone. Existing development reliability fixes remain intact.
+  Its ACP transport/model-routing changes remain separate and preserved. No
+  upstream integration was required: the manager baseline is identical, and the
+  storage differences are the earlier development legacy-read fix.
 - Implementation commit:
-  [95221bf91053e3f5a6d44bfe2869adca3902cd4b](https://github.com/alehkot/llm-council/commit/95221bf91053e3f5a6d44bfe2869adca3902cd4b),
-  tree `45c56271e8ac827e4715b9f20324911636d679d6`.
+  [dcfd0770159abce0f5215e0c2772155fe336999b](https://github.com/alehkot/llm-council/commit/dcfd0770159abce0f5215e0c2772155fe336999b),
+  tree `d5356dce2d104dbf26fd891e2573db47fcd67ec3`.
   This checkpoint's containing commit is a documentation-only descendant. The
-  publication receipt/checkpoint outside Git records its exact final head and
-  final remote observations, avoiding a self-referential commit hash here.
+  separate publication receipt records its exact final SHA, branch publication
+  and final remote CI observations, avoiding a self-referential hash here.
 
 ## Completed
 
-The first PLAN action item is complete: draft typed backend request/response
-contracts, run lifecycle separate from stage, prompt-instance identity, synthetic
-compatibility fixtures, and `/api/config` version negotiation. See [CONTRACT.md](CONTRACT.md)
-for exact scope. **Version 0 remains advertised; durable CLI operations and the
-Rust client do not exist yet.**
+The original typed-contract milestone remains complete, including the pure
+legacy Stage 3 read adapter and config version negotiation. The second PLAN item
+is now **partially implemented**: internal durable admission/receipt persistence.
 
-Also resolved a confirmed legacy compatibility defect required by the plan:
-reading an old flat Stage 3 record rewrote the file, replaced its timestamp, and
-lost extra evidence such as usage. The shared pure normalization adapter preserves
-original data and provides the normalized view without read-triggered writes.
-Explicit later mutations continue to persist normalized data.
+- Manager-serialized canonical request identity is persisted before creating a
+  fixed conversation and its user/assistant pair. Concurrent duplicate requests
+  share the same receipt; changed payloads conflict.
+- Interrupted initialization can resume before conversation creation or before
+  acknowledgment without duplication. Corrupt, mismatched or externally removed
+  accepted state fails closed rather than being overwritten.
+- Receipts survive disposable journal cleanup and synthetic terminal-result
+  persistence. Reads return detached records without rewriting files, including
+  when today's configurable prompt limit is lower than the accepted request.
+- Single/bulk deletion writes a minimal tombstone before removing conversation
+  data, erases the receipt's request payload, and prevents delayed resurrection.
+  Shared storage locking covers creation/deletion races and partial admission.
+- No public run endpoint, provider scheduling or new recovery execution exists.
+  The internal `prepared` phase is deliberately not a legacy resumable status.
+  **API version remains 0**, and no Rust client is implemented.
+
+See [CONTRACT.md](CONTRACT.md) for boundaries and failure/recovery semantics.
 
 ## Verification
 
-- 234 backend tests passed with outbound networking forbidden, including 15 new
-  contract/compatibility tests. Test code uses synthetic data and credentials.
-- 81 existing Node tests passed.
-- Repository-wide Ruff format/check and Git whitespace checks passed.
+- 261 backend tests passed under Python 3.10.22 with outbound network access
+  forbidden by the offline runner; 27 new admission tests use synthetic data.
+- New coverage includes 32 concurrent duplicates, two fresh interpreter
+  processes, both initialization interruption windows, settings changes,
+  journal cleanup, malformed data, deletion races and payload-free tombstones.
+- 81 existing Node tests passed; no frontend implementation changed.
+- Repository-wide Ruff format/check and Git whitespace checks passed. Ruff used
+  the existing Python 3.13 environment; backend runtime tests used Python 3.10.
 - Backend startup and graceful shutdown passed with an empty synthetic data
-  directory. Python 3.13.5 / Pydantic 2.12.5, reused existing locked dependencies;
-  Python 3.10 was not separately exercised.
-- Negative control on the starting storage code reproduced the legacy rewrite,
-  replaced timestamp and lost usage; final regressions preserve all three.
-- Independent full-change review and additional adversarial probes found no
-  introduced moderate-or-higher issue; final tests-only delta re-reviewed. A clean
-  review is not a guarantee of correctness.
+  directory and unused synthetic credentials.
+- Independent full-change review and adversarial probes found receipt-reference
+  validation and distinct deletion-target issues during implementation; both
+  were fixed and covered. Final review reported no moderate-or-higher introduced
+  findings. Additional independent checks included 48 concurrent duplicate
+  preparations and 47 admission/contract/legacy-recovery tests. A clean review is
+  not a correctness guarantee.
 - No local full builds, live-provider calls, Rust runtime, macOS Keychain or
-  browser verification ran. This backend-only change does not establish complete
-  consultation orchestration or model quality.
+  rendered-browser checks ran. Process-interruption tests do not establish
+  power-loss durability, cross-process concurrent writers, complete consultation
+  orchestration or exactly-once provider execution.
 
 ## CI and publication limits
 
 Exact starting development and upstream heads had no commit statuses, check runs
-or Woodpecker commit comments. The empty aggregate `pending` value did **not**
-represent an observed running build. The normal Woodpecker result for the final
-published head must be checked separately; no build pass is claimed in this
-checkpoint. No manual dispatch/rerun or CI/security setting change was made.
+or Woodpecker commit comments. Empty aggregate `pending` did **not** establish a
+running build. The checked-in workflow expects pushes on main/development; its
+normal final-SHA result must be observed separately. No build pass is claimed.
+No manual dispatch/rerun, private-runner access or CI/security setting changed.
 
 Publication uses a non-force expected-head update only after rechecking both heads;
 remote commit/tree verification and final CI evidence belong in the publication
-receipt. If publication cannot proceed, retain real-history bundle/patch and mark
-these changes local-only rather than claiming remote CI.
+receipt. If publication cannot proceed, retain genuine-history bundle/patch and
+mark branch publication unconfirmed rather than claiming remote CI.
 
 ## Next priority
 
-Implement durable idempotent run creation/lookup using the existing manager
-lock/journal/storage. Test lost replies, concurrent duplicate requests, restart,
-terminal receipts after journal cleanup and deletion tombstones before a Rust
-client can submit. Follow with exact durable prompt checkpoints, worker release,
-first-answer-wins and explicit retry/cancel revisions. Do not advertise v1 until
-its whole safety contract works. Do not add automatic paid retries.
+Implement the durable execution continuation required for persistent human input
+and explicit uncertain-work retry. Resolve/record skills and effective model
+provenance, safely hand admission to execution, release workers while waiting,
+and retain exact prompt identities/first-answer receipts. Only then expose the
+public idempotent creation/lookup/history endpoints and complete their execution
+acceptance cases. Add run-specific cancel/retry revisions before a Rust client can
+submit. Never silently reuse legacy automatic recovery or advertise version 1
+before the complete safety contract works.
 
-Research references: [Pydantic strict validation](https://docs.pydantic.dev/latest/concepts/strict_mode/)
-and [extra-field handling](https://docs.pydantic.dev/latest/concepts/models/#extra-data).
+Research: Python [file synchronization and atomic replacement](https://docs.python.org/3.10/library/os.html),
+Pydantic [strict validation](https://docs.pydantic.dev/latest/concepts/strict_mode/).
