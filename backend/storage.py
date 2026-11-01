@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import DATA_DIR
+from .results import normalize_stage3
 
 SAFE_STORAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _storage_lock = threading.RLock()
@@ -24,38 +25,6 @@ def validate_storage_id(identifier: str, label: str = "identifier") -> str:
             f"{label} must be 1-128 characters using only letters, numbers, '_' or '-'"
         )
     return identifier
-
-
-def _migrate_stage3(stage3: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Migrate old stage3 format to new multi-version format.
-
-    Old format: { model: "...", response: "..." }
-    New format: { current: {..., mode: "...", timestamp: "..."}, versions: [...] }
-    """
-    if stage3 is None:
-        return None
-
-    # Already in new format
-    if "current" in stage3 and "versions" in stage3:
-        return stage3
-
-    # Migrate from old format
-    timestamp = datetime.utcnow().isoformat()
-    # Preserve existing mode if present, otherwise default to best_of_breed
-    mode = stage3.get("mode", "best_of_breed")
-
-    version_entry = {
-        "model": stage3.get("model"),
-        "response": stage3.get("response"),
-        "mode": mode,
-        "timestamp": timestamp,
-    }
-
-    return {
-        "current": version_entry,
-        "versions": [version_entry],
-    }
 
 
 def ensure_data_dir():
@@ -122,7 +91,7 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
     Load a conversation from storage.
 
-    Automatically migrates stage3 data to the new multi-version format.
+    Returns a normalized stage3 view in memory; never rewrites files on read.
 
     Args:
         conversation_id: Unique identifier for the conversation
@@ -145,19 +114,10 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
             if stored_id != conversation_id:
                 raise ValueError("conversation id does not match filename")
 
-            # Migrate stage3 format for all assistant messages
-            migrated = False
+            # A read must not mutate historical files or invent migration dates.
             for message in conversation.get("messages", []):
                 if message.get("role") == "assistant" and message.get("stage3"):
-                    original = message["stage3"]
-                    # Check if migration is needed (old format lacks 'current' key)
-                    if "current" not in original:
-                        message["stage3"] = _migrate_stage3(original)
-                        migrated = True
-
-            # Persist migration if any changes were made
-            if migrated:
-                save_conversation(conversation)
+                    message["stage3"] = normalize_stage3(message["stage3"])
 
             return conversation
         except FileNotFoundError:
@@ -422,7 +382,7 @@ def append_stage3_version(
 
         # Ensure stage3 is in new format
         if "current" not in stage3:
-            migrated_stage3 = _migrate_stage3(stage3)
+            migrated_stage3 = normalize_stage3(stage3)
             if migrated_stage3 is None:
                 raise ValueError("Message has no stage3 data")
             stage3 = migrated_stage3

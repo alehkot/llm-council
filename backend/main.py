@@ -50,6 +50,7 @@ from .config import (
     SYNTHESIS_MODEL,
     TITLE_MODEL,
 )
+from .consultation_contract import CLI_API_VERSION
 from .consultation_manager import consultation_manager
 from .council import build_responses_for_synthesis, stage3_synthesize_final
 from .export_markdown import build_export_filename, build_markdown_export
@@ -380,6 +381,7 @@ async def list_conversations():
 async def get_config():
     """Expose selected runtime configuration to the frontend."""
     return {
+        "cli_api_version": CLI_API_VERSION,
         "negative_mode_enabled": NEGATIVE_MODE_ENABLED,
         "deliberation_enabled": DELIBERATION_ENABLED,
         "interactive_mode_enabled": INTERACTIVE_MODE_ENABLED,

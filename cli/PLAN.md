@@ -6,8 +6,10 @@ question, answer interactive prompts, follow progress, inspect member answers an
 reviews, and save or reopen results. Extend the existing backend where reliable
 submission, durable human input, and recovery require it.
 
-Date: 2026-11-01. Decision status: **clear for design review**. Implementation has
-not started. The decisions below were confirmed with the user; command spellings,
+Date: 2026-11-01. Decision status: **implementation authorized**.
+Implementation started with the backend contract milestone; see
+[contract status](CONTRACT.md). Durable run operations and the Rust client remain
+unimplemented. The decisions below were confirmed with the user; command spellings,
 API shapes, and module boundaries are engineering proposals for implementation.
 
 ## Scope
@@ -22,7 +24,7 @@ API shapes, and module boundaries are engineering proposals for implementation.
 
 ## Action items
 
-- [ ] Define typed consultation request/response contracts, prompt-instance
+- [x] Define typed consultation request/response contracts, prompt-instance
   identity, lifecycle states, and compatibility fixtures in the backend. Add a
   CLI contract version to `/api/config`; distinguish current endpoints from the
   proposed additions below.

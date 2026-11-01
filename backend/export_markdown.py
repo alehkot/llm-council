@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from . import skills
 from .config import SKILLS_CONTEXT_MAX_CHARS
+from .results import normalize_stage3
 
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -51,21 +52,6 @@ def _stage1_export_label(
         suffix += 1
     used_labels.add(label)
     return label
-
-
-def _normalize_stage3(stage3: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    if stage3 is None:
-        return None
-    if "current" in stage3 and "versions" in stage3:
-        return stage3
-
-    version = {
-        "model": stage3.get("model"),
-        "response": stage3.get("response"),
-        "mode": stage3.get("mode", "best_of_breed"),
-        "timestamp": stage3.get("timestamp"),
-    }
-    return {"current": version, "versions": [version]}
 
 
 def _append_markdown_section(
@@ -443,7 +429,7 @@ def build_markdown_export(
     stage1 = message.get("stage1") or []
     negative = message.get("negative")
     stage2 = message.get("stage2") or []
-    stage3 = _normalize_stage3(message.get("stage3"))
+    stage3 = normalize_stage3(message.get("stage3"))
     aggregate_rankings = metadata.get("aggregate_rankings") or []
     aggregate_gap_scores = metadata.get("aggregate_gap_scores") or []
     deliberation = metadata.get("deliberation") or {}

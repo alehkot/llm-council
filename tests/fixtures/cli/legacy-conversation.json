@@ -1,0 +1,15 @@
+{
+  "id": "legacy-conversation",
+  "created_at": "2020-01-02T03:04:05",
+  "title": "Legacy result",
+  "messages": [
+    {"role": "user", "content": "Original question"},
+    {"role": "assistant", "stage1": [], "stage2": [], "metadata": {}, "stage3": {
+      "model": "fake-chairman",
+      "response": "  Original **Markdown** — русский 🦫\n\u001b[31mkeep stored text\u001b[0m  ",
+      "mode": "consensus",
+      "timestamp": "2020-01-02T03:05:06",
+      "usage": {"total_tokens": 12}
+    }}
+  ]
+}

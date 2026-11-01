@@ -1,0 +1,28 @@
+{
+  "run_id": "11111111-1111-4111-8111-111111111111",
+  "conversation_id": "example-conversation",
+  "assistant_index": 1,
+  "lifecycle": "waiting_input",
+  "cursor": "opaque-snapshot-cursor",
+  "stage": "prompt_refinement",
+  "pending_prompt": {
+    "run_id": "11111111-1111-4111-8111-111111111111",
+    "instance_id": "22222222-2222-4222-8222-222222222222",
+    "prompt": {
+      "type": "interactive_prompt",
+      "prompt_id": "prompt_refinement",
+      "prompt_type": "prompt_refinement",
+      "title": "Refine your question",
+      "description": "An example prompt with every supported field type.",
+      "skip_allowed": false,
+      "fields": [
+        {"id": "choice", "type": "select", "label": "Choose", "required": true, "default": "first", "options": [{"value": "first", "label": "First"}]},
+        {"id": "areas", "type": "multi_select", "label": "Areas", "default": [], "options": [{"value": "risk", "label": "Risk"}]},
+        {"id": "details", "type": "text", "label": "Details", "default": "Сохранить текст"},
+        {"id": "confirmed", "type": "checkbox", "label": "Confirm", "default": false}
+      ]
+    }
+  },
+  "stages": {},
+  "provenance": {"council_models": ["fake-a", "fake-b"], "refine": true}
+}

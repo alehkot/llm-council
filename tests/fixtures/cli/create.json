@@ -1,0 +1,8 @@
+{
+  "content": "  Compare options — сравни варианты 🦫\nKeep the original wording.  ",
+  "negative_prompt": "Do not speculate.",
+  "skill_ids": ["example-skill"],
+  "refine": true,
+  "interaction_policy": "persistent",
+  "recovery_policy": "explicit_retry"
+}
