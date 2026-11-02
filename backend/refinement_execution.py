@@ -8,13 +8,20 @@ token. This is not exactly-once execution at the external provider.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import Field, StrictInt, StrictStr, model_validator
 
-from . import durable_refinement, run_admission, run_interaction, storage
+from . import (
+    durable_refinement,
+    run_admission,
+    run_cancellation,
+    run_interaction,
+    storage,
+)
 from .consultation_contract import PromptInstance, WireModel
 from .interactive import get_prompt_refinement_prompt
 from .refinement import RefinementState
@@ -296,10 +303,25 @@ async def suggest(
         _save(record, execution)
         ownership = (record["run_id"], str(op.attempt))
         _active.add(ownership)
+
+        async def invoke() -> dict[str, Any]:
+            # A cancellation request may win after task registration but before
+            # this child first runs. Do not enter the provider in that case.
+            with storage._storage_lock:
+                _, ready_execution = _load(run_id)
+                ready_revision, ready_input = _input(run_id)
+                if (
+                    ready_execution.operations[-1].attempt != op.attempt
+                    or ready_revision != revision
+                    or ready_input != incoming
+                ):
+                    raise ExecutionConflict("Suggestion changed before dispatch")
+            return await provider(**incoming.provider_arguments())
+
+        provider_task = asyncio.create_task(invoke())
+        run_cancellation._register(record["run_id"], str(op.attempt), provider_task)
     try:
-        result = incoming.accept_suggestion(
-            await provider(**incoming.provider_arguments())
-        )
+        result = incoming.accept_suggestion(await provider_task)
         with storage._storage_lock:
             record, execution = _load(run_id)
             current = execution.operations[-1]
@@ -338,3 +360,4 @@ async def suggest(
     finally:
         with storage._storage_lock:
             _active.discard(ownership)
+            run_cancellation._release(*ownership)

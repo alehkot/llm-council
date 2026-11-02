@@ -50,6 +50,10 @@ API shapes, and module boundaries are engineering proposals for implementation.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
   against stale clients and repeated requests; cancelling one run must leave
   other queued runs intact. Preserve the behavior of existing web submissions.
+  **Partial:** internal prepared/refinement runs now retain a durable cancellation
+  marker and interrupt only their owned local provider task; late results and
+  retries cannot resume cancelled work. Generic council-worker and public HTTP
+  cancellation integration remain pending; this item stays open.
 - [ ] Create one Cargo package under `cli/`, with a `council` binary, HTTP client,
   typed wire data, Keychain setup, and a shared monitor/resume loop. Implement
   `setup`, `ask`, and `resume` against the real backend contract first.

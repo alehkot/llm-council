@@ -25,6 +25,10 @@ class AdmissionDeleted(ValueError):
     """The identity was deleted and must never create work again."""
 
 
+class AdmissionCancelled(ValueError):
+    """This run was cancelled; retained work is not runnable."""
+
+
 class AdmissionUnavailable(RuntimeError):
     """Existing durable state needs repair; do not replace or resubmit it."""
 
@@ -62,6 +66,23 @@ def _read(run_id: str) -> dict[str, Any] | None:
         raise AdmissionUnavailable("Run receipt is invalid; repair required")
     if record["phase"] != "deleted":
         try:
+            if "cancellation" in record:
+                cancellation = record["cancellation"]
+                if (
+                    not isinstance(cancellation, dict)
+                    or set(cancellation) != {"phase", "requested_at", "completed_at"}
+                    or cancellation["phase"] not in ("cancelling", "cancelled")
+                    or not isinstance(cancellation["requested_at"], str)
+                    or record["phase"] != "prepared"
+                ):
+                    raise ValueError("Invalid cancellation marker")
+                datetime.fromisoformat(cancellation["requested_at"])
+                if cancellation["phase"] == "cancelled":
+                    if not isinstance(cancellation["completed_at"], str):
+                        raise ValueError("Invalid cancellation completion")
+                    datetime.fromisoformat(cancellation["completed_at"])
+                elif cancellation["completed_at"] is not None:
+                    raise ValueError("Cancellation is still active")
             # Validate the saved schema, not today's configurable admission
             # limits: lowering a prompt/skill limit must not hide older receipts.
             payload = record["request"]
@@ -229,6 +250,8 @@ def get_prepared(run_id: str) -> dict[str, Any]:
         if record is None or record["phase"] != "prepared":
             raise AdmissionUnavailable("Run has not completed admission")
         _validate_conversation(record)
+        if "cancellation" in record:
+            raise AdmissionCancelled("Run cancellation has been requested")
         return record
 
 

@@ -296,3 +296,38 @@ Offline MockTransport tests establish request construction, one-request behavior
 persistence/retry coordination and cancellation, not a live provider, model quality
 or native platform pass. Reference: [HTTPX transports and retry defaults](https://www.python-httpx.org/advanced/transports/)
 and [OpenRouter chat response contract](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).
+
+## Internal run-specific cancellation (prepared/refinement runs only)
+
+`run_cancellation.request(run_id)` records cancellation in that run's durable
+admission receipt before signalling its owned refinement task. The marker blocks
+new prompts, answers, continuations, suggestions and explicit retries through the
+shared prepared-run guard. It retains accepted inputs, saved prompts/results and
+provider provenance; `run_admission.get`/`list_receipts` can still read this evidence.
+The existing refinement/interaction convenience inspectors require runnable
+admission and therefore reject a cancelled run; public lifecycle/result snapshots
+remain future work. Repeating identical admission returns the retained receipt,
+not new work. Normal deletion still erases the payload and retains a tombstone.
+
+Cancellation is scoped to the named run; sibling admissions and provider tasks
+are unaffected. `cancelling` means local work may still be owned or recovery confirmation is
+pending; `cancelled` is recorded only after no registered local task remains. A provider
+that suppresses cancellation keeps the run `cancelling`; its late result cannot
+replace the cancellation or publish another prompt. Inspection after process
+restart settles an orphaned cancellation without replaying provider work. Failed
+marker persistence does not signal tasks, and retrying a request whose write
+acknowledgement was lost observes the saved marker rather than restarting work.
+
+The executor uses a dedicated provider task, not the caller's task, and checks
+ownership before delivering a queued cancellation signal. This avoids cancelling
+unrelated caller work after an operation ends. These are single-backend-process
+coordination guarantees, not distributed ownership, remote-provider cancellation,
+refunds or exactly-once execution. An already admitted request may incur a charge.
+
+No public cancel route, legacy conversation-wide cancellation change, generic
+council worker integration or API version upgrade is enabled. The remaining
+pipeline boundaries and public acceptance cases must be implemented before Rust
+`ask`, `resume` or `cancel` can be connected. API remains **0**.
+
+Reference: [Python task cancellation](https://docs.python.org/3.10/library/asyncio-task.html#asyncio.Task.cancel)
+explains why requesting cancellation is not proof that a task has stopped.
