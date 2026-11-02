@@ -1,3 +1,62 @@
+# CLI checkpoint — durable refinement answer coordination (2026-11-02)
+
+Following the setup integration below, `development` continued from
+[e20e153966e97a90fd9821e9b56f45df1a855305](https://github.com/alehkot/llm-council/commit/e20e153966e97a90fd9821e9b56f45df1a855305).
+Upstream `main` remained
+[96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+Published implementation:
+[497e9b06413068ee0506472c2a062fbe5ec69cf2](https://github.com/alehkot/llm-council/commit/497e9b06413068ee0506472c2a062fbe5ec69cf2),
+exact tree `86e8b704f76752129309419b642a97b7571c1070`.
+Equivalent local commit `1352b6069a963c401f221f7c1a76b4c404cfe2fe` is retained
+with the same tree in genuine history/bundles; no unpublished source difference
+requires reapplication. The final documentation SHA/CI receipt is retained in
+[recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17#issuecomment-6576179704).
+
+The next concrete backend connection is implemented:
+`durable_refinement.resume_answer` reads **only the first persisted answer**,
+validates its admitted request and saved refinement semantics, derives the finite
+next state, and atomically marks the answer consumed with that state. This wiring
+previously existed only inline in a test. Duplicate/concurrent calls and retries
+after a lost write acknowledgement do not apply the answer twice. Saved prompt
+wording/defaults and raw answers remain intact; incompatible fields/questions,
+corrupt saved results, deleted runs and unanswered/unknown prompts fail closed.
+A retry of an older consumed instance leaves any later prompt untouched.
+
+The returned state is a historical receipt, not dispatch permission. No provider
+is imported/called by this coordinator, no worker is scheduled, and no public
+route or API version is enabled. The backend remains API0 and CLI consultation
+commands remain unavailable. Effective settings/skills provenance, in-flight
+external-operation/retry safeguards, the other finite workflow boundaries and
+worker release/resumption still precede safe public run/CLI integration.
+
+Verification: **317 network-forbidden Python tests** passed, including 14 new
+coordinator regressions for fresh-process restore, concurrency, pre-write failure,
+lost acknowledgement, schema/type/action mismatch, admission mismatch, deletion,
+corrupt continuation, skipped answers, raw-text retention and historical replay.
+91 Node tests, repository Ruff/whitespace and backend startup/graceful shutdown
+passed. The published source's 14 new tests were rerun successfully. Independent
+review covered the whole change and reran new/adjacent tests; no introduced
+moderate-or-higher finding remained. The unchanged Rust setup source retains the
+72 Rust/12 Linux PTY verification recorded below; this backend step is not native
+macOS or end-to-end consultation verification.
+
+Immediately before publication both heads were unchanged. The exact remote
+implementation SHA/tree matches the reviewed local source. At 11:47 UTC its
+GitHub statuses/check runs/Woodpecker commit comments were empty: **missing build
+evidence**, not a running/passed/failed build. Full local builds, native macOS,
+live providers and complete consultations remain unrun. No new browser checks
+were needed for this internal backend-only addition; frontend behavior was not
+changed. No PR, force push/reset, deployment, manual CI dispatch, credentials,
+private runner or paid-provider action was used.
+
+Next: verify normal CI for the exact final head, then implement the durable
+external-operation/provenance and worker boundaries before exposing run routes.
+Do not call this coordinator's historical `needs_suggestion` result directly as
+permission to repeat paid work; current run revision and in-flight/retry checks
+are mandatory. See [CONTRACT.md](CONTRACT.md) for the precise remaining boundary.
+
+---
+
 # CLI implementation checkpoint — authenticated Keychain setup (2026-11-02)
 
 ## Baseline, published change and usable scope
