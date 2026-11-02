@@ -747,3 +747,13 @@ uv run python scripts/live_e2e.py --run-live --problem-file /absolute/path/probl
 Normal offline tests only verify this runner's opt-in guard and result checks. They never
 execute its live workflow. This command can take several minutes and uses the configured
 council's normal request/token limits plus the CLI synthesis timeout.
+
+## Rust CLI development
+
+The [council CLI foundation](cli/README.md) includes a command parser, typed draft
+contracts and offline tests. It does not yet connect to the backend or execute
+consultations. Follow the [implementation plan](cli/PLAN.md) and
+[latest progress](cli/PROGRESS.md). Normal CI requires Rust/Cargo with rustfmt
+and Clippy in addition to the existing Python/Node tools; the focused local
+check is `bash .ci/check-cli.sh`. No local full application build is required
+for this Rust-only check.

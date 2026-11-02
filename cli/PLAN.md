@@ -9,8 +9,9 @@ submission, durable human input, and recovery require it.
 Date: 2026-11-01. Decision status: **implementation authorized**.
 Implementation started with the backend contract milestone; see
 [contract status](CONTRACT.md). Internal durable admission is implemented without
-worker scheduling; public durable run operations and the Rust client remain
-unimplemented. The decisions below were confirmed with the user; command spellings,
+worker scheduling. The offline Rust foundation now exists; public durable run
+operations and a connected Rust client remain unimplemented. See
+[README.md](README.md). The decisions below were confirmed with the user; command spellings,
 API shapes, and module boundaries are engineering proposals for implementation.
 
 ## Scope
@@ -45,6 +46,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
 - [ ] Create one Cargo package under `cli/`, with a `council` binary, HTTP client,
   typed wire data, Keychain setup, and a shared monitor/resume loop. Implement
   `setup`, `ask`, and `resume` against the real backend contract first.
+  **Partial:** Cargo package, parser, typed fixtures and offline validation exist.
+  HTTP, Keychain and the monitor loop remain unimplemented; the item stays open.
 - [ ] Add `show`, `history`, `export`, `cancel`, and installed-skill listing.
   Complete editor/file/stdin input, generic prompt rendering, clean stdout/stderr
   behavior, and JSON output. Reuse backend exports and results.
@@ -363,3 +366,11 @@ milestone. No durable worker/HTTP integration is enabled. Next define the other
 workflow boundaries, snapshot effective settings/skills, and protect every
 external operation with in-flight/explicit-retry handling before dispatching
 persistent runs. See [CONTRACT.md](CONTRACT.md) for the exact boundary and tests.
+
+### Rust foundation checkpoint (2026-11-02)
+
+Offline Rust implementation can proceed alongside the remaining backend work.
+The durable-backend prerequisite gates **connecting run operations**, not writing
+parsers or testing wire fixtures. All operational commands currently fail closed;
+no execution, Keychain access or API version upgrade is enabled. See
+[README.md](README.md) and [PROGRESS.md](PROGRESS.md) for verified scope and limits.

@@ -2,7 +2,8 @@
 
 The target wire types live in `backend/consultation_contract.py`, with synthetic
 JSON examples in `tests/fixtures/cli`. They are **draft v1 contracts**, not newly
-available operations. The Rust client has not been implemented.
+available operations. An offline Rust foundation exists in this directory;
+HTTP/Keychain and durable consultation commands are not connected.
 
 `GET /api/config` now returns **`cli_api_version: 0`**: the durable CLI contract is
 not available. A future client requiring v1 must stop with an update message,
@@ -107,7 +108,8 @@ establish exactly-once provider execution or end-to-end CLI orchestration.
 
 Next: persistent execution checkpoints and safe admission-to-worker handoff,
 including resolved skills/settings provenance, before public create/lookup/history
-routes or a Rust client. Keep the second PLAN item incomplete until its HTTP and
+routes or connecting Rust run operations. Offline parser/wire tests may proceed
+in parallel. Keep the second PLAN item incomplete until its HTTP and
 execution acceptance cases pass; do not advertise version 1 early.
 
 Implementation references: Pydantic [strict fields](https://docs.pydantic.dev/latest/concepts/strict_mode/),

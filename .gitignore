@@ -37,3 +37,6 @@ docs/
 
 # Woodpecker build logs and test artifacts
 /.ci-output/
+
+# Rust CLI generated artifacts
+/cli/target/
