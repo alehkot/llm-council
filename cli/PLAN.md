@@ -46,8 +46,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
 - [ ] Create one Cargo package under `cli/`, with a `council` binary, HTTP client,
   typed wire data, Keychain setup, and a shared monitor/resume loop. Implement
   `setup`, `ask`, and `resume` against the real backend contract first.
-  **Partial:** Cargo package, parser, typed fixtures and offline validation exist.
-  HTTP, Keychain and the monitor loop remain unimplemented; the item stays open.
+  **Partial:** Cargo package, parser, typed fixtures, offline validation and
+  a bounded authenticated config transport exist. Command dispatch, Keychain
+  and the monitor loop remain unimplemented; the item stays open.
 - [ ] Add `show`, `history`, `export`, `cancel`, and installed-skill listing.
   Complete editor/file/stdin input, generic prompt rendering, clean stdout/stderr
   behavior, and JSON output. Reuse backend exports and results.

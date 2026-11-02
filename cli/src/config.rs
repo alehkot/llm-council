@@ -5,7 +5,7 @@ pub const REQUIRED_API_VERSION: u32 = 1;
 const INVALID_ORIGIN: &str =
     "Backend URL must be an HTTP(S) loopback origin without credentials, path, query, or fragment.";
 
-/// Validated local origin. There is no network transport in this milestone.
+/// Validated local origin used to bind the configuration transport.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendOrigin(Url);
 

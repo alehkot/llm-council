@@ -1,7 +1,8 @@
-//! Offline foundations for the draft v1 CLI contract. No HTTP transport or
-//! consultation execution is enabled by this package yet.
+//! Draft v1 CLI foundations and a bounded local configuration probe.
+//! Operational command dispatch and consultation execution remain disabled.
 pub mod args;
 pub mod config;
+pub mod http;
 pub mod input;
 pub mod output;
 pub mod wire;
