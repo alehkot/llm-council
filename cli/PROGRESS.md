@@ -1,3 +1,100 @@
+# CLI implementation checkpoint — authenticated Keychain setup (2026-11-02)
+
+## Baseline, published change and usable scope
+
+- Persistent working branch: `development`, starting at
+  [fde4cddc6719a1a5bfed0ff2e9e1ba84b333b4b1](https://github.com/alehkot/llm-council/commit/fde4cddc6719a1a5bfed0ff2e9e1ba84b333b4b1).
+- Upstream `main` remained
+  [96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+  Existing accumulated and owner work is preserved; no integration was needed.
+- Published implementation:
+  [07d19bb584cd45a3207988f465fcd088ea7aa45a](https://github.com/alehkot/llm-council/commit/07d19bb584cd45a3207988f465fcd088ea7aa45a),
+  tree `fbb198292dffcb894b2e5b13a5c96dca9e2b6b5a`.
+- Equivalent local implementation `82312e6af97e2b1639c92f32e258a5515e466deb`
+  is preserved in genuine history and a recovery bundle with exactly the same
+  source tree. No unpublished source difference needs reapplication. The final
+  documentation-only checkpoint SHA is recorded in the recovery receipt below.
+
+`council setup` now has real dispatch: hidden controlling-terminal entry, one
+origin-bound authenticated `GET /api/config`, then native macOS Keychain storage
+only after valid authentication/configuration. It displays the configured council
+and chairman. Failed input/authentication/network/configuration checks leave the
+old credential untouched; Keychain replacement uses native add/update rather
+than delete-first. Keys have no argument, environment, piped-stdin or plaintext
+storage fallback. Noninteractive input and unsupported platforms fail before
+prompting, network or storage. JSON output is a single structured result/error;
+terminal controls in configuration names are escaped in human display only.
+
+API0 is accepted for this read-only credential setup, not as execution support.
+**All consultation commands still fail closed without I/O.** The backend remains
+API0; no durable run routes, worker handoff, model requests or monitor/resume loop
+are enabled. Setup also reports consultation commands unavailable for an API1
+server because this binary's dispatch is not connected. This completes a useful
+setup dependency, not the full Rust/HTTP/Keychain/monitor plan item.
+
+## Verification and review
+
+- 72 distinct Rust tests passed: configuration/transport regressions, native-store
+  adapter mocks, setup ordering and prior-entry preservation, plus an actual
+  synthetic loopback HTTP-to-mock-Keychain setup flow. A nested proxy-test process
+  repeats one test and is not counted twice. Formatting and Clippy with warnings
+  denied passed, including an independent rerun and published-source rerun.
+- 12 actual Linux PTY cases passed, independently rerun: hidden entry, Enter/CRLF,
+  backspace/clear-line, Ctrl-C/D, Ctrl-S/Q, malformed/oversized input, exact
+  terminal-flag restoration, unread-input flushing, ignored piped stdin and
+  refusal without a controlling terminal. Reproduction is committed under
+  [`tests/manual`](tests/manual/README.md). No real key is used or stored.
+- A candidate password-input dependency was rejected before publication because
+  its Ctrl-C implementation can raise SIGINT before restoring terminal settings.
+  The final implementation uses safe `nix` termios calls and a restoration guard,
+  with bounded input and explicit cancellation. Abrupt external SIGTERM/SIGKILL
+  can bypass restoration; normal/error returns and typed cancellation are tested.
+- 303 network-forbidden Python tests and 91 Node tests passed. Repository Ruff,
+  whitespace, and backend startup/graceful shutdown with empty data and synthetic
+  keys passed. An initial backend test invocation used a synthetic auth key that
+  differed from the tests' fixed fixture, producing 401s; correcting that harness
+  configuration restored all 303 passes without product-code changes.
+- Self-review plus independent whole-change review found no remaining introduced
+  moderate-or-higher finding. This is not a guarantee of bug-free code.
+- Dependencies remain locked. `nix` is Unix-only and `security-framework` is
+  macOS-only. Declared dependency compiler minimums fit Rust1.89; actual testing
+  used Linux Rust1.99.1, not the declared minimum compiler.
+
+Actual macOS compilation, native Keychain/terminal behavior, live providers,
+complete consultations, full application/release builds and new rendered browser
+checks remain **unrun**. No frontend code changed. Linux mocks/PTY tests do not
+establish macOS compatibility; no full local build was run under the current
+policy, and no real credential was installed.
+
+## CI, recovery and next priorities
+
+Both remote heads were rechecked immediately before non-force expected-head
+publication. The published implementation's exact SHA/tree matches the reviewed
+local source. At 11:33 UTC its GitHub statuses, check runs and Woodpecker commit
+comments were all empty. This is **missing build evidence**, not an observed
+running build, failed build or pass. Observe the final documentation-only SHA
+separately; final publication and CI receipts are retained with
+[recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+The published commit above is the durable recoverable source. Complete-history
+bundles and a binary patch additionally retain local and published ancestry.
+No reset, force push, PR action, manual CI dispatch, runner/private-network
+access, settings/security change, deployment or paid provider call was used.
+
+1. Observe exact-head normal CI and prioritize any actual applicable failure.
+2. Verify setup on macOS with an explicitly authorized test credential before
+   claiming native platform acceptance; do not use the user's machine implicitly.
+3. Continue the durable backend dependencies: finite workflow continuations,
+   settings/skills provenance, saved in-flight operations and explicit retry,
+   worker release/resumption and safe public run operations before wiring
+   `ask`/`resume`. Never use legacy mutation routes as a shortcut.
+
+Research: [native Keychain API source](https://docs.rs/crate/security-framework/3.7.0/source/src/passwords.rs),
+[nix termios](https://docs.rs/nix/0.30.1/nix/sys/termios/index.html),
+[examined password-input source](https://docs.rs/crate/rpassword/7.5.4/source/src/lib.rs).
+
+---
+
 # CLI implementation checkpoint — Config HTTP transport (2026-11-02)
 
 ## Baseline, scope and publication
