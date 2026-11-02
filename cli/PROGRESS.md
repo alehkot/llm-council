@@ -1,3 +1,88 @@
+# CLI checkpoint — guarded refinement suggestions (2026-11-02)
+
+## Exact history and scope
+
+Persistent working branch: `development`, starting at
+[175a0e20b5a0536f1aea37480a341d319813d132](https://github.com/alehkot/llm-council/commit/175a0e20b5a0536f1aea37480a341d319813d132).
+Observed upstream `main` remained
+[96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+Its separate ACP/provider transport changes were inspected and preserved; this
+injected-callback boundary does not require importing them.
+
+Published implementation:
+[521983712160fcdcc4c0b2860261a3cf638d98ba](https://github.com/alehkot/llm-council/commit/521983712160fcdcc4c0b2860261a3cf638d98ba),
+exact tree `78739b808a7865323118013483e473b19b1906fe`.
+Local equivalent `f4b63c03ae95f3134f403dd734e4e78e348c1b22` has that same tree
+and is retained in real history and a recovery bundle. No unpublished source
+change needs reapplication. This documentation-only checkpoint's exact final
+SHA and CI receipt are recorded in
+[recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+`refinement_execution.suggest` connects one finite suggestion operation to durable
+waiting. It requires a specific source revision and a stable provider identity,
+writes an in-flight attempt before an injected callback, and atomically records
+the validated result and exact waiting prompt. Existing first-answer coordination
+then derives the next finite state. Delayed normal requests and duplicate retry
+consent return historical results or conflict; neither silently starts a later
+round. Live concurrent invocations do not duplicate the callback.
+
+Lost/failed persistence, provider exceptions, cancellation and abruptly terminated
+processes retain uncertainty. An orphan attempt requires explicit consent naming
+its retry token and source revision. Saved input, schema, reducer history and
+provider identity are checked; drift or incompatible state fails closed. A late
+result cannot resurrect a deleted run. This prevents implicit local replay, not
+exactly-once remote execution or repeated billing after an explicitly approved
+retry. See [CONTRACT.md](CONTRACT.md) for the internal API boundary.
+
+## Verification and review
+
+- **340 network-forbidden Python tests passed** on Python 3.10.22, including
+  23 new fake-callback tests. Baseline was 317. Cases cover concurrent callers,
+  stale normal requests, repeated retry consent, failed/lost writes, malformed
+  results, across-round configuration drift, corrupt typed state/schema/history,
+  deletion during execution and exact saved prompt reuse.
+- A child process exits abruptly inside its fake provider; a fresh process sees
+  the persisted uncertainty without replay, then one explicit retry saves one
+  prompt. Additional fresh-process cases verify read-only saved-result recovery.
+- 91 existing Node tests passed. Repository Ruff formatting/check and Git
+  whitespace checks passed. Ruff used the existing Python 3.13 tooling environment;
+  runtime tests used Python 3.10. Backend startup/graceful shutdown passed with
+  empty temporary data and synthetic unused credentials.
+- Self-review and independent whole-change review fixed stale-revision dispatch,
+  across-round provider drift and insufficient saved-continuation/history checks
+  before publication. Independent review reran 56 adjacent tests, then all 23
+  final new tests. No introduced moderate-or-higher finding remains; this is not
+  a guarantee of bug-free code.
+
+No full local build, live provider, native macOS/Keychain, complete consultation
+or new browser verification ran. Frontend and Rust source are unchanged; their
+previously recorded platform limitations remain. Fake callbacks establish local
+coordination, not safety of an unaudited real provider adapter or model quality.
+
+## Publication, CI and next priorities
+
+Both remote heads were rechecked immediately before the non-force expected-head
+update. The published implementation commit/tree was independently fetched and
+matched the tested tree. At 15:37 UTC its statuses, check runs and Woodpecker commit
+comments were empty: **missing build evidence**, not a running, passed or failed
+build. The same was true of the starting development and upstream heads. No CI
+was manually dispatched, rerun or reconfigured; no PR or deployment was created.
+
+The backend still advertises API0; `ask`/`resume` remain unavailable. Next resolve
+and persist effective models/settings/skills, audit a genuinely single-attempt
+provider adapter (do not directly reuse mutable legacy refinement/retry behavior),
+then integrate worker release/resumption, other workflow boundaries, run-specific
+cancellation and the public API acceptance cases. Observe normal exact-head CI
+without assuming an unreported build is running. The original full consultation
+milestones remain open rather than marking this internal dependency complete.
+
+References: [Python cancellation semantics](https://docs.python.org/3.10/library/asyncio-exceptions.html)
+and [LangGraph persistence concepts](https://docs.langchain.com/oss/python/langgraph/persistence).
+These motivate boundary/recovery checks; repository tests establish this change's
+behavior, not the general references.
+
+---
+
 # CLI checkpoint — durable refinement answer coordination (2026-11-02)
 
 Following the setup integration below, `development` continued from
