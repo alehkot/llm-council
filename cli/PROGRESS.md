@@ -1,3 +1,115 @@
+# CLI implementation checkpoint — Rust foundation (2026-11-02)
+
+## Exact baseline and completed scope
+
+- Persistent working branch: `development`, starting at
+  [54d9482d3c5042d86bf67eaabd4d0a923dc3f85b](https://github.com/alehkot/llm-council/commit/54d9482d3c5042d86bf67eaabd4d0a923dc3f85b).
+- Observed upstream `main`:
+  [96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+  Separate ACP/model-routing changes and all accumulated development work remain
+  preserved; no upstream merge was needed for the isolated Rust package.
+- Published implementation:
+  [3619bc813b2407517e3f46be830689ad43d6593c](https://github.com/alehkot/llm-council/commit/3619bc813b2407517e3f46be830689ad43d6593c),
+  exact reviewed tree `64851b48cb8feb8a00c281e210f81d0f8cf871ac`.
+- Equivalent local implementation `4e2f30d7744913a252286fffcb61a8531dad0211`
+  is retained in its genuine-history repository/bundle and has the same tree.
+  Connector publication created the published commit without rewriting that
+  history. A fresh native clone verified the remote implementation/tree and
+  passed the focused Rust checks again. No unpublished source difference needs
+  reapplication. This checkpoint's containing commit is documentation-only; the
+  publication receipt/recovery issue records its exact final SHA without a
+  self-referential hash.
+
+**Rust has started.** The earlier checkpoint's wording that all backend work must
+finish before *beginning Rust* was overly strict. The PLAN gates connecting run
+operations, while offline command/contract work can proceed in parallel.
+
+One Cargo package now supplies the `council` parser for the planned commands,
+strict Serde draft models using existing backend fixtures, explicit safe policies,
+identity/lifecycle validation, local-origin validation, exact-version/configuration
+checks, bounded UTF-8 input and display-only terminal escaping. `Cargo.lock` is
+committed. Normal CI now invokes focused Rust checks without removing any existing
+backend/frontend checks or changing triggers, secrets or runner settings.
+
+Only `--help` and `--version` are functional commands. Every operational command
+fails closed with exit 2 and an explicit not-implemented diagnostic. It makes no
+HTTP request, reads no question file, opens no editor, writes no export or
+credential, and starts no consultation. JSON errors stay on stdout; ordinary
+errors stay on stderr. The authenticated config/version helper is tested against
+synthetic data, not connected to a real backend. **API version remains 0.**
+
+## Verification and independent review
+
+- 33 focused Rust tests passed using Rust/Cargo 1.99.1 on Linux, including real
+  executable help/error cases. Formatting and Clippy with warnings denied passed.
+  Dependency metadata requires at least Rust 1.89; that minimum and macOS were
+  not separately exercised. The official Rust toolchain was used.
+- Typed fixture tests cover create/waiting/answer/legacy references, unknown
+  fields, strict boolean/string/list distinctions, Unicode code-point limits,
+  explicit policies, ownership and lifecycle contradictions, absent legacy run
+  IDs and preservation of heterogeneous stage evidence.
+- Input/output tests cover bounded readers, invalid UTF-8, Python-compatible
+  whitespace, code points versus graphemes, terminal controls, JSON/stderr
+  separation, invalid/credential-bearing URLs and non-interactive input rules.
+- 303 backend tests passed under Python 3.10.22 with outbound networking forbidden;
+  91 existing Node tests passed. Repository Ruff format/check (61 files), shell
+  syntax, whitespace and backend startup/graceful shutdown passed. Ruff reused
+  the existing Python 3.13 tooling environment; no backend/frontend code changed.
+- Independent whole-change review reran 33 Rust tests and 29 additional real-binary
+  probes, including all commands, credential redaction and preservation of an
+  existing export file. One Clippy redundant-closure failure was fixed; the final
+  review and Clippy rerun found no moderate-or-higher introduced finding. A clean
+  review is not a guarantee of correctness.
+
+Local full application/release builds were **unrun** by policy. HTTP transport,
+macOS/Keychain, interactive terminals/editors, durable end-to-end consultation,
+provider calls/model quality and rendered browser checks remain unrun. These
+checks establish the offline foundation only, not a usable consultation client.
+
+## Publication, CI and recovery
+
+Both remote heads were rechecked before non-force expected-head publication.
+The exact published implementation/tree matches reviewed local source. Starting,
+upstream and implementation SHAs have zero GitHub statuses, check runs and
+Woodpecker commit comments as observed 2026-11-02 05:57 UTC. Empty aggregate
+`pending` means **missing evidence**, not a running pipeline, failure or pass.
+The configured normal pipeline includes Rust now, but actual execution/job/platform
+coverage cannot be inferred. No manual dispatch/rerun or private-runner access
+occurred. Observe the final checkpoint SHA separately.
+
+The complete genuine-history bundle and binary patch retain recoverable work.
+Existing [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17)
+records the latest published SHA, verification and missing CI evidence. Do not
+reapply equivalent local-only commits. No new publication denial occurred.
+
+## Next priorities
+
+1. Continue narrow Rust transport/authentication/config probing with fake HTTP
+   tests, disabled redirects/proxies and no credential logging; select/test the
+   macOS Keychain binding before claiming setup works. Do not imply the URL type
+   alone enforces network transport policy.
+2. Complete backend finite continuations and settings/skills provenance,
+   in-flight external operations and explicit uncertain-work retry, then safe
+   dispatch, worker release and public durable run APIs. Never replay legacy
+   refinement or treat a saved `needs_suggestion` phase as permission to bill.
+3. Connect ask/resume only after that full backend contract passes acceptance;
+   implement private submission receipts, generic prompts and shared monitor loop.
+   Keep incomplete PLAN checkboxes open and API version 0 until support is real.
+4. Verify normal Woodpecker evidence for the exact published head, prioritizing
+   relevant failures. Missing reports alone do not establish an implementation
+   failure. If reporting remains absent, the owner can inspect integration health
+   through their own authorized access.
+
+Research: [clap](https://docs.rs/clap/latest/clap/), [Serde](https://serde.rs/),
+[URL parsing](https://docs.rs/url/latest/url/),
+[official Rust installation](https://rust-lang.org/tools/install/).
+The repository fixtures and executable tests establish compatibility, not these
+library references alone.
+
+---
+
+## Earlier refinement checkpoint (historical; sequencing superseded above)
+
 # CLI implementation checkpoint — finite refinement continuation (2026-11-02)
 
 ## Baseline, scope and implementation
