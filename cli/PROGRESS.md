@@ -1,3 +1,94 @@
+# CLI checkpoint — single-request refinement provider (2026-11-02)
+
+## Exact baseline and recoverable implementation
+
+Persistent branch: `development`, starting at
+[a902c10552fe34f419a2c21dff6f3109170a6a7f](https://github.com/alehkot/llm-council/commit/a902c10552fe34f419a2c21dff6f3109170a6a7f).
+Observed upstream `main`:
+[96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+Its separate ACP/provider-routing work was inspected and preserved. This change
+is explicitly OpenRouter-only and does not select a configured transport or
+silently route ACP work to OpenRouter; integrating those owner changes is still
+required before a generic persistent executor can dispatch runs.
+
+Published implementation:
+[3da6d08712ea4ab84396610d76a6600582bfe13e](https://github.com/alehkot/llm-council/commit/3da6d08712ea4ab84396610d76a6600582bfe13e),
+verified tree `74452204175d22735bd40baa120138de763b47b1`.
+Local equivalent `d5b726881cabacca20646d728873f7b3363e6e5a` retains the identical
+tested tree in genuine history and a bundle. No source change needs reapplication.
+This documentation descendant's final exact SHA/tree and CI receipt are saved in
+[recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+## Problem, scope and completed work
+
+The legacy refinement helper can retry HTTP requests, perform context work and
+silently fall back to the original question on missing/malformed provider output.
+It cannot safely serve as the previous durable guard's single-attempt callback.
+The new internal `suggest_openrouter` adapter persists its non-secret, immutable
+request configuration and canonical identity before admitting an attempt. It
+sends one POST with the specified endpoint/model/token/reasoning settings, without
+HTTP retries, redirects, environment proxies, catalog lookups, summarization or
+continuations. Credentials remain invocation-only and may rotate without changing
+request identity. Total timeout and response-size limits bound resource use.
+
+The adapter rejects incomplete/malformed responses instead of manufacturing a
+successful original-prompt result. Shared request text and long-input omission
+normalization were extracted unchanged; existing web behavior is preserved.
+Existing durable revision/in-flight/explicit-retry rules apply, including saved
+result reads, concurrent duplicates and cancellation. Rejected initial requests
+leave provenance untouched, null/missing-field/corrupt saved configuration fails
+closed, and later configuration drift conflicts. Old injected-callback work is
+not retroactively assigned provenance. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and independent review
+
+- **363 Python tests passed** on Python 3.10.22 with the network-forbidden runner,
+  up from 340. The 23 new tests include HTTP mock failures/redirects, malformed and
+  truncated successes, timeout/size limits, no silent fallback, write failures and
+  lost acknowledgements, retry consent, concurrent calls, cancellation, config
+  validation/drift/corruption, credential rotation and fresh-process saved-result
+  reopening without HTTP. Nine legacy request fingerprints cover English,
+  Russian/multilingual and long-input refinement across three rounds.
+- 91 existing Node tests passed. Repository-wide Ruff format/check, whitespace,
+  and synthetic empty-data backend startup/graceful shutdown passed. Ruff reused
+  the tooling environment; backend runtime tests used Python 3.10.
+- Full self-review and independent seven-file source/docs review fixed rejected
+  requests binding provenance and null provenance being overwritten. The legacy
+  omission safeguard and full canonical config validation are also covered.
+  Independent final rerun passed 60 provider/execution/answer tests. No introduced
+  moderate-or-higher finding remained; a clean review is not a correctness guarantee.
+
+No full local build, paid/live provider, native macOS/Keychain, complete
+consultation or new browser verification ran. Frontend and Rust source are
+unchanged. Mock HTTP establishes request/coordination behavior, not model quality,
+actual provider routing, exactly-once remote work, cross-process concurrent writers
+or power-loss durability. Explicit retry of uncertain work may repeat billed work.
+
+## Publication, CI and remaining dependencies
+
+Both exact remote heads were rechecked immediately before the non-force expected-
+head update. The published implementation commit/tree matches the tested tree.
+At 18:00 UTC, implementation SHA statuses, check runs and Woodpecker commit comments
+were empty, as were the starting development and main heads. This is **missing
+build evidence**, not a confirmed running pipeline, failure or pass. The normal
+workflow is configured for development/main pushes; no job/platform coverage can
+be claimed without its report. No CI dispatch/rerun, private runner access or
+CI/security change occurred.
+
+API remains **0** and Rust consultation commands stay unavailable. This snapshot
+covers one refinement request, not full effective model/settings/skills provenance.
+Next reconcile configured transport selection (including upstream ACP), resolve
+and persist the remaining run provenance and provider boundaries, integrate worker
+release/resumption and run-specific cancellation, then implement public durable
+run API acceptance cases before connecting `ask`/`resume`. Observe normal CI for
+the final exact SHA and prioritize any actual reported failure.
+
+Research: [HTTPX transport/retry defaults](https://www.python-httpx.org/advanced/transports/)
+and [OpenRouter chat response contract](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).
+Repository tests, not those references alone, establish the local behavior above.
+
+---
+
 # CLI checkpoint — guarded refinement suggestions (2026-11-02)
 
 ## Exact history and scope
