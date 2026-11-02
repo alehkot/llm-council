@@ -39,7 +39,10 @@ API shapes, and module boundaries are engineering proposals for implementation.
 - [ ] Implement persistent human-input checkpoints in `langgraph_flow.py` and
   the manager. Persist the exact prompt and resume location, release the worker
   while waiting, and consume each accepted answer once. Recover uncertain model
-  execution as `needs_retry`, preserving saved work.
+  execution as `needs_retry`, preserving saved work. The internal refinement
+  answer coordinator now consumes the first saved answer into a finite next
+  continuation atomically; worker release/resumption and external-work recovery
+  remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
   against stale clients and repeated requests; cancelling one run must leave
   other queued runs intact. Preserve the behavior of existing web submissions.

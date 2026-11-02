@@ -195,3 +195,29 @@ Tests cover strict state roundtrips, fresh-interpreter restoration, first-answer
 storage/advance replay, and real legacy graph refinement with fake provider
 boundaries. They do not establish complete persistent consultation execution,
 exactly-once provider calls, model quality or a functioning Rust client.
+
+## Durable refinement answer coordinator (internal, no provider dispatch)
+
+`backend/durable_refinement.py::resume_answer(run_id, instance_id)` now connects
+stored prompt receipts to the finite refinement reducer and atomic continuation
+consumption. It accepts no caller-supplied answer: it loads the first validated
+answer already persisted by `run_interaction.answer`, verifies the admitted
+refinement request and original question, then saves the derived next state under
+the same storage lock. A failed write leaves the accepted answer available for a
+safe retry. Missing/waiting/deleted/incompatible checkpoints fail without repair
+or replacement.
+
+Compatibility checks protect semantic field IDs/types/action values and the
+saved clarification questions. They do not regenerate the UI prompt or insert
+current labels/defaults. Existing saved wording, defaults and raw answer text are
+retained. A consumed-instance retry verifies and returns its saved result without
+rewriting the receipt; that result is historical state, not authorization to
+schedule another provider call or override a later prompt.
+
+This is production coordination code for the internal durable boundary, not a
+public endpoint or worker loop. It does not call providers, generate suggestions,
+release/resume workers, add retry consent, or advertise CLI API1. A returned
+`needs_suggestion` still requires current-run/revision checks and persisted
+in-flight/explicit-retry handling before execution. Admission provenance and the
+other durable workflow boundaries remain required before connecting `ask` or
+`resume`.
