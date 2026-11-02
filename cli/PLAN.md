@@ -341,3 +341,14 @@ The scope and behavior above were resolved through six challenge-me question
 rounds. The remaining risks are implementation risks, principally durable pause
 and recovery; they do not change the confirmed workflow or authorize silent
 retries of potentially billed work.
+
+### Internal foundation checkpoint (2026-11-01)
+
+Durable prompt storage now has exact instance/schema/opaque continuation
+checkpoints, revision-guarded new prompts, first-answer receipts, idempotent
+answer/advance retries and deletion erasure. This is an **internal-only partial
+step**, not completed persistent human input or public run execution. See
+[CONTRACT.md](CONTRACT.md). Next integrate explicit safe workflow continuations,
+resolved settings/skills provenance, worker release and uncertain-operation
+retry; do not replay the current refinement provider call during resume. Keep API
+version 0 until the full backend execution and HTTP acceptance cases work.

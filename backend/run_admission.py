@@ -189,32 +189,46 @@ def prepare(run_id: str, request: CreateRunRequest) -> dict[str, Any]:
             record["phase"] = "prepared"
             _write(record)
         else:
-            # Never recreate externally removed/damaged accepted work. Deletion
-            # through storage writes a tombstone before removing the conversation.
-            try:
-                conversation = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as exc:
-                raise AdmissionUnavailable(
-                    "Prepared conversation is unavailable"
-                ) from exc
-            if (
-                not isinstance(conversation, dict)
-                or conversation.get("id") != record["conversation_id"]
-                or conversation.get("cli_admission") != canonical_id
-            ):
-                raise AdmissionUnavailable("Prepared conversation is unavailable")
-            messages = conversation.get("messages")
-            if (
-                not isinstance(messages, list)
-                or len(messages) <= record["assistant_index"]
-                or not isinstance(messages[1], dict)
-                or messages[1].get("role") != "assistant"
-                or not isinstance(messages[1].get("metadata"), dict)
-                or messages[1]["metadata"].get("consultation_id") != canonical_id
-            ):
-                raise AdmissionUnavailable(
-                    "Prepared assistant reference is unavailable"
-                )
+            _validate_conversation(record)
+        return record
+
+
+def _validate_conversation(record: dict[str, Any]) -> None:
+    canonical_id = record["run_id"]
+    path = Path(storage.get_conversation_path(record["conversation_id"]))
+    # Never recreate externally removed/damaged accepted work. Deletion
+    # through storage writes a tombstone before removing the conversation.
+    try:
+        conversation = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AdmissionUnavailable("Prepared conversation is unavailable") from exc
+    if (
+        not isinstance(conversation, dict)
+        or conversation.get("id") != record["conversation_id"]
+        or conversation.get("cli_admission") != canonical_id
+    ):
+        raise AdmissionUnavailable("Prepared conversation is unavailable")
+    messages = conversation.get("messages")
+    if (
+        not isinstance(messages, list)
+        or len(messages) <= record["assistant_index"]
+        or not isinstance(messages[1], dict)
+        or messages[1].get("role") != "assistant"
+        or not isinstance(messages[1].get("metadata"), dict)
+        or messages[1]["metadata"].get("consultation_id") != canonical_id
+    ):
+        raise AdmissionUnavailable("Prepared assistant reference is unavailable")
+
+
+def get_prepared(run_id: str) -> dict[str, Any]:
+    """Require an intact prepared admission before a durable state mutation."""
+    with storage._storage_lock:
+        record = _read(run_id)
+        if record is not None and record["phase"] == "deleted":
+            raise AdmissionDeleted("Run was deleted")
+        if record is None or record["phase"] != "prepared":
+            raise AdmissionUnavailable("Run has not completed admission")
+        _validate_conversation(record)
         return record
 
 

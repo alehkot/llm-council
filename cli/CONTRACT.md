@@ -113,3 +113,46 @@ execution acceptance cases pass; do not advertise version 1 early.
 Implementation references: Pydantic [strict fields](https://docs.pydantic.dev/latest/concepts/strict_mode/),
 [forbidden extra data](https://docs.pydantic.dev/latest/concepts/models/#extra-data),
 and Python [file synchronization and atomic replacement](https://docs.python.org/3.10/library/os.html).
+
+## Internal persistent prompt foundation (not execution integration)
+
+`backend/run_interaction.py` stores exact typed prompt instances and opaque
+workflow-owned continuation state inside the accepted run receipt. A prompt must
+be persisted before a future executor releases its worker. Each new instance
+requires the current interaction revision; a previous answer must be explicitly
+consumed before another instance can be stored. Logical `prompt_id` reuse does
+not reuse an instance UUID. Retrying the same instance/schema/state is a read;
+changing any accepted schema or checkpoint conflicts.
+
+The first schema-valid answer is saved before any continuation. Identical answer
+retries remain successful after consumption or later prompts; conflicting answers
+cannot replace it. An explicit `advance` atomically records the next continuation
+and marks that answer consumed, retaining both for retry checks. Neither operation
+schedules work or runs a provider. A continuation is an opaque identifier and
+finite JSON object, **not executable code or an authorization to repeat external
+work**. Future integration must define the finite set of supported continuation
+points and persist in-flight operations/explicit retry before provider execution.
+
+Validation uses the saved schema, not regenerated fields. Field IDs and option
+values must be unique; selections must match saved options, multi-selections
+cannot duplicate values, required text must contain non-whitespace content, and a
+required checkbox needs an explicit boolean (including `false`, not mandatory
+agreement). Optional omitted fields stay omitted. Defaults are display values,
+never silently accepted answers. Skip is accepted only when the saved prompt
+allows it. Accepted strings, selection order, schema and continuation values are
+preserved rather than trimmed or reinterpreted.
+
+All reads and mutations require an intact prepared admission. The existing
+single/bulk deletion tombstone removes prompt questions, continuation state and
+answers together with the original request. The storage lock covers same-process
+first-answer/deletion races. Atomic replacement supports interrupted-process
+retry; this does not establish power-loss durability or cross-process writers.
+
+This storage foundation is intentionally disconnected from legacy prompt queues,
+HTTP routes, startup recovery and execution. In particular, the existing prompt
+refinement flow calls a provider before looking up its saved response: do **not**
+replay that flow to restore a durable prompt. Integration must checkpoint its
+suggestion, iteration, accumulated clarifications/context and original/refined
+query at the exact continuation boundary. Worker release, safe resumed stages,
+effective settings/provenance and uncertain-operation recovery remain unfinished.
+API version stays **0**; the PLAN persistent-input milestone is not complete.
