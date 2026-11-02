@@ -257,3 +257,42 @@ concurrent backend processes or exactly-once remote execution. A provider may ha
 accepted work whose reply was never persisted; explicit retry can repeat that
 work and may incur another charge. Offline fake-callback tests establish local
 coordination only, not live-provider quality or native macOS operation.
+
+## Explicit single-request refinement adapter (internal, OpenRouter only)
+
+`refinement_provider.suggest_openrouter` now binds an explicitly supplied
+`OpenRouterRefinementConfig` to the admission receipt before the first attempt.
+The immutable, versioned snapshot includes transport, HTTPS endpoint, requested
+model, maximum output tokens, timeout and reasoning options. Its canonical digest
+is the guarded operation's provider identity. Credentials are supplied only for
+the invocation and are neither saved nor hashed into that identity. Credential
+rotation does not alter saved request settings. Invalid/stale first requests do
+not bind a snapshot; corrupt provenance or settings drift fails closed, even when
+reading a completed operation or starting a later refinement round. Provenance
+cannot be retrospectively attached to old injected-callback work.
+
+The production HTTP path sends **one POST per admitted attempt** using HTTPX with
+no retries, redirects or environment proxies. It makes no model-catalog lookup,
+context-summary request or continuation call. A total timeout and response-size
+limit bound the request. HTTP failures, incomplete finish reasons, invalid JSON or
+refinement fields and the existing long-input omission/ellipsis safeguards reject
+rather than silently returning the original question. Failures or cancellation
+leave the attempt uncertain under the existing explicit-retry guard. No provider
+body or transport exception text is included in adapter error messages. Shared
+prompt construction and omission normalization are extracted unchanged; legacy
+web refinement retains its previous retry/fallback behavior.
+
+This is **not a generic configured provider or complete run provenance**. There
+is no config-global factory, route, worker or automatic selection of this adapter.
+Upstream `main` has separate ACP routing work; that choice must be reconciled by
+future executor integration, never silently mapped to OpenRouter. Full pipeline
+model/settings/skills resolution, other provider boundaries, worker release and
+public API acceptance remain incomplete. API version stays **0**, and Rust
+consultation commands remain unavailable. Only the requested model is recorded;
+this is not evidence of a remote service's actual routing or exactly-once remote
+execution. Explicitly retrying uncertain work may repeat a billed operation.
+
+Offline MockTransport tests establish request construction, one-request behavior,
+persistence/retry coordination and cancellation, not a live provider, model quality
+or native platform pass. Reference: [HTTPX transports and retry defaults](https://www.python-httpx.org/advanced/transports/)
+and [OpenRouter chat response contract](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).

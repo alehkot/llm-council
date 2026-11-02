@@ -43,7 +43,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   answer coordinator now consumes the first saved answer into a finite next
   continuation atomically; a revision-bound suggestion guard now persists in-flight
   work, requires explicit retry for uncertain outcomes, and saves the suggestion
-  plus waiting prompt atomically. Real-provider provenance/adapter integration,
+  plus waiting prompt atomically. An explicitly selected OpenRouter-only adapter now
+  snapshots its request settings and performs one HTTP request per attempt. Full
+  configured-provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
   against stale clients and repeated requests; cancelling one run must leave
