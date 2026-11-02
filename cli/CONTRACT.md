@@ -221,3 +221,39 @@ release/resume workers, add retry consent, or advertise CLI API1. A returned
 in-flight/explicit-retry handling before execution. Admission provenance and the
 other durable workflow boundaries remain required before connecting `ask` or
 `resume`.
+
+## Internal guarded refinement execution (not public run execution)
+
+`backend/refinement_execution.py` adds one concrete external-operation boundary:
+`suggest` requires the intended interaction revision, a stable non-secret provider
+configuration identity and an injected **single-attempt** async callback. It
+reads the admitted question/current validated continuation, saves an in-flight
+attempt identity before calling, and atomically saves the validated suggestion
+and its exact waiting prompt in the same receipt write. A completed operation at
+the requested revision is a historical read, never permission to start a later
+round. The existing first-answer coordinator consumes that prompt's response.
+
+An in-process owner prevents duplicate concurrent calls. After an exception,
+cancellation, lost persistence acknowledgement or restart, an unowned in-flight
+attempt is reported as `needs_retry`; inspection does not call a provider or
+rewrite the receipt. Explicit consent names that attempt and its original source
+revision. A repeated/stale consent cannot start another attempt, and a changed
+provider identity conflicts, including across refinement rounds. Completion
+rechecks current input/revision and deletion before publishing a result. Deletion
+removes operation inputs/results with the rest of the receipt. Saved prompt
+schemas and reducer history are validated, not regenerated on read.
+
+This does **not** install a provider, public route, startup recovery hook, worker
+loop or API1 support. The callback must not hide automatic retries. In particular,
+do not simply pass the existing `generate_prompt_refinement` adapter: its mutable
+configuration, failure fallback and underlying retry behavior require an explicit
+adapter/provenance review first. The stored identity is a mismatch guard, not a
+snapshot of effective models, settings or skills. Those snapshots, other workflow
+boundaries, run-specific cancellation, scheduling/release and public API acceptance
+remain required before connecting `ask`/`resume`.
+
+Guarantees apply to the existing single-backend-process storage lock, not multiple
+concurrent backend processes or exactly-once remote execution. A provider may have
+accepted work whose reply was never persisted; explicit retry can repeat that
+work and may incur another charge. Offline fake-callback tests establish local
+coordination only, not live-provider quality or native macOS operation.

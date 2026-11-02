@@ -41,8 +41,10 @@ API shapes, and module boundaries are engineering proposals for implementation.
   while waiting, and consume each accepted answer once. Recover uncertain model
   execution as `needs_retry`, preserving saved work. The internal refinement
   answer coordinator now consumes the first saved answer into a finite next
-  continuation atomically; worker release/resumption and external-work recovery
-  remain incomplete.
+  continuation atomically; a revision-bound suggestion guard now persists in-flight
+  work, requires explicit retry for uncertain outcomes, and saves the suggestion
+  plus waiting prompt atomically. Real-provider provenance/adapter integration,
+  worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
   against stale clients and repeated requests; cancelling one run must leave
   other queued runs intact. Preserve the behavior of existing web submissions.
