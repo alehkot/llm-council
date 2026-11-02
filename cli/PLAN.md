@@ -9,8 +9,8 @@ submission, durable human input, and recovery require it.
 Date: 2026-11-01. Decision status: **implementation authorized**.
 Implementation started with the backend contract milestone; see
 [contract status](CONTRACT.md). Internal durable admission is implemented without
-worker scheduling. The offline Rust foundation now exists; public durable run
-operations and a connected Rust client remain unimplemented. See
+worker scheduling. The Rust foundation and authenticated macOS setup command now exist; public
+durable run operations and consultation command integration remain unimplemented. See
 [README.md](README.md). The decisions below were confirmed with the user; command spellings,
 API shapes, and module boundaries are engineering proposals for implementation.
 
@@ -47,8 +47,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   typed wire data, Keychain setup, and a shared monitor/resume loop. Implement
   `setup`, `ask`, and `resume` against the real backend contract first.
   **Partial:** Cargo package, parser, typed fixtures, offline validation and
-  a bounded authenticated config transport exist. Command dispatch, Keychain
-  and the monitor loop remain unimplemented; the item stays open.
+  a bounded authenticated config transport and macOS Keychain setup dispatch
+  exist. Native macOS verification, consultation commands and the monitor loop
+  remain incomplete; the item stays open.
 - [ ] Add `show`, `history`, `export`, `cancel`, and installed-skill listing.
   Complete editor/file/stdin input, generic prompt rendering, clean stdout/stderr
   behavior, and JSON output. Reuse backend exports and results.
@@ -372,6 +373,7 @@ persistent runs. See [CONTRACT.md](CONTRACT.md) for the exact boundary and tests
 
 Offline Rust implementation can proceed alongside the remaining backend work.
 The durable-backend prerequisite gates **connecting run operations**, not writing
-parsers or testing wire fixtures. All operational commands currently fail closed;
-no execution, Keychain access or API version upgrade is enabled. See
+parsers or testing wire fixtures. Setup now verifies local backend authentication
+and stores an origin-bound credential in macOS Keychain. All consultation
+commands still fail closed; no run execution or API version upgrade is enabled. See
 [README.md](README.md) and [PROGRESS.md](PROGRESS.md) for verified scope and limits.

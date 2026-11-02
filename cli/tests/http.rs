@@ -316,3 +316,55 @@ async fn dropped_connection_is_not_retried() {
     );
     task.await.unwrap();
 }
+
+#[tokio::test]
+async fn setup_can_authenticate_api_zero_without_enabling_run_operations() {
+    let body = CONFIG.replace("\"cli_api_version\":1", "\"cli_api_version\":0");
+    let (origin, task) = server(response("200 OK", &body)).await;
+    let mut client = ConfigClient::new(origin, KEY).unwrap();
+    assert_eq!(client.probe_for_setup().await.unwrap().cli_api_version, 0);
+    assert!(task.await.unwrap().starts_with("GET /api/config HTTP/1.1"));
+    let (origin, task) = server(response("200 OK", &body)).await;
+    let mut client = ConfigClient::new(origin, KEY).unwrap();
+    assert_eq!(
+        client.probe().await.unwrap_err(),
+        ProbeError::UnsupportedVersion
+    );
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn setup_probe_rejects_future_versions_bad_limits_and_auth_retries() {
+    for (status, body, expected) in [
+        (
+            "200 OK",
+            CONFIG.replace("\"cli_api_version\":1", "\"cli_api_version\":2"),
+            ProbeError::UnsupportedSetupVersion,
+        ),
+        (
+            "200 OK",
+            CONFIG.replace("\"prompt_max_chars\":100", "\"prompt_max_chars\":0"),
+            ProbeError::InvalidLimits,
+        ),
+        (
+            "401 Unauthorized",
+            KEY.to_string(),
+            ProbeError::Authentication,
+        ),
+    ] {
+        let (origin, task) = server(response(status, &body)).await;
+        let mut client = ConfigClient::new(origin, KEY).unwrap();
+        assert_eq!(client.probe_for_setup().await.unwrap_err(), expected);
+        if expected == ProbeError::Authentication {
+            assert_eq!(
+                client.probe_for_setup().await.unwrap_err(),
+                ProbeError::AuthenticationStopped
+            );
+            assert_eq!(
+                client.probe().await.unwrap_err(),
+                ProbeError::AuthenticationStopped
+            );
+        }
+        task.await.unwrap();
+    }
+}

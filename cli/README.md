@@ -1,26 +1,47 @@
-# council Rust foundation
+# council CLI — setup and foundations
 
-The Rust implementation has started. This package currently provides command
-parsing, draft typed wire contracts, local-origin/configuration validation,
-bounded UTF-8 input, display-only terminal escaping and an origin-bound HTTP
-configuration probe, with synthetic regression tests. **It cannot run a
-consultation yet.**
+The Rust client now connects `council setup` to the local backend and macOS
+Keychain. **It cannot run a consultation yet.** The backend still advertises
+**CLI API 0**; durable run operations and the monitor/resume loop are unfinished.
 
-`--help` and `--version` work. All operational commands (`setup`, `ask`, `resume`,
-`show`, `history`, `export`, `cancel`, `skills`) deliberately exit **2** with a
-`not_implemented` error. They send no HTTP request, read no question file, launch
-no editor, write no output file and access no credential store. `--json` emits one
-error object on stdout; otherwise the diagnostic goes to stderr. Invalid
-configuration also exits 2. Clap syntax/help diagnostics use its normal text
-format, including when `--json` is supplied.
+## First-use setup
 
-This is an implementable foundation, not an installed or released client. The
-backend still advertises **CLI API 0**. Do not enable run submission, resume,
-answer, retry or cancellation until the durable backend acceptance cases in
-[PLAN.md](PLAN.md) work. The configuration helper accepts only exact API version 1
-with positive limits; absent version means legacy version 0. The reusable
-transport probes `/api/config` in synthetic loopback-server tests; command
-dispatch is not connected to it yet. There is no fallback to existing unsafe legacy mutation/recovery routes.
+With the existing local backend running, execute the `council` binary in a
+terminal on macOS:
+
+```sh
+council setup
+# An alternate loopback backend gets a separate Keychain entry:
+council --backend-url http://127.0.0.1:8002 setup
+```
+
+Setup reads the backend API key without echo from the controlling terminal,
+verifies `GET /api/config` once, then creates or updates the origin-specific
+macOS Keychain entry. Authentication, network, malformed configuration and
+unsupported-version failures leave the previous entry untouched. It displays
+the configured council and chairman, and explicitly reports that consultation
+commands are unavailable. API 0 or 1 is accepted **only for credential setup**;
+future versions are rejected. The separate execution-capability probe still
+requires exact API 1. No legacy submission route is used.
+
+Keys are never accepted through command arguments, environment variables or
+piped stdin, and there is no plaintext credential fallback. `--non-interactive`
+returns exit 3 before prompting, network access or storage. Unsupported platforms
+fail before prompting or contacting the backend. `--json` emits one structured
+result/error on stdout; the hidden prompt uses the controlling terminal, not
+stdout. Native Keychain errors are sanitized. Actual macOS Keychain/runtime
+verification remains outstanding; Linux tests use an injected credential store.
+
+`--help` and `--version` work. Other commands (`ask`, `resume`, `show`, `history`,
+`export`, `cancel`, `skills`) deliberately exit **2** with `not_implemented`,
+without reading question files, sending requests, launching editors, accessing
+Keychain or writing exports. Invalid configuration exits 2. Setup failures exit
+1, unavailable/noninteractive input exits 3, and cancelled key entry exits 130.
+Clap syntax/help diagnostics remain text, including with `--json`.
+
+This is source implementation, not an installed or released client. Do not enable
+run submission, resume, answer, retry or cancellation until the durable backend
+acceptance cases in [PLAN.md](PLAN.md) pass.
 
 ## Development checks
 
@@ -45,9 +66,12 @@ opt-ins, lifecycle/identity consistency, Unicode code-point limits, bounded read
 terminal escape display copies and fail-closed configuration/version checks.
 Transport tests additionally exercise real local HTTP requests with synthetic
 keys, authentication lockout, redirection refusal, response bounds and protocol
-errors. They do **not** establish working consultation orchestration, safe
-provider retries,
-macOS Keychain, interactive terminal/editor behavior, model quality, or macOS
+errors. Setup tests cover verification-before-storage and preservation of the
+previous entry on failure. The optional [PTY check](tests/manual/README.md)
+exercises real hidden input, editing, cancellation, restored terminal settings,
+and refusal of piped input with synthetic keys. These checks do **not** establish
+working consultation orchestration, safe provider retries,
+native macOS Keychain/runtime, editor behavior, model quality, or macOS
 compatibility. No real credentials or provider calls are used.
 
 ## Boundaries for the next implementation
@@ -65,7 +89,7 @@ compatibility. No real credentials or provider calls are used.
   Errors discard server bodies and underlying transport diagnostics rather than
   echoing credentials or server-controlled text. HTTP 401/403/429 latch the
   client closed: subsequent probes make no request until explicitly replaced.
-  The transport does not save keys or perform Keychain setup.
+  The transport itself does not save keys; setup stores only after verification.
 - Wire models use the shared synthetic files in `tests/fixtures/cli`. Request
   validation must apply the authenticated backend's current limits before any
   submission; structural decoding alone has no fixed deployment-specific cap.
@@ -74,10 +98,9 @@ compatibility. No real credentials or provider calls are used.
 - Input keeps exact original text. Character limits match Python code points,
   not UTF-8 bytes or displayed graphemes. Display escaping must never alter
   saved model text, accepted answer receipts or exported Markdown.
-- Next connect authentication/config probing and command dispatch only with
-  explicitly tested boundaries. The HTTP config probe is implemented but
-  disconnected from command dispatch. Keychain, private idempotent submission
-  receipts, prompt rendering and the monitor loop are unfinished.
+- Setup now uses the configuration transport and native macOS Keychain binding.
+  Next verify it on macOS, then implement private idempotent submission receipts,
+  prompt rendering and the monitor loop against the completed durable backend.
   Backend continuation/provenance/in-flight recovery work may proceed alongside
   offline Rust work; it must be complete before live durable run operations.
 
@@ -85,3 +108,6 @@ References: [clap](https://docs.rs/clap/latest/clap/),
 [Serde](https://serde.rs/), [URL parsing](https://docs.rs/url/latest/url/),
 [official Rust installation](https://rust-lang.org/tools/install/),
 [reqwest client configuration](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html).
+
+Credential integration references: [security-framework password APIs](https://docs.rs/security-framework/3.7.0/security_framework/passwords/index.html),
+[nix termios APIs](https://docs.rs/nix/0.30.1/nix/sys/termios/index.html).

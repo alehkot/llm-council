@@ -49,6 +49,10 @@ impl BackendOrigin {
 pub struct BackendConfig {
     #[serde(default)]
     pub cli_api_version: u32,
+    #[serde(default)]
+    pub council_models: Vec<String>,
+    #[serde(default)]
+    pub chairman_model: String,
     pub prompt_max_chars: usize,
     pub negative_prompt_max_chars: usize,
     pub skills_max_selected: usize,
@@ -59,6 +63,10 @@ impl BackendConfig {
         if self.cli_api_version != REQUIRED_API_VERSION {
             return Err("This client requires CLI API v1. Update the backend; legacy submission and automatic retry are not safe fallbacks.");
         }
+        self.require_valid_limits()
+    }
+
+    pub fn require_valid_limits(&self) -> Result<(), &'static str> {
         if self.prompt_max_chars == 0
             || self.negative_prompt_max_chars == 0
             || self.skills_max_selected == 0

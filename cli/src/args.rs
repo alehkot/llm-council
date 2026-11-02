@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::config::BackendOrigin;
 
-/// Local LLM Council client. This foundation parses commands but does not connect yet.
+/// Local LLM Council client. Setup is available; consultation commands are not connected yet.
 #[derive(Debug, Parser)]
 #[command(name = "council", version, color = ColorChoice::Never)]
 pub struct Cli {
@@ -24,7 +24,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Configure macOS Keychain authentication (not connected in this foundation).
+    /// Verify backend authentication and store its key in macOS Keychain.
     Setup,
     /// Start a consultation (disabled until durable backend integration).
     Ask(Ask),

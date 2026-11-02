@@ -24,6 +24,7 @@ pub enum ProbeError {
     InvalidResponse,
     UnsupportedVersion,
     InvalidLimits,
+    UnsupportedSetupVersion,
 }
 
 impl fmt::Display for ProbeError {
@@ -41,6 +42,7 @@ impl fmt::Display for ProbeError {
             Self::ResponseTooLarge => f.write_str("The backend configuration response exceeded its size limit."),
             Self::InvalidResponse => f.write_str("The backend did not return a complete valid configuration response."),
             Self::UnsupportedVersion => f.write_str("This client requires CLI API v1. Update the backend; no legacy submission fallback is available."),
+            Self::UnsupportedSetupVersion => f.write_str("This client can configure credentials only for CLI API v0 or v1. No credential was saved."),
             Self::InvalidLimits => f.write_str("The backend reported invalid input limits."),
         }
     }
@@ -101,6 +103,30 @@ impl ConfigClient {
     /// Authenticate once per call; never retry internally. API0 is reported as
     /// unsupported, never treated as permission to use older mutation routes.
     pub async fn probe(&mut self) -> Result<BackendConfig, ProbeError> {
+        let config = self.fetch_config().await?;
+        if config.cli_api_version != REQUIRED_API_VERSION {
+            return Err(ProbeError::UnsupportedVersion);
+        }
+        config
+            .require_valid_limits()
+            .map_err(|_| ProbeError::InvalidLimits)?;
+        Ok(config)
+    }
+
+    /// Credential setup is read-only and also works with the current API0 backend.
+    /// This never enables consultation mutation or legacy submission routes.
+    pub async fn probe_for_setup(&mut self) -> Result<BackendConfig, ProbeError> {
+        let config = self.fetch_config().await?;
+        if config.cli_api_version > REQUIRED_API_VERSION {
+            return Err(ProbeError::UnsupportedSetupVersion);
+        }
+        config
+            .require_valid_limits()
+            .map_err(|_| ProbeError::InvalidLimits)?;
+        Ok(config)
+    }
+
+    async fn fetch_config(&mut self) -> Result<BackendConfig, ProbeError> {
         if self.authentication_stopped {
             return Err(ProbeError::AuthenticationStopped);
         }
@@ -144,12 +170,6 @@ impl ConfigClient {
         }
         let config: BackendConfig =
             serde_json::from_slice(&body).map_err(|_| ProbeError::InvalidResponse)?;
-        if config.cli_api_version != REQUIRED_API_VERSION {
-            return Err(ProbeError::UnsupportedVersion);
-        }
-        config
-            .require_supported()
-            .map_err(|_| ProbeError::InvalidLimits)?;
         Ok(config)
     }
 }

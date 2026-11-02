@@ -265,3 +265,32 @@ fn executable_help_and_version_succeed_honestly() {
         assert!(result.stderr.is_empty());
     }
 }
+
+#[test]
+fn setup_noninteractive_emits_one_structured_needs_input_without_io() {
+    let result = Process::new(env!("CARGO_BIN_EXE_council"))
+        .args(["setup", "--non-interactive", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(3));
+    assert!(result.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["error"]["code"], "needs_input");
+}
+
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn setup_without_keychain_fails_before_prompt_or_network() {
+    let result = Process::new(env!("CARGO_BIN_EXE_council"))
+        .args(["setup", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    assert!(result.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["error"]["code"], "credential_store");
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("macOS Keychain"));
+}

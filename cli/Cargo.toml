@@ -19,3 +19,9 @@ uuid = { version = "1.0", features = ["serde"] }
 
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", default-features = false, features = ["term"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"

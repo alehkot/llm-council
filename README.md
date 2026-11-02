@@ -751,8 +751,10 @@ council's normal request/token limits plus the CLI synthesis timeout.
 ## Rust CLI development
 
 The [council CLI foundation](cli/README.md) includes a command parser, typed draft
-contracts and offline tests. It does not yet connect to the backend or execute
-consultations. Follow the [implementation plan](cli/PLAN.md) and
+contracts, offline tests, and macOS `council setup` for authenticated backend
+configuration and origin-bound Keychain storage. Native macOS verification is
+still outstanding, and consultation commands remain unconnected. Follow the
+[implementation plan](cli/PLAN.md) and
 [latest progress](cli/PROGRESS.md). Normal CI requires Rust/Cargo with rustfmt
 and Clippy in addition to the existing Python/Node tools; the focused local
 check is `bash .ci/check-cli.sh`. No local full application build is required

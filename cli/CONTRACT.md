@@ -2,8 +2,9 @@
 
 The target wire types live in `backend/consultation_contract.py`, with synthetic
 JSON examples in `tests/fixtures/cli`. They are **draft v1 contracts**, not newly
-available operations. An offline Rust foundation exists in this directory;
-HTTP/Keychain and durable consultation commands are not connected.
+available operations. A Rust foundation and authenticated macOS Keychain setup command exist in this
+directory; durable consultation commands remain unconnected. Native macOS
+verification is still outstanding.
 
 `GET /api/config` now returns **`cli_api_version: 0`**: the durable CLI contract is
 not available. A future client requiring v1 must stop with an update message,
