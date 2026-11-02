@@ -1,3 +1,106 @@
+# CLI implementation checkpoint — Config HTTP transport (2026-11-02)
+
+## Baseline, scope and publication
+
+- Verified persistent working branch: `development`, starting at
+  [a242b1fb51c9bd528bb1cf5ea58b8325fc52f27f](https://github.com/alehkot/llm-council/commit/a242b1fb51c9bd528bb1cf5ea58b8325fc52f27f).
+- Upstream `main` remained
+  [96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+  Separate ACP/model-routing changes were inspected and preserved; no merge was
+  needed for this isolated transport module.
+- Published implementation:
+  [c3d2adab7a555acade42bda606246993f4339f5f](https://github.com/alehkot/llm-council/commit/c3d2adab7a555acade42bda606246993f4339f5f),
+  tree `30e30dcf461f8605a0a31a13171633c0a1067edc`.
+- Equivalent local implementation `f085394f23fe3a23a7179e580e3a3d47406d827b`
+  is retained in genuine history/bundle with the exact same tree. Connector
+  publication preserved the remote ancestry; no unpublished source difference
+  needs reapplication. This checkpoint's containing commit is documentation-only;
+  its exact final SHA is recorded in the publication receipt/recovery issue.
+
+The next Rust dependency is now implemented: an origin-bound authenticated
+configuration probe using one reusable reqwest client. It can issue only
+`GET /api/config` on a validated loopback origin; callers cannot replace its
+origin or submit arbitrary paths. Proxy discovery, redirects and automatic
+transport retries are disabled. TLS certificate and hostname verification remain
+on. Credentials stay in memory, the header is marked sensitive, and debug/error
+messages never contain the key, server body or underlying parser/transport text.
+
+The response is bounded at 1 MiB, including chunked bodies, with a 35-second total
+request timeout and five-second connection timeout. HTTP 401/403/429 stop further
+requests from that client. Truncated/invalid data, unsupported API versions and
+invalid limits fail closed. Connection errors give the existing backend start
+command. No config probe falls back to legacy mutation endpoints.
+
+**This is a tested transport module, not operational command integration.**
+Only executable help/version work. All other commands retain the prior no-I/O
+not-implemented path. No real credentials, Keychain setup, live backend/provider
+requests, consultation submission, persistent credential installation or backend
+API upgrade were performed. Backend API remains **0**. The larger Cargo/HTTP/
+Keychain/monitor PLAN item stays open.
+
+## Verification and review
+
+- 46 distinct Rust tests passed on Linux Rust 1.99.1: 33 prior tests plus one
+  timeout unit test and 12 HTTP integration tests. One proxy-test child repeats
+  a test in an isolated environment and is not counted twice.
+- Real synthetic loopback servers cover exact request path/header, connection
+  reuse, proxy environment isolation, redirect destination receiving no request,
+  rejected authentication/lockout latching, no retry after a lost response,
+  declared/chunked oversized bodies, malformed/truncated JSON/UTF-8, stalled
+  headers/body, old/future API versions and invalid config limits.
+- Formatting and Clippy with warnings denied passed. The lockfile adds 102
+  registry packages without removing prior packages or changing existing sources
+  or checksums. No resolved package with a declared MSRV exceeds 1.89; that
+  minimum compiler and macOS have not been executed.
+- Independent whole-change review of all eight files found no introduced
+  moderate-or-higher finding. It reran the final Rust script and two additional
+  synthetic transport probes. A self-signed TLS server was rejected before any
+  authenticated HTTP request; a dropped response produced one request, no retry.
+  The latter probe is retained as a regression. A clean review is not a guarantee.
+- 303 network-forbidden backend tests passed under Python 3.10.22; 91 Node tests,
+  repository-wide Ruff format/check, whitespace and backend startup/graceful
+  shutdown with empty data and synthetic keys passed. No backend/frontend code
+  or CI workflow was modified in this iteration.
+
+Full local application/release builds, rendered browser checks, macOS/Keychain,
+actual Rust 1.89, live providers and complete durable consultations remain unrun.
+These checks do not establish model quality, end-to-end execution or platform
+coverage that was not exercised.
+
+## CI, recovery and next priorities
+
+Immediately before non-force expected-head publication, both remote heads were
+unchanged. Exact remote implementation commit/tree matched the reviewed local
+source. At 09:14 UTC, starting/upstream/implementation heads had zero GitHub
+statuses, check runs and Woodpecker commit comments. This is **missing evidence**,
+not an observed running build, failed build or pass. No manual rerun, private
+runner access, settings/security change or charge was used. Observe the exact
+final checkpoint SHA separately; publication/recovery receipts retain that result.
+
+The full recoverable implementation is linked above. Genuine-history bundles and
+binary patch retain the corresponding local history. Existing
+[recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17) tracks
+missing normal CI without a duplicate issue or revival of closed work.
+
+1. Verify normal Woodpecker evidence for the final SHA and prioritize any real
+   failure. If expected reports remain absent, the owner may inspect integration
+   health through their authorized access; absence alone identifies no cause.
+2. Implement/test macOS-specific credential-store selection and hidden key entry,
+   then connect safe setup/config dispatch. Do not save a key before authenticated
+   compatibility succeeds or claim Keychain support from Linux fake-server tests.
+3. Complete backend finite continuations, settings/skills provenance, in-flight
+   operation records/explicit retry, worker release and public durable APIs.
+4. Connect ask/resume only after the complete durable contract passes acceptance;
+   private submission receipts and terminal/monitor behavior remain unfinished.
+
+Research: [reqwest client configuration](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html),
+[retry policy](https://docs.rs/reqwest/0.13.5/reqwest/retry/index.html).
+Tests and inspected pinned source establish behavior, not documentation alone.
+
+---
+
+## Earlier Rust foundation checkpoint (historical)
+
 # CLI implementation checkpoint — Rust foundation (2026-11-02)
 
 ## Exact baseline and completed scope
