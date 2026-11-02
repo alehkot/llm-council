@@ -1,3 +1,99 @@
+# CLI implementation checkpoint — finite refinement continuation (2026-11-02)
+
+## Baseline, scope and implementation
+
+- Persistent branch: `development`, starting
+  [ac1bd65b48772f7ff24f18f33f5c709f373de533](https://github.com/alehkot/llm-council/commit/ac1bd65b48772f7ff24f18f33f5c709f373de533).
+- Observed upstream `main` remained
+  [96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+  Separate owner ACP/model-routing work and accumulated development changes are
+  preserved; no upstream integration was needed for this shared refinement step.
+- Published implementation:
+  [c7fd58965f1b5bc7212f2e7ec37d340228324210](https://github.com/alehkot/llm-council/commit/c7fd58965f1b5bc7212f2e7ec37d340228324210),
+  tree `d4171f6fe78a4d76f2dd34994c1e8eb3b6b04856`.
+- An equivalent local-only implementation commit
+  `0627b1d990c4e8a207d73044482f5a8d994f2e84` has the identical tree and is retained
+  in its original repository/bundle. Native HTTPS publication lacked credentials;
+  authorized connector publication succeeded without installing credentials or
+  rewriting local history. A fresh genuine-history checkout verifies the
+  published branch. There is no unpublished source difference to apply again.
+- This document's containing commit is a documentation-only descendant. The
+  separate publication receipt records the exact final local/published SHA/tree
+  without a circular self-reference.
+
+The next dependency after prompt storage was a safe refinement continuation:
+replaying the old refinement function regenerates a provider suggestion before
+looking for its saved answer. `backend/refinement.py` now has a complete strict,
+versioned finite state and pure answer reducer. It preserves the saved suggestion,
+original/working query, round, clarifications and additional context. A restored
+waiting checkpoint can apply its accepted first answer without any provider call.
+The legacy graph shares the reducer instead of duplicating its decision logic.
+
+**This is not durable execution integration.** No run route, worker release,
+startup dispatch or retry authorization was added. Existing legacy queues/timeouts
+remain unchanged, and their recovery path must not execute durable CLI runs.
+`needs_suggestion` requires an in-flight/explicit-retry guard before execution.
+API version remains **0**. See [CONTRACT.md](CONTRACT.md) for the exact boundary.
+
+## Verification and review
+
+- 303 backend tests passed on Python 3.10.22 with outbound networking forbidden,
+  including 20 new tests. Coverage includes strict/missing/corrupt state, finite
+  transitions, skip/original/refined actions, implicit repeat, three-round cap,
+  raw receipt preservation, detached values, fresh-interpreter restoration, and
+  persisted first-answer/advance replay without regeneration.
+- Six new real-graph tests use fake provider boundaries to check prompt events,
+  trace/persistence and the exact Stage 1 handoff. They deliberately stop at a
+  fake empty Stage 1 result: they prove refinement integration, not complete
+  council execution or model-answer quality.
+- 91 existing Node tests, repository-wide Ruff format/check (60 files), whitespace
+  checks and backend startup/graceful shutdown passed. Runtime tests use Python
+  3.10; Ruff uses the existing Python 3.13 tooling environment.
+- Independent whole-change review found no moderate-or-higher introduced findings.
+  62 focused tests passed independently, plus 120 randomized baseline-versus-new
+  real-graph differential cases comparing metadata, query, prompt events, saved
+  updates, provider arguments and normalized traces. A clean review does not
+  guarantee correctness.
+- Full builds unrun locally by policy. No live/paid provider, Rust runtime,
+  macOS/Keychain or new rendered browser checks ran; frontend code is unchanged.
+  No claim of full durable workflow execution, exactly-once provider work,
+  power-loss durability or concurrent-process writer safety is made.
+
+## Publication, CI and recoverability
+
+Both remote heads were rechecked before non-force expected-head publication.
+Published implementation SHA/tree and a fresh remote clone match the reviewed
+source. Starting working/upstream heads and implementation SHA have zero commit
+statuses, check runs and commit comments. Empty aggregate `pending` is missing
+build evidence, not an observed running pipeline, failure or pass. Woodpecker is
+configured for development pushes, but no applicable job/platform outcome is
+available. No manual CI dispatch/rerun, private-runner access or security change
+was performed.
+
+The final publication receipt, complete real-history bundle and binary patch
+record the final branch revision and recovery validation. Existing recovery issue
+[#17](https://github.com/alehkot/issues-tracker/issues/17) records the missing
+exact-head CI evidence without creating another issue. Observe normal reports for
+the exact published SHA and prioritize any relevant failure when it appears.
+
+## Next safe step
+
+Implement the remaining workflow continuation boundaries and snapshot effective
+settings/skill provenance. Persist in-flight external operations and explicit
+uncertain-work retry before safe admission-to-worker dispatch. Integrate durable
+waiting/worker release and saved first-answer consumption; do not replay legacy
+refinement to restore its question. Only then complete the public run API and
+its full acceptance cases before beginning Rust. Preserve raw responses in the
+receipt even when the reducer derives trimmed working text.
+
+Research: [Pydantic strict validation](https://docs.pydantic.dev/latest/concepts/strict_mode/).
+The repository's concrete pre-answer provider ordering and differential tests,
+not a general reference, establish the need and compatibility of this step.
+
+---
+
+## Earlier durable prompt checkpoint (historical)
+
 # CLI implementation checkpoint — durable prompt storage (2026-11-02)
 
 ## Latest baseline and completed partial step
