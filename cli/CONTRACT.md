@@ -156,3 +156,39 @@ suggestion, iteration, accumulated clarifications/context and original/refined
 query at the exact continuation boundary. Worker release, safe resumed stages,
 effective settings/provenance and uncertain-operation recovery remain unfinished.
 API version stays **0**; the PLAN persistent-input milestone is not complete.
+
+## Finite refinement continuation (shared reducer, not durable execution)
+
+`backend/refinement.py` now defines the versioned `prompt_refinement_v1`
+continuation. Its complete typed state retains the original and working queries,
+round, exact normalized provider suggestion, accumulated clarifying answers and
+additional context. Unknown versions/fields, missing state and invalid phase/type
+combinations fail validation instead of silently reconstructing a different
+question. The finite phases are `needs_suggestion`, `waiting_answer`, and
+`complete`.
+
+The existing legacy graph uses this same pure answer reducer. Its behavior is
+preserved: skip keeps the original query; edited working text is trimmed without
+altering the raw answer receipt; clarifications or insights request another round;
+three rounds is the existing cap. A restored `waiting_answer` state can apply the
+already accepted answer and produce the next continuation without invoking a
+provider to recreate the suggestion. Read the first accepted answer from the
+saved prompt checkpoint, never from a competing client response; retain the
+existing `run_interaction.advance` idempotency checks. These transitions do not
+validate an answer against a prompt by themselves: durable callers must use the
+saved-schema validation and first-answer receipt first.
+
+`needs_suggestion` describes the next operation, **not permission to execute it**.
+The future executor still must persist in-flight external work and obtain explicit
+consent when its outcome is uncertain. No HTTP route, worker pause/release,
+startup recovery or durable executor dispatch is connected here. The legacy graph
+still uses its existing process-local interaction queue and timeout policy; it
+still cannot safely replay a partially completed refinement as a durable CLI run.
+Do not route durable runs through that legacy recovery path. Other interactive
+phases, resolved settings/skills provenance, safe worker handoff and uncertain-work
+retry remain unfinished. API version stays **0**.
+
+Tests cover strict state roundtrips, fresh-interpreter restoration, first-answer
+storage/advance replay, and real legacy graph refinement with fake provider
+boundaries. They do not establish complete persistent consultation execution,
+exactly-once provider calls, model quality or a functioning Rust client.

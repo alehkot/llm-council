@@ -352,3 +352,14 @@ step**, not completed persistent human input or public run execution. See
 resolved settings/skills provenance, worker release and uncertain-operation
 retry; do not replay the current refinement provider call during resume. Keep API
 version 0 until the full backend execution and HTTP acceptance cases work.
+
+### Refinement continuation checkpoint (2026-11-02)
+
+The refinement phase now has a finite versioned state and pure answer reducer,
+shared with the existing legacy graph. Its saved suggestion and accumulated
+context can be restored and reduced without repeating the suggestion provider.
+This completes one concrete continuation dependency, not the persistent-input
+milestone. No durable worker/HTTP integration is enabled. Next define the other
+workflow boundaries, snapshot effective settings/skills, and protect every
+external operation with in-flight/explicit-retry handling before dispatching
+persistent runs. See [CONTRACT.md](CONTRACT.md) for the exact boundary and tests.

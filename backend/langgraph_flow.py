@@ -73,6 +73,7 @@ from .interactive import (
     get_synthesis_prefs_prompt,
     serialize_prompt_responses,
 )
+from .refinement import RefinementState
 from .skills import persisted_skills_plan as _persisted_skills_plan
 from .trace import TraceCollector
 
@@ -85,7 +86,6 @@ _DECISION_SUPPORT_SYNTHESIS_GUIDANCE = (
     "make the guidance actionable."
 )
 _CANCELLED_MESSAGE = "Cancelled"
-_MAX_PROMPT_REFINEMENT_ROUNDS = 3
 
 
 class FlowCancelled(Exception):
@@ -909,12 +909,6 @@ def _prompt_refinements_active(context: FlowContext) -> bool:
     return context.prompt_refinement_enabled and _pre_query_config_active(context)
 
 
-def _normalize_refinement_action(action: Optional[str]) -> str:
-    if action in {"use_refined", "use_original", "refine_again"}:
-        return action
-    return "use_refined"
-
-
 def _has_stage1(state: CouncilState) -> bool:
     return state.get("stage1") is not None
 
@@ -935,23 +929,6 @@ def _has_stage2(state: CouncilState) -> bool:
 
 def _has_stage3(state: CouncilState) -> bool:
     return state.get("stage3") is not None
-
-
-def _collect_clarifying_answers(
-    response: PromptResponse,
-    questions: List[str],
-) -> List[Dict[str, str]]:
-    answers: List[Dict[str, str]] = []
-    for idx, question in enumerate(questions):
-        key = f"clarifying_answer_{idx}"
-        raw = response.responses.get(key)
-        if raw is None:
-            continue
-        text = str(raw).strip()
-        if not text:
-            continue
-        answers.append({"question": question, "answer": text})
-    return answers
 
 
 def build_council_graph(context: FlowContext):
@@ -1177,37 +1154,27 @@ def build_council_graph(context: FlowContext):
             if context.is_cancelled():
                 return _cancel_state()
 
-            original_query = state["user_query"]
-            refined_prompt = original_query
-            decision = "use_original"
-            clarifying_answers: List[Dict[str, str]] = []
-            additional_context_parts: List[str] = []
-            iteration = 1
-            last_suggestion: Dict[str, Any] = {}
-
+            refinement = RefinementState.start(state["user_query"])
             context.trace.begin_stage("prompt_refinement", label="Prompt Refinement")
 
-            while True:
+            # Legacy execution still owns provider calls and timeout behavior.
+            # The pure reducer supplies the same finite continuation a future
+            # durable executor can restore without regenerating a saved prompt.
+            while refinement.phase != "complete":
                 suggestion = await generate_prompt_refinement(
-                    original_query,
-                    clarifying_answers=clarifying_answers or None,
-                    additional_context="\n\n".join(additional_context_parts) or None,
-                    previous_refined_prompt=refined_prompt if iteration > 1 else None,
-                    trace=context.trace,
-                    iteration=iteration,
+                    **refinement.provider_arguments(), trace=context.trace
                 )
-                last_suggestion = suggestion
+                refinement = refinement.accept_suggestion(suggestion)
+                saved_suggestion = refinement.last_suggestion
                 context.trace.add_event(
                     "prompt_refinement_suggestion",
                     stage="prompt_refinement",
-                    iteration=iteration,
-                    intent=suggestion.get("intent") or "",
+                    iteration=refinement.iteration,
+                    intent=saved_suggestion.intent,
                     clarifying_question_count=len(
-                        suggestion.get("clarifying_questions") or []
+                        saved_suggestion.clarifying_questions
                     ),
-                    refined_prompt_length=_text_length(
-                        suggestion.get("refined_prompt") or ""
-                    ),
+                    refined_prompt_length=_text_length(saved_suggestion.refined_prompt),
                 )
 
                 if context.is_cancelled():
@@ -1215,13 +1182,11 @@ def build_council_graph(context: FlowContext):
                     return _cancel_state()
 
                 refinement_prompt = get_prompt_refinement_prompt(
-                    suggestion,
-                    iteration=iteration,
+                    saved_suggestion.model_dump(), iteration=refinement.iteration
                 )
-
                 try:
                     response = context.collected_responses.get(
-                        f"prompt_refinement_{iteration}"
+                        f"prompt_refinement_{refinement.iteration}"
                     )
                     if response is None:
                         response = await _request_interactive_response(
@@ -1234,112 +1199,57 @@ def build_council_graph(context: FlowContext):
                     context.trace.add_event(
                         "prompt_refinement_timeout",
                         stage="prompt_refinement",
-                        iteration=iteration,
+                        iteration=refinement.iteration,
                     )
-                    decision = "use_original"
-                    refined_prompt = original_query
+                    refinement = refinement.finish_original()
                     break
                 except RuntimeError:
                     return {"error": "Interactive session not available"}
 
-                context.collected_responses[f"prompt_refinement_{iteration}"] = response
+                context.collected_responses[
+                    f"prompt_refinement_{refinement.iteration}"
+                ] = response
                 await _persist_collected_responses()
+                iteration = refinement.iteration
+                transition = refinement.apply_response(response)
+                refinement = transition.state
                 if response.skipped:
                     context.trace.add_event(
                         "prompt_refinement_skipped",
                         stage="prompt_refinement",
                         iteration=iteration,
                     )
-                    decision = "use_original"
-                    refined_prompt = original_query
-                    break
+                else:
+                    context.trace.add_event(
+                        "prompt_refinement_response",
+                        stage="prompt_refinement",
+                        iteration=iteration,
+                        user_action=transition.user_action,
+                        final_action=transition.action,
+                        refined_prompt_length=transition.edited_prompt_length,
+                        clarifying_answer_count=transition.clarifying_answer_count,
+                        additional_insights_length=transition.insights_length,
+                    )
 
-                user_action = _normalize_refinement_action(
-                    response.responses.get("refinement_action")
-                )
-                action = user_action
-                suggested_prompt = str(suggestion.get("refined_prompt") or "").strip()
-                user_refined_prompt = str(
-                    response.responses.get("refined_prompt") or ""
-                ).strip()
-                refined_prompt = (
-                    user_refined_prompt or suggested_prompt or refined_prompt
-                )
-
-                new_answers = _collect_clarifying_answers(
-                    response,
-                    suggestion.get("clarifying_questions") or [],
-                )
-                if new_answers:
-                    clarifying_answers.extend(new_answers)
-
-                extra = str(response.responses.get("additional_insights") or "").strip()
-                if extra:
-                    additional_context_parts.append(extra)
-
-                if (new_answers or extra) and action != "refine_again":
-                    action = "refine_again"
-
-                context.trace.add_event(
-                    "prompt_refinement_response",
-                    stage="prompt_refinement",
-                    iteration=iteration,
-                    user_action=user_action,
-                    final_action=action,
-                    refined_prompt_length=_text_length(user_refined_prompt),
-                    clarifying_answer_count=len(new_answers),
-                    additional_insights_length=_text_length(extra),
-                )
-
-                if action == "use_original":
-                    decision = action
-                    refined_prompt = original_query
-                    break
-                if action == "use_refined":
-                    decision = action
-                    refined_prompt = refined_prompt or original_query
-                    break
-
-                iteration += 1
-                if iteration > _MAX_PROMPT_REFINEMENT_ROUNDS:
-                    decision = "use_refined"
-                    refined_prompt = refined_prompt or original_query
-                    break
-
-            iterations_used = min(iteration, _MAX_PROMPT_REFINEMENT_ROUNDS)
+            final = refinement.metadata()["prompt_refinement"]
             context.trace.end_stage(
                 "prompt_refinement",
-                decision=decision,
-                iterations=iterations_used,
-                original_prompt_length=_text_length(original_query),
-                refined_prompt_length=_text_length(refined_prompt),
-                intent=last_suggestion.get("intent") or "",
-                clarifying_question_count=len(
-                    last_suggestion.get("clarifying_questions") or []
-                ),
-                clarifying_answer_count=len(clarifying_answers),
+                decision=refinement.decision,
+                iterations=refinement.iteration,
+                original_prompt_length=_text_length(refinement.original_query),
+                refined_prompt_length=_text_length(refinement.refined_prompt),
+                intent=final["intent"],
+                clarifying_question_count=len(final["clarifying_questions"]),
+                clarifying_answer_count=len(refinement.clarifying_answers),
             )
-
-            prompt_refinement_metadata = {
-                "prompt_refinement": {
-                    "enabled": True,
-                    "decision": decision,
-                    "original_prompt": original_query,
-                    "refined_prompt": refined_prompt,
-                    "intent": last_suggestion.get("intent") or "",
-                    "clarifying_questions": last_suggestion.get("clarifying_questions")
-                    or [],
-                    "clarifying_answers": clarifying_answers,
-                    "iterations": iterations_used,
-                }
-            }
-
-            await context.update_message({"metadata": prompt_refinement_metadata})
-            await _persist_collected_responses(refined_prompt or original_query)
-
+            metadata = {"prompt_refinement": final}
+            await context.update_message({"metadata": metadata})
+            await _persist_collected_responses(
+                refinement.refined_prompt or refinement.original_query
+            )
             return {
-                "user_query": refined_prompt or original_query,
-                "metadata": prompt_refinement_metadata,
+                "user_query": refinement.refined_prompt or refinement.original_query,
+                "metadata": metadata,
             }
 
         updated_state: Dict[str, Any] = {}
