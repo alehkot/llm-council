@@ -421,3 +421,13 @@ and uses the durable adapter's fixed single-request policy, not the legacy
 catalog/fitting/retry path. Full pipeline settings/skills, ACP support and public
 worker/HTTP integration remain open; API0 and unavailable CLI consultation commands
 are unchanged. See [CONTRACT.md](CONTRACT.md) for boundaries and tested evidence.
+
+### Internal refinement driver checkpoint (partial)
+
+A revision-bound internal driver now composes saved-answer consumption and the
+configured suggestion guard. It returns at each durable boundary rather than
+waiting on an input queue, and never dispatches the next suggestion as a side
+effect of consuming an answer. Stale calls conflict; uncertain requests require
+explicit retry. This is not the real consultation manager's worker integration,
+durable scheduling or client-detachment contract. Public run operations and API1
+remain gated on the outstanding whole-pipeline acceptance cases.

@@ -442,3 +442,31 @@ settings drift conflicts, uncertain work needs explicit same-settings retry,
 post-resolution global changes do not change the request, stale/cancelled/deleted
 runs do not dispatch, and credentials are absent from receipts. They do not
 establish full pipeline compatibility, live-provider behavior or platform support.
+
+## Revision-bound internal refinement driver
+
+`refinement_driver.advance` composes the internal inspection, saved-answer
+reducer and configured suggestion adapter. Each call must name the current
+interaction revision and advances **one boundary only**. It returns immediately
+for a waiting prompt, completed refinement or retained cancellation, without
+requiring provider credentials or reinterpreting saved work under current config.
+An accepted answer is consumed and returned as refinement-ready or
+refinement-complete; it never dispatches another suggestion in that same call.
+A caller must reload and explicitly advance the resulting revision to continue.
+
+A prepared/refinement-ready step invokes at most one guarded configured
+suggestion attempt. Uncertain work still requires its explicit retry token;
+changed settings, stale revisions and competing ownership fail closed. Lost
+answer-consumption acknowledgements require reloading the saved revision, not
+replaying a provider call. Corrupt checkpoints are not repaired implicitly.
+Cancellation is rechecked by the existing provider guard before dispatch. The
+driver does not hold the storage lock across the provider await.
+
+This is a compositional backend prerequisite, **not** public run execution or
+integration with the consultation manager. Returning at a prompt means this
+driver has no outstanding provider task while waiting; it does not prove worker
+pool release/resumption. The invoking task still owns its await: cancelling that
+task during provider work retains uncertainty, not guaranteed CLI detachment.
+Reads/polling must use the read-only inspector, not `advance`. Full pipeline and
+skill provenance, ACP support, real worker ownership, durable scheduling and all
+public HTTP/CLI acceptance cases remain unfinished. API version stays 0.
