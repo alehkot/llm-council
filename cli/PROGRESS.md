@@ -41,7 +41,7 @@ public whole-consultation acceptance remain unfinished.
   exclusion. They make no paid or live provider requests.
 - Independent whole-change review found no introduced moderate-or-higher issues;
   all 89 refinement-related tests (including the nine new cases) passed independently.
-  Parent self-review agreed; clean review is not a correctness guarantee.
+  Self-review agreed; clean review is not a correctness guarantee.
 - 92 Node tests, frontend format/lint, repository-wide Ruff format/check and
   whitespace checks passed. Backend startup, authenticated loopback `/api/config`
   with API0, and graceful shutdown passed using empty data and synthetic unused keys.
