@@ -1,3 +1,94 @@
+# Completed synthesis snapshot reconciliation
+
+## Baseline and publication
+
+Repository: [alehkot/llm-council](https://github.com/alehkot/llm-council).
+Persistent working branch: `development`, starting at
+[220291a8ec6252cc101190377202516cb8ca2b59](https://github.com/alehkot/llm-council/commit/220291a8ec6252cc101190377202516cb8ca2b59).
+Observed upstream `main`:
+[fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d),
+unchanged and preserved as an ancestor. Existing CLI/refinement work is retained.
+Local implementation: `19f81cdb21ef179b5f423d21d4b498900d8caad6`.
+Published implementation:
+[fd571d4e90a2f246c6260c0ed10e74a6a528205c](https://github.com/alehkot/llm-council/commit/fd571d4e90a2f246c6260c0ed10e74a6a528205c),
+exact tree `c16f5619d150ddc1863675bb4c335c532f9c6e90` matches the tested local tree.
+Both remote heads were rechecked before the non-force expected-head update.
+The published commit was imported and hash-verified in the real-history checkout;
+prior local sibling commits remain preserved. A bundle and full patch retain
+recovery. This documentation-only descendant's exact final SHA and CI receipt
+are recorded in [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+## Problem, rationale and repair
+
+The previous checkpoint's deferred issue is now repaired: after completing a
+consultation, resynthesis/version selection updates persisted conversation data,
+but status snapshots used the worker's original cached synthesis. Returning to
+the conversation could replace the new synthesis with that stale snapshot.
+Reproduce by completing a synthetic consultation, calling resynthesize,
+resynthesize-all or set-current-version, then comparing consultation status with
+the persisted assistant message. The old cursor also failed to change.
+
+Completed status and long-poll snapshots now read the persisted synthesis and
+metadata for the exact absolute assistant index, matching consultation ID and
+persisted completed status. Active and failed runs remain worker-owned. Returned
+completed snapshots are detached from cached state. Missing, unrelated or
+nonterminal persisted messages do not replace the cached completion. This shared
+read path covers all three existing mutation routes without separate cache
+invalidation hooks or changes to provider calls, storage format or CLI contracts.
+
+The repository reproduction establishes the issue. React's
+[asynchronous synchronization guidance](https://react.dev/learn/synchronizing-with-effects)
+provides context for avoiding stale asynchronous data, not proof of this repair.
+This fix does not cancel already-in-flight responses or make separate storage
+writes transactional; it ensures newly generated terminal snapshots reflect the
+matching persisted message. No broader race elimination is claimed.
+
+## Tests and review
+
+- Four of the initial eight new tests failed on unchanged production code. The
+  final suite has ten new tests covering single/all resynthesis, version selection,
+  changed/stable cursors, actual long-poll route wake, older-message isolation,
+  a new active run during resynthesis, identity/index/role/status guards and aliases.
+- 480 offline Python 3.10.22 tests pass, independently repeated by the reviewer.
+  The runner forbids unmocked outbound network calls. An initial older environment
+  lacked ACP and could not import the full suite; the existing synchronized
+  project environment resolved that tooling mismatch without installation.
+- 114 Node tests, repository-wide Ruff formatting/checks, frontend Biome/ESLint
+  and Git whitespace checks pass.
+- 14 existing rendered synthesis-navigation cases pass against current-source
+  Vite, at desktop/mobile widths, using Chromium headless-shell with its sandbox
+  enabled. These use synthetic API responses: they verify UI navigation/error
+  behavior, not the backend fix. Backend endpoint/storage tests establish that.
+- Real loopback backend startup, authenticated config request and shutdown
+  lifecycle completed using empty temporary data and synthetic unused keys.
+  The harness's exit-code assertion failed because the process exited with
+  SIGTERM status (-15) after logging application shutdown complete; no exit-0 claim.
+- Self-review and independent whole-change review found no introduced
+  moderate-or-higher findings. The reviewer also checked manager-to-storage lock
+  ordering and actual long-poll behavior. A clean review is not a guarantee.
+
+No local full build, live provider/model-quality evaluation, macOS Keychain or
+end-to-end CLI consultation verification ran. No paid services were used.
+
+## CI and next steps
+
+At 23:55 UTC, exact starting development, upstream main and published
+implementation have zero GitHub statuses, check runs and Woodpecker commit
+comments. Aggregate `pending` with zero contexts is **missing evidence**, not a
+running pipeline, failure or pass. The checked-in workflow expects development
+push coverage, but no actual build/job/platform result is established.
+No manual CI rerun/dispatch, paused-check activation or private runner access
+was attempted. Existing issue #17 tracks this reporting blocker without duplication.
+
+Observe normal exact-head Woodpecker reports and diagnose any real relevant
+failure first. If reports remain absent, the owner can inspect normal integration,
+webhook, worker and reporting health through authorized access. Resume the CLI
+plan from its latest development contents only after fresh ownership/head checks;
+this bounded fix does not complete public durable consultation integration.
+No outstanding introduced moderate-or-higher finding or unpublished code remains.
+
+---
+
 # Skill-library outage recovery checkpoint
 
 ## Baseline and publication
