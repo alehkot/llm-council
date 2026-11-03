@@ -9,6 +9,8 @@ Local implementation commit: `a59381ddfce6100613e6e996b617ab7497996606`, tree
 publication and exact final documentation-head SHA/CI belong in the publication
 receipt. Main's changes remain preserved; further implementation is on development.
 
+Publication verified: [16a1a6e4399588b6326b4a0b387f21f008abafd8](https://github.com/alehkot/llm-council/commit/16a1a6e4399588b6326b4a0b387f21f008abafd8) on `development`, with tree `1d63a035a27bf37e99faf61912c4bfd03d62bb4d` exactly matching reviewed local checkpoint `a8f4c69f6187488348b39d8e92a23af7d021436e`. Main remains at the baseline above and is an ancestor. At 11:53 UTC its statuses, check runs and Woodpecker comments were all absent: CI and full build remain unverified, not pending or passed. This documentation-only publication receipt follows that implementation; its exact SHA is available in Git history.
+
 The previous guard detected changes but left consumers to reread mutable library
 files. The new internal `capture_explicit_skills` returns frozen canonical bytes
 whose digest was checked against the already-bound identity. Body, reference
