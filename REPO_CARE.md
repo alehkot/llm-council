@@ -1,3 +1,91 @@
+# Skill-library outage recovery checkpoint
+
+## Baseline and publication
+
+- Repository: [alehkot/llm-council](https://github.com/alehkot/llm-council).
+- Persistent working branch: `development`, starting at
+  [3055b2558d1beb2a572e7bd6ca048ebf1c075858](https://github.com/alehkot/llm-council/commit/3055b2558d1beb2a572e7bd6ca048ebf1c075858).
+- Upstream `main`: [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d),
+  still an ancestor. Existing accumulated CLI and Repo Care work is preserved.
+- Local implementation commit: `5082b926855ca43ed0ffe08219ac9a40b6eda0ce`.
+- Published implementation: [abf57217508cb558a58801960e3c4abc2299e55e](https://github.com/alehkot/llm-council/commit/abf57217508cb558a58801960e3c4abc2299e55e).
+  Exact tree `5e34488706d1503916fc44800ff4e5a85da7271d` matches the tested local tree.
+  Both remote heads were rechecked before the non-force expected-head update.
+  The exact published commit was imported and hash-verified in the real-history
+  checkout. A local bundle and full binary patch preserve implementation recovery.
+  This checkpoint is a documentation-only descendant; its final SHA/CI receipt is
+  recorded in [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+## Problem, evidence and bounded repair
+
+A transient `/api/skills` error previously replaced the library with an empty list
+and marked it loaded. Existing normalization effects then persisted an empty
+saved-default selection. A subsequent successful request could not restore it.
+The production callback and effects reproduced this data loss with synthetic
+network, 503, authentication, abort and malformed-response cases.
+
+Failed initial loads now preserve defaults and keep drafts unsent until a valid
+catalogue arrives, unless the configuration explicitly disables skills. Failed
+refreshes retain the last verified catalogue. Successful empty/disabled catalogues
+still prune unavailable IDs. Feature-disabled requests omit skills without
+clearing saved defaults. Unknown configuration is not treated as disabled. HTTP
+status is retained on skill-library errors so a legitimate disabled endpoint 404
+stays quiet without being mistaken for an authoritative empty catalogue.
+
+React's [effect guidance](https://react.dev/learn/synchronizing-with-effects) and
+[TanStack Query's previous-data guidance](https://tanstack.com/query/latest/docs/framework/react/guides/placeholder-query-data)
+provide context for preserving valid data across asynchronous fetching. No new
+cache dependency or broad rewrite was introduced. The actual application
+reproduction, not those general references, establishes this defect.
+
+## Verification and review
+
+- Baseline and final: 456 offline Python 3.10 tests pass. The runner rejects
+  outbound network calls; these tests do not measure live provider quality.
+- Final: 114 Node tests pass (22 new). The initial 12-case regression suite failed
+  10 cases on the starting code, then passed with the repair. It exercises actual
+  production callbacks/effects, saved defaults, malformed/error responses,
+  readiness, unsent drafts, disabled configuration and outgoing skill selection.
+- 12 rendered cases pass on the current-source Vite development server using
+  Chromium headless-shell with its sandbox enabled, at 1280px and 390px widths.
+  Cases cover initial 503, pending loading, failed refresh, valid empty/disabled
+  catalogues, and Clear/Save API-key flow when the server disables skills.
+  Actual controls, local persistence, draft retention/clearing and captured
+  request bodies are asserted. Desktop/mobile screenshots were inspected.
+  All requests are synthetic; no live API key, provider or paid calls were used.
+- Repository-wide Ruff check/format, frontend Biome format/ESLint, Git whitespace,
+  authenticated loopback backend startup/API0 and graceful shutdown pass.
+- Independent whole-change review initially found a moderate disabled-feature
+  regression: cached skills could still be sent to a server that disabled them.
+  It was fixed, regression-tested and rendered at both widths. Final re-review
+  reports no remaining introduced moderate-or-higher findings; the reviewer also
+  independently passed 33 focused Node tests. A clean review is not a guarantee.
+- No full local build ran. Rust/macOS Keychain, live-provider integration and
+  model-quality evaluation are unrun; this frontend repair does not verify them.
+
+## CI evidence and next priorities
+
+At 17:58 UTC, exact starting development, upstream main and published
+implementation have zero GitHub statuses, check runs and Woodpecker commit
+comments. The aggregate status API's `pending` with zero contexts is **missing
+build evidence**, not evidence of a queued/running pipeline or a pass. Existing
+Woodpecker push configuration expects development coverage, but actual build/job
+coverage and outcome remain unverified. No manual CI rerun/dispatch, paused-check
+activation or private-runner access was attempted. Issue #17 retains the reporting
+blocker; the owner can check normal webhook/worker/reporting health before merge.
+
+A separate pre-existing likely-use issue was reproduced and deferred to the next
+bounded run: after a synthetic completed consultation, resynthesis writes a second
+version/new synthesis to persisted conversation data, while consultation status
+still returns the original single version/mode and an unchanged cursor. Selecting
+the conversation can apply that stale completed snapshot over the fresh result.
+Investigate terminal snapshot reconciliation in the consultation manager versus
+resynthesis/set-current handlers. Test both mutation paths, cursor freshness,
+assistant-message identity and preservation of active consultations. No repair
+for this separate issue is included here; do not infer it is resolved.
+
+---
+
 # OpenRouter terminal-outcome checkpoint
 
 ## Baseline and publication
