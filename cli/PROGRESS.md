@@ -1,3 +1,97 @@
+# CLI checkpoint — durable run-specific cancellation (2026-11-02)
+
+## Baseline and implementation
+
+Persistent working branch: `development`, starting at
+[7d59d2841af3e276afd77dca87ba63389bc62b32](https://github.com/alehkot/llm-council/commit/7d59d2841af3e276afd77dca87ba63389bc62b32).
+Observed upstream/default `main`:
+[96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+Separate ACP/configuration/UI changes remain preserved. The internal cancellation
+modules do not overlap those upstream changes; no integration was needed here.
+
+Implementation:
+[8f9e60e9c7cd2ca4efdf072bb66751b742738b02](https://github.com/alehkot/llm-council/commit/8f9e60e9c7cd2ca4efdf072bb66751b742738b02),
+reviewed tree `d6a54547acd04792b63ed04847306b924e041e26`.
+The genuine local sequence `71aa30809472a77253b640f462131716b677dc27` then
+`806e41fda90d7f9db45e4b343b9ec4d7ca766e4f` preserves the implementation and
+pre-dispatch review fix; the latter has the identical final implementation tree.
+This documentation descendant's final exact local/published SHA and verification
+receipt are recorded in [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+## Problem and completed scope
+
+Existing internal durable refinement could retain waiting prompts and uncertain
+provider work but had no run-specific cancellation marker. The new cancellation
+coordinator persists a marker before signalling that run's dedicated provider task.
+All existing prepared-run mutation gates then reject new prompts, answers,
+continuations, suggestions and retries. Accepted answers, provider provenance and
+saved partial results remain in the receipt; sibling runs are untouched. Repeated
+admission/cancellation cannot start work again. Normal deletion retains only its
+existing minimal tombstone.
+
+`cancelling` remains while local ownership has not ended or recovery confirmation
+is pending; `cancelled` is saved only once no registered local task remains. A
+provider that suppresses cancellation cannot publish its late result. A fresh
+process can settle an orphan marker without replaying work. Lost write
+acknowledgements and failed completion writes preserve a recoverable cancellation.
+Dedicated child ownership and queued-signal checks protect unrelated caller work.
+Before the child enters the provider, it rechecks the exact attempt, input and
+revision so intervening cancellation, deletion or prompt mutation cannot silently
+dispatch stale work.
+
+This closes one concrete **internal** cancellation dependency, not the whole PLAN
+item. Public cancel/run routes, generic council-worker integration, API1 and Rust
+`ask`/`resume`/`cancel` remain unavailable. No legacy web cancellation behavior was
+changed. Retained evidence is readable via `run_admission.get`/`list_receipts`;
+existing refinement/interaction convenience inspectors deliberately reject a
+cancelled run pending full public snapshot integration.
+
+## Verification and review
+
+- **381 Python 3.10.22 tests passed** with the network-forbidden runner, including
+  **18 new cancellation regressions**. Baseline was 363 tests.
+- Tests cover run/sibling isolation, cross-thread signalling, suppressed
+  cancellation, preserved pending/accepted answers and partial results, explicit
+  retry rejection, pre-dispatch cancellation/input races, deletion, malformed
+  markers, lost acknowledgements, final-write repair, unknown/unprepared targets,
+  fresh-interpreter recovery and delayed signal delivery after guard exit.
+- 91 existing Node tests, repository-wide Ruff format/check, whitespace and
+  synthetic empty-data backend startup/graceful shutdown passed.
+- Whole-change self-review and independent review fixed dedicated-task scheduling
+  races before publication. Final review and focused rerun found no introduced
+  moderate-or-higher findings. A clean review is not a correctness guarantee.
+
+No full local build, paid/live provider, native macOS/Keychain, complete CLI
+consultation or new rendered-browser verification ran. Frontend and Rust source
+are unchanged. Offline tests do not establish remote-provider cancellation,
+refunds, exactly-once execution, cross-process concurrent writers or power-loss
+durability. Already admitted provider work may still incur a charge.
+
+## CI, recovery and next priorities
+
+Starting development and main heads had zero statuses, check runs and Woodpecker
+commit comments. Missing normal build evidence is not a pass, failed build or
+observed running pipeline. Final exact-SHA CI observations and publication/tree
+verification belong in the linked recovery receipt. No manual dispatch/rerun,
+private-runner access, settings/security change or full local build occurred.
+
+Genuine-history bundles and full binary patches preserve local work. Publication
+uses a non-force expected-head update after rechecking both remote heads; source
+must match the reviewed tree. The existing open recovery issue is reused rather
+than duplicating the missing-CI blocker.
+
+Next reconcile configured transport selection (including upstream ACP), capture
+complete pipeline/settings/skills provenance, finish the other guarded workflow
+boundaries and worker release/resumption, then integrate public durable run APIs
+and their acceptance tests. Keep API0 and fail closed until the complete contract
+works. Observe normal CI for the exact published head and prioritize any actual
+reported failure.
+
+Research: [Python task cancellation](https://docs.python.org/3.10/library/asyncio-task.html#asyncio.Task.cancel).
+Repository tests establish this implementation's coordination behavior.
+
+---
+
 # CLI checkpoint — single-request refinement provider (2026-11-02)
 
 ## Exact baseline and recoverable implementation
