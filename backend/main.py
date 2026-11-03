@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import skill_sources, skills, storage
+from .acp_client import AgentError
 from .config import (
     API_AUTH_KEY,
     API_KEY_BRUTEFORCE_LOCKOUT_SECONDS,
@@ -27,6 +28,7 @@ from .config import (
     INTERACTIVE_MODE_ENABLED,
     MAX_NEGATIVE_PROMPT_CHARS,
     MAX_PROMPT_CHARS,
+    MODEL_BACKEND,
     NEGATIVE_MODE_ENABLED,
     OPENROUTER_MAX_TOKENS,
     PAIRWISE_RANKING_ENABLED,
@@ -57,7 +59,7 @@ from .export_markdown import build_export_filename, build_markdown_export
 from .interactive import (
     PromptResponse,
 )
-from .openrouter import query_model
+from .model_client import query_model
 from .side_chat import (
     build_side_chat_messages,
     build_side_chat_thread,
@@ -79,6 +81,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LLM Council API", lifespan=lifespan)
 API_KEY_HEADER = "X-API-Key"
+
+
+@app.exception_handler(AgentError)
+async def agent_error_handler(request: Request, exc: AgentError) -> JSONResponse:
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
 @dataclass
@@ -393,6 +400,7 @@ async def get_config():
         "synthesis_context_max_chars": SYNTHESIS_CONTEXT_MAX_CHARS,
         "openrouter_max_tokens": OPENROUTER_MAX_TOKENS,
         "council_models": COUNCIL_MODELS,
+        "model_backend": MODEL_BACKEND,
         "chairman_model": SYNTHESIS_MODEL,
         "synthesis_backend": SYNTHESIS_BACKEND,
         "prompt_refinement_model": PROMPT_REFINEMENT_MODEL,

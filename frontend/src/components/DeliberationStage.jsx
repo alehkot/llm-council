@@ -1,3 +1,4 @@
+import { formatModelName } from "../lib/utils";
 import { useState } from "react";
 import Markdown from "./Markdown";
 import {
@@ -16,11 +17,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "./ui/dialog";
-
-function formatModelName(model) {
-	if (!model) return "unknown";
-	return model.split("/")[1] || model;
-}
 
 function buildMarkdownContent(revision) {
 	return revision.revised || "";

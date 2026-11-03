@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["OPENROUTER_API_KEY"] = "test-openrouter-key"
 os.environ["API_AUTH_KEY"] = "test-api-key"
+os.environ["MODEL_BACKEND"] = "openrouter"
 
 
 def main() -> int:

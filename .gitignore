@@ -40,3 +40,4 @@ docs/
 
 # Rust CLI generated artifacts
 /cli/target/
+agent-adapters/node_modules/

@@ -15,12 +15,12 @@ import {
 	TableHeader,
 	TableRow,
 } from "./ui/table";
-import { cn } from "../lib/utils";
+import { cn, formatModelName } from "../lib/utils";
 
 function formatLabel(label, labelToModel) {
 	if (!label) return "";
 	const model = labelToModel && labelToModel[label];
-	const modelShort = model ? model.split("/")[1] || model : null;
+	const modelShort = model ? formatModelName(model) : null;
 	return modelShort ? `${label} / ${modelShort}` : label;
 }
 
@@ -29,11 +29,6 @@ function formatScore(value) {
 	const num = Number(value);
 	if (Number.isNaN(num)) return "n/a";
 	return Number.isInteger(num) ? num : num.toFixed(1);
-}
-
-function formatModelName(model) {
-	if (!model) return "unknown";
-	return model.split("/")[1] || model;
 }
 
 function AggregateGapScores({ aggregateGapScores }) {

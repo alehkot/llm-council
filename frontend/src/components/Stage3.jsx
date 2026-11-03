@@ -1,3 +1,4 @@
+import { formatModelName } from "../lib/utils";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import Markdown from "./Markdown";
 import ExportMarkdownButton from "./ExportMarkdownButton";
@@ -327,8 +328,7 @@ export default function Stage3({
 		return null;
 	}
 
-	const modelLabel =
-		activeVersion?.model?.split("/")[1] || activeVersion?.model || "Unknown";
+	const modelLabel = formatModelName(activeVersion?.model);
 	const canResynthesize = conversationId && messageIndex !== undefined;
 	const hasMultipleVersions = stage3Data.versions.length > 1;
 

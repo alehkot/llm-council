@@ -16,7 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def check_result(
-    conversation: dict[str, Any], run_dir: Path, model_count: int
+    conversation: dict[str, Any],
+    run_dir: Path,
+    model_count: int,
+    synthesis_model: str = "codex-cli/gpt-6-astra",
 ) -> dict[str, bool]:
     messages = [
         m for m in conversation.get("messages", []) if m.get("role") == "assistant"
@@ -39,7 +42,7 @@ def check_result(
         "deliberation_present": len(revisions) == model_count
         and all(r.get("revised", "").strip() for r in revisions),
         "skills_selected": bool((metadata.get("skills") or {}).get("resolved")),
-        "codex_astra_synthesized": current.get("model") == "codex-cli/gpt-6-astra"
+        "configured_model_synthesized": current.get("model") == synthesis_model
         and bool(current.get("response", "").strip()),
         "disk_result_matches_saved_answer": len(results) == 1
         and results[0].read_text() == current.get("response"),
@@ -65,7 +68,7 @@ def main() -> int:
     parser.add_argument(
         "--run-live",
         action="store_true",
-        help="Authorize real provider calls and Codex subscription usage for this run",
+        help="Authorize live calls using the configured model backend for this run",
     )
     parser.add_argument(
         "--problem-file",
@@ -113,13 +116,20 @@ def main() -> int:
     sys.path.insert(0, str(ROOT))
     from fastapi.testclient import TestClient
 
-    from backend.config import API_AUTH_KEY, COUNCIL_MODELS, SKILLS_TYPESAFE_ENABLED
+    from backend.config import (
+        API_AUTH_KEY,
+        COUNCIL_MODELS,
+        MODEL_BACKEND,
+        SKILLS_TYPESAFE_ENABLED,
+        SYNTHESIS_MODEL,
+    )
     from backend.main import app, consultation_manager
 
     report: dict[str, Any] = {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "council_models": COUNCIL_MODELS,
-        "synthesis": "codex/gpt-6-astra/xhigh",
+        "model_backend": MODEL_BACKEND,
+        "synthesis": SYNTHESIS_MODEL,
         "jev_enabled": SKILLS_TYPESAFE_ENABLED,
         "checks": {},
         "passed": False,
@@ -168,7 +178,9 @@ def main() -> int:
             (run_dir / "conversation.json").write_text(
                 json.dumps(conversation, indent=2, ensure_ascii=False)
             )
-            report["checks"] = check_result(conversation, run_dir, len(COUNCIL_MODELS))
+            report["checks"] = check_result(
+                conversation, run_dir, len(COUNCIL_MODELS), SYNTHESIS_MODEL
+            )
             report["passed"] = all(report["checks"].values())
             if snapshot.get("error"):
                 report["error"] = snapshot["error"]

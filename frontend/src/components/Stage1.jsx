@@ -4,12 +4,7 @@ import { Button } from "./ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { cn } from "../lib/utils";
-
-function formatModelName(model) {
-	if (!model) return "unknown";
-	return model.split("/")[1] || model;
-}
+import { cn, formatModelName } from "../lib/utils";
 
 export default function Stage1({ responses, onStartSideChat }) {
 	const [activeTab, setActiveTab] = useState("0");
@@ -43,7 +38,7 @@ export default function Stage1({ responses, onStartSideChat }) {
 								className={cn(resp.failed && "opacity-70")}
 							>
 								<span className="flex items-center gap-1">
-									{resp.model.split("/")[1] || resp.model}
+									{formatModelName(resp.model)}
 									{resp.failed && (
 										<span
 											className="text-destructive"
