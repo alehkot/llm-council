@@ -8,6 +8,7 @@ import json
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -570,6 +571,35 @@ class ConsultationManager:
                 prompt_response,
             )
 
+    def _status_payload_locked(self, state: ConsultationState) -> Dict[str, Any]:
+        """Serialize status, reconciling completed synthesis edits from storage.
+
+        Caller holds the manager lock. Resynthesis and version selection persist
+        after completion without changing the worker's terminal state. Read the
+        exact completed message rather than replaying its original cached result
+        over newer conversation data. Active runs remain owned by their worker.
+        """
+        payload = state.to_dict()
+        if state.status != ConsultationStatus.COMPLETE:
+            return payload
+
+        if state.assistant_index is not None:
+            message = self._load_assistant_message(
+                state.conversation_id, state.assistant_index
+            )
+            metadata = (message or {}).get("metadata") or {}
+            if (
+                message is not None
+                and metadata.get("consultation_id") == state.id
+                and metadata.get("status") == ConsultationStatus.COMPLETE.value
+            ):
+                payload["stage3"] = message.get("stage3")
+                payload["metadata"] = metadata
+
+        # Keep snapshots detached from the cached state, including when the
+        # persisted message is unavailable or no longer belongs to this run.
+        return deepcopy(payload)
+
     def get_status(self, conversation_id: str) -> Optional[Dict[str, Any]]:
         """Get current consultation status for a conversation."""
 
@@ -577,7 +607,7 @@ class ConsultationManager:
             state = self._consultations.get(conversation_id)
             if state is None:
                 return None
-            return state.to_dict()
+            return self._status_payload_locked(state)
 
     def _queue_payload_locked(self, conversation_id: str) -> List[Dict[str, Any]]:
         """Serialize the queued messages for a conversation. Caller holds the lock."""
@@ -608,7 +638,9 @@ class ConsultationManager:
         with self._lock:
             state = self._consultations.get(conversation_id)
             payload: Dict[str, Any] = (
-                state.to_dict() if state is not None else {"status": "none"}
+                self._status_payload_locked(state)
+                if state is not None
+                else {"status": "none"}
             )
             payload["queue"] = self._queue_payload_locked(conversation_id)
         payload["cursor"] = _snapshot_fingerprint(payload)
