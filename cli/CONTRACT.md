@@ -305,16 +305,19 @@ new prompts, answers, continuations, suggestions and explicit retries through th
 shared prepared-run guard. It retains accepted inputs, saved prompts/results and
 provider provenance; `run_admission.get`/`list_receipts` can still read this evidence.
 The existing refinement/interaction convenience inspectors require runnable
-admission and therefore reject a cancelled run; public lifecycle/result snapshots
-remain future work. Repeating identical admission returns the retained receipt,
+admission and therefore reject a cancelled run. The dedicated read-only internal
+inspection projection described below retains that evidence; public lifecycle/result
+snapshots remain future work. Repeating identical admission returns the retained receipt,
 not new work. Normal deletion still erases the payload and retains a tombstone.
 
 Cancellation is scoped to the named run; sibling admissions and provider tasks
 are unaffected. `cancelling` means local work may still be owned or recovery confirmation is
 pending; `cancelled` is recorded only after no registered local task remains. A provider
 that suppresses cancellation keeps the run `cancelling`; its late result cannot
-replace the cancellation or publish another prompt. Inspection after process
-restart settles an orphaned cancellation without replaying provider work. Failed
+replace the cancellation or publish another prompt. The cancellation coordinator’s
+`run_cancellation.inspect` recovery check after process restart settles an orphaned
+cancellation without replaying provider work. The read-only projection below does
+not perform this settlement. Failed
 marker persistence does not signal tasks, and retrying a request whose write
 acknowledgement was lost observes the saved marker rather than restarting work.
 
@@ -331,3 +334,35 @@ pipeline boundaries and public acceptance cases must be implemented before Rust
 
 Reference: [Python task cancellation](https://docs.python.org/3.10/library/asyncio-task.html#asyncio.Task.cancel)
 explains why requesting cancellation is not proof that a task has stopped.
+
+## Read-only internal run inspection
+
+The internal inspection projection reads prepared admissions and refinement
+checkpoints under the existing single-process storage lock. It does not install
+a public route or advertise API1. Its phases distinguish unscheduled preparation,
+waiting input, accepted input still awaiting consumption, refinement readiness,
+owned provider work, uncertain work and cancellation. A finished refinement is
+not a completed council consultation. It must not be passed off as the proposed
+public `RunSnapshot` until scheduling and all stage boundaries are integrated.
+
+Inspection preserves exact saved prompt history, accepted answers, refinement
+results and available non-secret provider provenance. Cancellation takes priority
+over actionable prompt/retry projections while retaining historical evidence.
+Reads do not settle orphaned cancellation, consume an answer, regenerate a prompt,
+start a worker, call a provider or retry uncertain work. Existing mutation guards
+continue to reject cancelled admissions. Invalid or incompatible records fail
+closed instead of being migrated or replaced during a read.
+
+Returned data is detached. A deterministic content cursor includes the visible
+local ownership state, so a provider losing ownership changes the observation
+from running to uncertain without requiring a receipt write. The cursor is for
+change detection, not authorization, a mutation revision token, a proof of remote
+provider execution or a complete public long-poll contract. Unknown/deleted
+admissions never receive invented runnable work. Full settings/skills provenance,
+configured transport reconciliation, public history/monitor routes and Rust
+consultation commands remain unfinished.
+
+Research: [Python JSON serialization](https://docs.python.org/3.10/library/json.html)
+and [hashlib](https://docs.python.org/3.10/library/hashlib.html) document the stable
+serialization and SHA-256 primitives used for change detection; repository tests
+establish the projection's actual behavior.

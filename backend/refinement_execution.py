@@ -99,8 +99,8 @@ class ExecutionState(WireModel):
         return self
 
 
-def _load(run_id: str) -> tuple[dict[str, Any], ExecutionState]:
-    record = run_admission.get_prepared(run_id)
+def _validate_record(record: dict[str, Any]) -> ExecutionState:
+    """Pure saved-record validation, also usable for cancelled evidence."""
     try:
         state = ExecutionState.model_validate(record.get("refinement_execution", {}))
         if any(
@@ -109,7 +109,7 @@ def _load(run_id: str) -> tuple[dict[str, Any], ExecutionState]:
             for op in state.operations
         ):
             raise ValueError("Operation does not match admission")
-        _, interaction = run_interaction._load(run_id)
+        interaction = run_interaction._validate_record(record)
         for op in state.operations:
             source_index, remainder = divmod(op.revision, 3)
             if remainder or source_index > len(interaction.prompts):
@@ -120,9 +120,7 @@ def _load(run_id: str) -> tuple[dict[str, Any], ExecutionState]:
                 previous = interaction.prompts[source_index - 1]
                 if previous.phase != "consumed":
                     raise ValueError("Operation source answer is not consumed")
-                expected_input = durable_refinement.resume_answer(
-                    run_id, str(previous.instance.instance_id)
-                )
+                expected_input = durable_refinement._derive_answer(record, previous)
             if op.input != expected_input:
                 raise ValueError("Operation input differs from its saved source")
             if op.phase == "in_flight" and interaction.revision != op.revision:
@@ -153,7 +151,12 @@ def _load(run_id: str) -> tuple[dict[str, Any], ExecutionState]:
         raise run_admission.AdmissionUnavailable(
             "Refinement execution checkpoint is invalid; repair required"
         ) from exc
-    return record, state
+    return state
+
+
+def _load(run_id: str) -> tuple[dict[str, Any], ExecutionState]:
+    record = run_admission.get_prepared(run_id)
+    return record, _validate_record(record)
 
 
 def _save(record: dict[str, Any], state: ExecutionState) -> None:

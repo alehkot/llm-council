@@ -93,6 +93,35 @@ def _validated(config: OpenRouterRefinementConfig) -> OpenRouterRefinementConfig
     return OpenRouterRefinementConfig.model_validate(config.model_dump(mode="python"))
 
 
+def _validate_record(
+    record: dict[str, Any], execution: refinement_execution.ExecutionState
+) -> OpenRouterRefinementConfig | None:
+    """Validate existing provenance without binding new settings or writing."""
+    if "refinement_provider" not in record:
+        return None
+    saved = record["refinement_provider"]
+    try:
+        if not isinstance(saved, dict) or set(saved) != {
+            "configuration",
+            "identity",
+        }:
+            raise ValueError("Invalid provider record")
+        if not isinstance(saved["configuration"], dict) or set(
+            saved["configuration"]
+        ) != set(OpenRouterRefinementConfig.model_fields):
+            raise ValueError("Provider configuration is not canonical")
+        original = OpenRouterRefinementConfig.model_validate(saved["configuration"])
+        if saved["identity"] != original.identity():
+            raise ValueError("Provider identity differs")
+        if any(op.provider_key != original.identity() for op in execution.operations):
+            raise ValueError("Operation provider differs")
+    except (ValueError, TypeError) as exc:
+        raise run_admission.AdmissionUnavailable(
+            "Refinement provider checkpoint is invalid; repair required"
+        ) from exc
+    return original
+
+
 def _bind(
     run_id: str,
     config: OpenRouterRefinementConfig,
@@ -101,32 +130,8 @@ def _bind(
 ) -> OpenRouterRefinementConfig:
     with storage._storage_lock:
         record, execution = refinement_execution._load(run_id)
-        saved = record.get("refinement_provider")
         if "refinement_provider" in record:
-            try:
-                if not isinstance(saved, dict) or set(saved) != {
-                    "configuration",
-                    "identity",
-                }:
-                    raise ValueError("Invalid provider record")
-                if not isinstance(saved["configuration"], dict) or set(
-                    saved["configuration"]
-                ) != set(OpenRouterRefinementConfig.model_fields):
-                    raise ValueError("Provider configuration is not canonical")
-                original = OpenRouterRefinementConfig.model_validate(
-                    saved["configuration"]
-                )
-                if saved["identity"] != original.identity():
-                    raise ValueError("Provider identity differs")
-                if any(
-                    op.provider_key != original.identity()
-                    for op in execution.operations
-                ):
-                    raise ValueError("Operation provider differs")
-            except (ValueError, TypeError) as exc:
-                raise run_admission.AdmissionUnavailable(
-                    "Refinement provider checkpoint is invalid; repair required"
-                ) from exc
+            original = _validate_record(record, execution)
             if original != config:
                 raise refinement_execution.ExecutionConflict(
                     "Refinement provider configuration changed"

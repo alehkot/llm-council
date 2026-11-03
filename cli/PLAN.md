@@ -35,7 +35,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   Cover lost acknowledgments, concurrent duplicates, restart, completed runs,
   and deletion before connecting the Rust client. Internal admission/receipt
   persistence is complete; public routes, execution handoff and full run snapshots
-  remain pending (see [contract boundaries](CONTRACT.md)).
+  remain pending (see [contract boundaries](CONTRACT.md)). Read-only internal
+  inspection of prepared/refinement work preserves prompts and cancellation
+  evidence without scheduling or claiming a complete consultation.
 - [ ] Implement persistent human-input checkpoints in `langgraph_flow.py` and
   the manager. Persist the exact prompt and resume location, release the worker
   while waiting, and consume each accepted answer once. Recover uncertain model

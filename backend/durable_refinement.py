@@ -8,6 +8,7 @@ checkpoints and explicit uncertain-work retry handling.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from . import run_admission, run_interaction, storage
@@ -57,6 +58,54 @@ def _validate_prompt(prompt: PromptSchema, state: RefinementState) -> None:
             raise ValueError("Clarification does not match saved question")
 
 
+def _validate_checkpoint(
+    record: dict[str, Any], entry: run_interaction.PromptCheckpoint
+) -> RefinementState:
+    """Read and validate a retained refinement prompt without consuming input."""
+    try:
+        state = RefinementState.from_continuation(entry.continuation)
+        if (
+            not record["request"]["refine"]
+            or state.original_query != record["request"]["content"]
+            or state.phase != "waiting_answer"
+        ):
+            raise ValueError("Refinement checkpoint does not match admission")
+        assert state.last_suggestion is not None
+        _validate_prompt(entry.instance.prompt, state)
+        return state
+    except (ValueError, TypeError) as exc:
+        raise run_admission.AdmissionUnavailable(
+            "Refinement checkpoint is incompatible; repair required"
+        ) from exc
+
+
+def _derive_answer(
+    record: dict[str, Any], entry: run_interaction.PromptCheckpoint
+) -> RefinementState:
+    """Validate and derive accepted input without consuming or writing it."""
+    try:
+        state = _validate_checkpoint(record, entry)
+        assert entry.answer is not None
+        derived = state.apply_response(
+            PromptResponse(
+                prompt_id=entry.instance.prompt.prompt_id,
+                responses=entry.answer.responses,
+                skipped=entry.answer.skipped,
+            )
+        ).state
+        if entry.phase == "consumed":
+            assert entry.next_continuation is not None
+            saved = RefinementState.from_continuation(entry.next_continuation)
+            if saved != derived:
+                raise ValueError("Saved refinement result does not match answer")
+            return saved
+    except (ValueError, TypeError) as exc:
+        raise run_admission.AdmissionUnavailable(
+            "Refinement checkpoint is incompatible; repair required"
+        ) from exc
+    return derived
+
+
 def resume_answer(run_id: str, instance_id: str) -> RefinementState:
     """Reduce only the first saved answer, atomically saving its continuation.
 
@@ -84,33 +133,8 @@ def resume_answer(run_id: str, instance_id: str) -> RefinementState:
             raise run_interaction.PromptConflict("Prompt instance is unknown or stale")
         if entry.phase == "waiting":
             raise run_interaction.PromptConflict("Prompt has no accepted answer")
-        try:
-            state = RefinementState.from_continuation(entry.continuation)
-            if (
-                not record["request"]["refine"]
-                or state.original_query != record["request"]["content"]
-                or state.phase != "waiting_answer"
-            ):
-                raise ValueError("Refinement checkpoint does not match admission")
-            assert state.last_suggestion is not None
-            _validate_prompt(entry.instance.prompt, state)
-            assert entry.answer is not None
-            derived = state.apply_response(
-                PromptResponse(
-                    prompt_id=entry.instance.prompt.prompt_id,
-                    responses=entry.answer.responses,
-                    skipped=entry.answer.skipped,
-                )
-            ).state
-            if entry.phase == "consumed":
-                assert entry.next_continuation is not None
-                saved = RefinementState.from_continuation(entry.next_continuation)
-                if saved != derived:
-                    raise ValueError("Saved refinement result does not match answer")
-                return saved
-        except (ValueError, TypeError) as exc:
-            raise run_admission.AdmissionUnavailable(
-                "Refinement checkpoint is incompatible; repair required"
-            ) from exc
+        derived = _derive_answer(record, entry)
+        if entry.phase == "consumed":
+            return derived
         run_interaction.advance(run_id, str(identity), derived.to_continuation())
         return derived

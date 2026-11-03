@@ -149,8 +149,8 @@ def validate_answer(prompt: PromptSchema, answer: AnswerRequest) -> None:
         _validate_value(field, answer.responses[field.id], required=field.required)
 
 
-def _load(run_id: str) -> tuple[dict[str, Any], InteractionState]:
-    record = run_admission.get_prepared(run_id)
+def _validate_record(record: dict[str, Any]) -> InteractionState:
+    """Validate saved history without requiring a runnable (uncancelled) run."""
     try:
         state = InteractionState.model_validate(record.get("interaction", {}))
         if any(
@@ -161,7 +161,12 @@ def _load(run_id: str) -> tuple[dict[str, Any], InteractionState]:
         raise run_admission.AdmissionUnavailable(
             "Prompt checkpoint is invalid; repair required"
         ) from exc
-    return record, state
+    return state
+
+
+def _load(run_id: str) -> tuple[dict[str, Any], InteractionState]:
+    record = run_admission.get_prepared(run_id)
+    return record, _validate_record(record)
 
 
 def _save(record: dict[str, Any], state: InteractionState) -> dict[str, Any]:
