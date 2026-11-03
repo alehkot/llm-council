@@ -1,3 +1,93 @@
+# CLI checkpoint — read-only durable run inspection (2026-11-03)
+
+## Exact baseline and implementation
+
+Persistent working branch: `development`, starting at
+[0ca031f29fa5a799555f2b78617f563db0377f58](https://github.com/alehkot/llm-council/commit/0ca031f29fa5a799555f2b78617f563db0377f58).
+Observed upstream/default `main`:
+[96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc](https://github.com/alehkot/llm-council/commit/96f3df7b0b7ac684e69e83ab1ee4b4751f6782bc).
+Main's separate ACP/configuration/UI changes remain preserved; this isolated
+internal read projection did not require upstream integration.
+
+Published implementation:
+[c94c9bfcf196693579002bf995a122fcf6e80ce2](https://github.com/alehkot/llm-council/commit/c94c9bfcf196693579002bf995a122fcf6e80ce2),
+verified reviewed tree `97aa695c73c8d178af4701e9a9bff8b56ba06488`.
+Genuine local equivalent `5c30657d05ddeface1cb7049d3b9847aec18c8e7` has that
+identical tree. This documentation descendant's exact final local/published SHA
+and tree are recorded in [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+## Problem and completed scope
+
+Existing mutation-oriented convenience inspectors reject cancelled runs and the
+cancellation recovery inspector can settle an orphan marker. Neither is suitable
+for read-only monitoring of retained partial evidence. The new internal typed
+projection validates a single locked receipt and returns detached prompt/answer
+history, refinement results and available non-secret provider provenance.
+
+It distinguishes preparation from queued work, accepted-but-unconsumed answers,
+refinement readiness/completion, locally owned work, uncertain work requiring
+explicit retry, and cancellation. Cancellation suppresses actionable prompts and
+retry tokens without discarding evidence. Reads never settle cancellation, consume
+an answer, generate prompts, schedule workers, call providers or repair records.
+Shared pure validators preserve all existing cancelled-run mutation gates.
+
+A deterministic content cursor includes live ownership, so a restart can change
+running to uncertain without a persisted write. This is a change-detection marker,
+not an authorization token or a complete public long-poll protocol. Unsupported
+or corrupt checkpoints fail closed. Unknown/deleted admissions do not fabricate
+work. Refinement completion is not completion of a council consultation.
+
+This advances an internal inspect/resume dependency only. API remains **0**;
+public run/history/cancel routes and Rust `ask`/`resume`/`cancel` remain unavailable.
+Full pipeline/settings/skills provenance, configured ACP transport selection,
+remaining workflow boundaries and actual worker release/resumption remain pending.
+
+## Verification and review
+
+- **397 Python 3.10.22 tests passed** with the network-forbidden runner, including
+  **16 new inspection regressions**; baseline was 381.
+- New tests establish byte-preserving reads, detached values, deterministic cursors,
+  live ownership changes and fresh-process reopening, exact waiting/accepted/
+  consumed evidence, cancelled history and suppressed actions, unchanged mutation
+  gates, provenance identity checks, corrupt/unsupported state rejection and
+  initializing/deleted/missing conversation distinctions.
+- 91 Node tests, repository-wide Ruff format/check, whitespace, and synthetic
+  empty-data backend startup/graceful shutdown passed. No live provider was invoked.
+- Independent whole-change source/tests/CONTRACT/PLAN review and an independent
+  397-test rerun passed, with no introduced moderate-or-higher findings. Separate
+  independent probes covered read purity, cancellation, corruption and ownership.
+  Self-review also clarified the distinct cancellation recovery inspector in docs.
+  A clean review is not a correctness guarantee.
+
+No full local build, paid/live provider, native macOS/Keychain, complete CLI
+consultation or new rendered-browser verification ran. Frontend/Rust sources are
+unchanged. Offline tests do not establish remote-provider execution/cancellation,
+exactly-once semantics, cross-process concurrent writers or power-loss durability.
+
+## CI, preservation and next priorities
+
+Exact starting development, main and published implementation heads had zero
+statuses, check runs and Woodpecker commit comments. These are missing normal
+build results, not a pass, a failed build or an observed running pipeline. Final
+exact-SHA CI observations and publication verification are saved in the linked
+recovery receipt. No CI rerun, full local build or private-runner access occurred.
+
+Genuine-history bundles and full patches preserve the local equivalent and remote
+commits. Publication uses a non-force expected-head update after checking both
+remote heads and requires the exact reviewed tree. Existing missing-CI recovery
+issue #17 is reused rather than duplicated.
+
+Next reconcile configured transport/ACP, capture complete settings/skills/model
+provenance, finish guarded pipeline boundaries and worker release/resumption,
+then integrate public durable APIs and acceptance tests before Rust consultation
+commands. Observe normal CI for exact published heads; prioritize actual failures.
+
+Research: [Python JSON serialization](https://docs.python.org/3.10/library/json.html)
+and [hashlib](https://docs.python.org/3.10/library/hashlib.html). Tests establish
+the implementation's behavior; the cursor is not a provider execution receipt.
+
+---
+
 # CLI checkpoint — durable run-specific cancellation (2026-11-02)
 
 ## Baseline and implementation
