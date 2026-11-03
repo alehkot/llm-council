@@ -410,3 +410,14 @@ that check/use gap only for consumers of the returned snapshot; it is not wired
 to a worker. Restart recapture, effective settings and other skill sources,
 cancellation/revision checks at dispatch and all public execution acceptance
 cases remain required. API0 and unavailable consultation commands are unchanged.
+
+### Configured refinement bridge checkpoint (partial)
+
+An internal bridge now resolves the loaded OpenRouter refinement model, endpoint
+and token ceiling into the existing immutable adapter snapshot and consumes that
+same value through guarded dispatch. Unsupported ACP fails closed; subsequent
+settings drift conflicts with saved refinement provenance. This is refinement-only
+and uses the durable adapter's fixed single-request policy, not the legacy
+catalog/fitting/retry path. Full pipeline settings/skills, ACP support and public
+worker/HTTP integration remain open; API0 and unavailable CLI consultation commands
+are unchanged. See [CONTRACT.md](CONTRACT.md) for boundaries and tested evidence.

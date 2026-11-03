@@ -412,3 +412,33 @@ bill; returning content does not guarantee the run stays runnable afterward.
 It does not establish automatic selection, external source support, complete
 pipeline settings, a worker, public run routes, or API1. Existing legacy flows
 remain unchanged.
+
+## Configured refinement bridge (internal, partial)
+
+`refinement_provider.resolve_configured_refinement` reads the loaded backend's
+transport, refinement model, OpenRouter endpoint and token ceiling into the
+existing frozen, versioned adapter configuration. The internal
+`suggest_configured_refinement` resolves once and passes that exact value through
+durable binding and guarded execution; it does not reread globals for the request.
+A changed model, endpoint or token ceiling conflicts with retained provenance on
+a later call, including an explicit retry or a duplicate result read. ACP and
+unknown transports fail before persistence or provider dispatch, rather than
+silently treating ACP model identifiers as OpenRouter names. Credentials remain
+caller-supplied and ephemeral; rotation does not alter the non-secret identity.
+
+This bridge selects the existing **durable adapter's fixed v1 request policy**:
+one attempt, no catalog query, automatic retry, input fitting or continuation.
+It does not promise the legacy configured provider's adaptive token behavior.
+The 60-second timeout and reasoning/high-effort defaults remain part of the saved
+adapter configuration. No legacy call site, worker, public route, model catalog
+or CLI command invokes the bridge. Full council settings/skills provenance, ACP
+execution support, worker release/resumption and public acceptance cases remain
+unfinished; API version stays 0. Backend configuration is loaded at startup, so
+editing environment variables without restarting is not a runtime config change.
+
+Nine synthetic regression tests verify saved settings match HTTP payloads,
+unsupported or invalid configuration produces no writes/requests, retained
+settings drift conflicts, uncertain work needs explicit same-settings retry,
+post-resolution global changes do not change the request, stale/cancelled/deleted
+runs do not dispatch, and credentials are absent from receipts. They do not
+establish full pipeline compatibility, live-provider behavior or platform support.

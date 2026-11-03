@@ -1,8 +1,8 @@
 """Explicit OpenRouter-only durable refinement, not a configured run executor.
 
-No routes/workers select this adapter. A future executor must resolve the chosen
-transport (including upstream ACP), full pipeline settings and skills before
-calling it. This adapter snapshots only its own request contract. No secrets are
+No routes/workers select this adapter. An internal configured bridge resolves
+OpenRouter settings and rejects ACP; full pipeline settings and skills still
+require resolution before public execution. This adapter snapshots only its own request contract. No secrets are
 persisted, no legacy provider fallback is used, and one attempt sends one POST.
 """
 
@@ -282,4 +282,57 @@ async def suggest_openrouter(
         provider_key=config.identity(),
         expected_revision=expected_revision,
         retry_token=retry_token,
+    )
+
+
+def resolve_configured_refinement() -> OpenRouterRefinementConfig:
+    """Resolve the supported configured refinement boundary without doing I/O.
+
+    Read the loaded backend configuration, not environment variables or a model
+    catalog. ACP is deliberately unsupported here: never turn its model names
+    into OpenRouter requests. The returned frozen value is the exact input to
+    the durable adapter and includes its fixed v1 single-request policy. It does
+    not describe legacy catalog-based token fitting, automatic continuations or
+    retries, and is not provenance for the rest of the council pipeline.
+    Credentials are neither read nor included in this value.
+    """
+    from . import config
+
+    if config.MODEL_BACKEND != "openrouter":
+        raise refinement_execution.ExecutionConflict(
+            "Configured refinement transport is not supported by the durable adapter"
+        )
+    return OpenRouterRefinementConfig(
+        endpoint=config.OPENROUTER_API_URL,
+        model=config.PROMPT_REFINEMENT_MODEL,
+        max_tokens=config.OPENROUTER_MAX_TOKENS,
+    )
+
+
+async def suggest_configured_refinement(
+    run_id: str,
+    *,
+    api_key: str,
+    expected_revision: int,
+    retry_token: str | None = None,
+    _transport: httpx.AsyncBaseTransport | None = None,
+) -> RefinementState:
+    """Internal configured bridge; no public route or worker selects this helper.
+
+    Resolve once, then pass that same immutable value through durable binding
+    and the guarded request. A changed loaded model/endpoint/token limit conflicts
+    with the saved attempt on a later call, including retries and result reads.
+    Unsupported transports fail before binding or dispatch. Secret rotation is
+    independent: the caller supplies the current ephemeral key. Other run-wide
+    settings, skills and dispatch/cancellation integration remain prerequisites
+    for public execution; this does not upgrade the CLI API capability.
+    """
+    resolved = resolve_configured_refinement()
+    return await suggest_openrouter(
+        run_id,
+        resolved,
+        api_key=api_key,
+        expected_revision=expected_revision,
+        retry_token=retry_token,
+        _transport=_transport,
     )
