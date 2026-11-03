@@ -264,6 +264,15 @@ async def _query_model_once(
                 if response_status >= 400:
                     response.raise_for_status()
 
+                # A 200 response can still carry a provider error. Do not use
+                # its partial output as evidence or repeat an uncertain request.
+                if isinstance(data, dict) and data.get("error") is not None:
+                    error_message = (
+                        f"Provider reported an unsuccessful outcome for {model}"
+                    )
+                    print(error_message)
+                    return None
+
                 # Validate response structure before accessing nested keys
                 choices = data.get("choices") if isinstance(data, dict) else None
                 if not isinstance(choices, list) or not choices:
@@ -281,11 +290,32 @@ async def _query_model_once(
                     print(error_message)
                     return None
 
+                # These are terminal outcomes, not token-limit continuations.
+                # In particular, never retry filtered output or pretend an
+                # unresolved tool call is a finished text-only council answer.
+                if choice.get("error") is not None or choice.get("finish_reason") in (
+                    "content_filter",
+                    "error",
+                    "tool_calls",
+                ):
+                    error_message = (
+                        f"Provider reported an unsuccessful outcome for {model}"
+                    )
+                    print(error_message)
+                    return None
+
                 message = choice.get("message") or {}
                 if not isinstance(message, dict) or not message:
                     error_message = f"No message in API response from {model}"
                     if attempt + 1 < total_attempts:
                         continue
+                    print(error_message)
+                    return None
+
+                if message.get("tool_calls"):
+                    error_message = (
+                        f"Provider returned unresolved tool calls for {model}"
+                    )
                     print(error_message)
                     return None
 

@@ -79,6 +79,11 @@ Final Answer
   Empty or whitespace-only provider completions use the existing bounded retry
   budget; if all attempts fail, deliberation keeps the original answer instead
   of replacing it with blank text. Nonblank string formatting is preserved.
+  OpenRouter error payloads in successful HTTP responses, explicit error/filtered
+  completion outcomes and unresolved tool calls fail that model attempt without
+  automatic retry or prose continuation. Their partial text is not used as council
+  evidence. HTTP-status retries (including 429/5xx), normal completions and
+  token-limit continuation behavior are unchanged.
 - **Polling-based sync**: Robust state synchronization between frontend and backend.
   Switching consultations while a message is being submitted keeps the selected
   consultation’s progress, queue, and errors separate. Late submission results
