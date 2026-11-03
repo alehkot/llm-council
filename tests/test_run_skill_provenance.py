@@ -1,5 +1,6 @@
 """Offline identity checks for explicit uploaded skill content."""
 
+import hashlib
 import io
 import json
 import os
@@ -8,6 +9,7 @@ import threading
 import unittest
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -328,6 +330,144 @@ class ExplicitSkillProvenanceTests(unittest.TestCase):
         manifest.write_text(json.dumps(record))
         with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
             run_skill_provenance.bind_explicit_skills(self.run)
+
+    def test_capture_returns_the_exact_hashed_bytes_without_persisting_text(self):
+        identity = run_skill_provenance.bind_explicit_skills(self.run)
+        path = self.root / "run_receipts" / f"{self.run}.json"
+        before = path.read_bytes()
+        with patch.object(
+            skills, "read_skill_markdown", wraps=skills.read_skill_markdown
+        ) as body:
+            captured = run_skill_provenance.capture_explicit_skills(self.run)
+        body.assert_called_once_with("one")
+        self.assertIsInstance(captured, tuple)
+        item = captured[0]
+        self.assertEqual(item.sha256, hashlib.sha256(item.document_json).hexdigest())
+        self.assertEqual(identity["skills"], [{"id": item.id, "sha256": item.sha256}])
+        doc = item.document()
+        self.assertIn("Private instructions", doc["body"])
+        self.assertIn("Reference body", doc["references"][0]["text"])
+        self.assertIn("sections", doc["references"][0])
+        self.assertNotIn("Private instructions", repr(item))
+        self.assertNotIn("Reference body", repr(item))
+        self.assertEqual(path.read_bytes(), before)
+        with self.assertRaises(FrozenInstanceError):
+            item.document_json = b"changed"
+
+    def test_captured_bytes_and_consumer_copies_survive_library_changes(self):
+        run_skill_provenance.bind_explicit_skills(self.run)
+        item = run_skill_provenance.capture_explicit_skills(self.run)[0]
+        expected = item.document()
+        copied = item.document()
+        copied["body"] = "mutated consumer copy"
+        copied["references"][0]["headings"].append("mutated metadata")
+        skills.delete_skill("one")
+        with patch.object(skills, "get_skill", side_effect=AssertionError("late read")):
+            self.assertEqual(item.document(), expected)
+        with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
+            run_skill_provenance.capture_explicit_skills(self.run)
+
+    def test_capture_requires_prior_binding_and_never_binds_retrospectively(self):
+        path = self.root / "run_receipts" / f"{self.run}.json"
+        before = path.read_bytes()
+        with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
+            run_skill_provenance.capture_explicit_skills(self.run)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertNotIn("explicit_skill_provenance", run_admission.get(self.run))
+
+    def test_capture_rejects_drift_and_damaged_saved_identity(self):
+        run_skill_provenance.bind_explicit_skills(self.run)
+        p = self.root / "skills" / "one" / "bundle" / "references/a.md"
+        original = p.read_text()
+        p.write_text(original + " drift")
+        with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
+            run_skill_provenance.capture_explicit_skills(self.run)
+        p.write_text(original)
+        record = run_admission.get(self.run)
+        record["explicit_skill_provenance"]["version"] = True
+        run_admission._write(record)
+        with self.assertRaises(run_admission.AdmissionUnavailable):
+            run_skill_provenance.capture_explicit_skills(self.run)
+
+    def test_capture_rejects_cancelled_and_deleted_runs(self):
+        from backend import run_cancellation
+
+        run_skill_provenance.bind_explicit_skills(self.run)
+        run_cancellation.request(self.run)
+        with self.assertRaises(run_admission.AdmissionCancelled):
+            run_skill_provenance.capture_explicit_skills(self.run)
+        storage.delete_conversation("cli-" + self.run)
+        with self.assertRaises(run_admission.AdmissionDeleted):
+            run_skill_provenance.capture_explicit_skills(self.run)
+
+    def test_capture_does_not_reread_after_external_file_edit(self):
+        run_skill_provenance.bind_explicit_skills(self.run)
+        original_read = skills.read_skill_markdown
+        p = self.root / "skills" / "one" / "bundle" / "SKILL.md"
+
+        def changed_after_read(skill_id):
+            original = original_read(skill_id)
+            p.write_text(p.read_text() + " external change")
+            return original
+
+        with patch.object(
+            skills, "read_skill_markdown", side_effect=changed_after_read
+        ):
+            item = run_skill_provenance.capture_explicit_skills(self.run)[0]
+        self.assertNotIn("external change", item.document()["body"])
+        self.assertEqual(item.sha256, hashlib.sha256(item.document_json).hexdigest())
+        with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
+            run_skill_provenance.capture_explicit_skills(self.run)
+
+    def test_capture_rejects_mixed_content_changed_during_capture(self):
+        run_skill_provenance.bind_explicit_skills(self.run)
+        original_read = skills.read_skill_markdown
+        p = self.root / "skills" / "one" / "bundle" / "references/a.md"
+
+        def change_reference_after_body_read(skill_id):
+            original = original_read(skill_id)
+            p.write_text(p.read_text() + " external change")
+            return original
+
+        with patch.object(
+            skills, "read_skill_markdown", side_effect=change_reference_after_body_read
+        ):
+            with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
+                run_skill_provenance.capture_explicit_skills(self.run)
+
+    def test_capture_serializes_supported_library_deletion(self):
+        run_skill_provenance.bind_explicit_skills(self.run)
+        original_read = skills.read_skill_markdown
+        entered = threading.Event()
+        release = threading.Event()
+        deletion_started = threading.Event()
+
+        def blocked_read(skill_id):
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError("test release timed out")
+            return original_read(skill_id)
+
+        def delete():
+            deletion_started.set()
+            return skills.delete_skill("one")
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            with patch.object(skills, "read_skill_markdown", side_effect=blocked_read):
+                capture = pool.submit(
+                    run_skill_provenance.capture_explicit_skills, self.run
+                )
+                self.assertTrue(entered.wait(3))
+                deletion = pool.submit(delete)
+                self.assertTrue(deletion_started.wait(3))
+                self.assertFalse(deletion.done())
+                release.set()
+                captured = capture.result(timeout=3)
+                self.assertTrue(deletion.result(timeout=3))
+        self.assertIn("Private instructions", captured[0].document()["body"])
+        self.assertIn("Reference body", captured[0].document()["references"][0]["text"])
+        with self.assertRaises(run_skill_provenance.SkillProvenanceConflict):
+            run_skill_provenance.capture_explicit_skills(self.run)
 
     def test_tombstone_rejects_binding(self):
         storage.delete_conversation("cli-" + self.run)

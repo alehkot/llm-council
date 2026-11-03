@@ -399,3 +399,14 @@ rejects changed, missing or disabled skills. It neither supports auto-selection
 or external skill sources nor binds effective pipeline settings. It does not
 install a worker, guarantee later execution sees the checked bytes, or advance
 API0. See [CONTRACT.md](CONTRACT.md) for important TOCTOU limitations.
+
+
+### Verified selected-skill capture checkpoint (partial)
+
+An internal capture helper now returns frozen canonical content bytes matching
+already-bound explicit uploaded-skill identities. Consumers can use those exact
+bytes rather than reread mutable library paths after a hash check. This closes
+that check/use gap only for consumers of the returned snapshot; it is not wired
+to a worker. Restart recapture, effective settings and other skill sources,
+cancellation/revision checks at dispatch and all public execution acceptance
+cases remain required. API0 and unavailable consultation commands are unchanged.

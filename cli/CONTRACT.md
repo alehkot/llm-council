@@ -386,3 +386,29 @@ copy/consume checked content: locks do not prevent independent filesystem edits
 and a check followed by later reads has a time-of-check/time-of-use gap. Never
 interpret an identity check as permission to dispatch, retry, or bill. API
 version remains 0.
+
+
+## Verified explicit skill content capture (internal)
+
+`run_skill_provenance.capture_explicit_skills(run_id)` requires a previously
+bound uploaded-skill identity and returns an ordered tuple of frozen
+`CapturedSkill` values. Each holds canonical JSON bytes containing the exact body,
+references and routing metadata used for its SHA-256 comparison. Hashing and the
+returned data use the same read; `document()` decodes a detached consumer copy
+without rereading the library. The operation writes no receipt/content and
+starts no work. Content is omitted from the value's debug representation.
+
+Supported library mutations are serialized while capturing. An independent
+filesystem writer can still change files; mixed or changed captured content must
+match the previously persisted digest or capture fails closed. A successful
+snapshot remains unchanged after later library replacement/deletion. This is an
+in-memory execution input, not a persisted archive: a restart must capture again
+and cannot proceed if the accepted content has disappeared or changed.
+
+Future execution must consume the returned snapshot instead of opening skill
+paths again, and must separately check current run revision/cancellation at the
+guarded dispatch boundary. Capture itself is not permission to execute, retry or
+bill; returning content does not guarantee the run stays runnable afterward.
+It does not establish automatic selection, external source support, complete
+pipeline settings, a worker, public run routes, or API1. Existing legacy flows
+remain unchanged.

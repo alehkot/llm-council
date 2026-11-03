@@ -1,9 +1,9 @@
 """Internal identity guard for explicitly selected skills, not an executor.
 
-This guard cannot guarantee later execution uses the checked bytes: future
-integration must hold the skill lock while copying the resolved content or
-consume an immutable snapshot. Automatic selection and pipeline provenance are
-not implemented here. No routes, providers or worker scheduling call this module.
+The capture helper returns the very bytes whose identity was checked, avoiding
+a later library reread. Callers must consume that snapshot, not mutable paths.
+Automatic selection and pipeline provenance are not implemented here. No routes,
+providers or worker scheduling call this module.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from . import refinement_execution, run_admission, run_interaction, skills, storage
@@ -20,8 +21,25 @@ class SkillProvenanceConflict(ValueError):
     """The selected skill set or saved identity is no longer safe to use."""
 
 
-def _fingerprints(ids: list[str]) -> list[dict[str, str]]:
-    """Capture text and routing metadata while the caller owns skills._skills_lock."""
+@dataclass(frozen=True)
+class CapturedSkill:
+    """Canonical in-memory content, not a dispatch/cancellation permission token.
+
+    JSON bytes are immutable and include body, references and routing metadata.
+    document() returns a detached consumer copy and performs no library reads.
+    Content is deliberately excluded from repr, and is not persisted by capture.
+    """
+
+    id: str
+    sha256: str
+    document_json: bytes = field(repr=False)
+
+    def document(self) -> dict[str, Any]:
+        return json.loads(self.document_json)
+
+
+def _capture(ids: list[str]) -> tuple[CapturedSkill, ...]:
+    """Read once while the caller owns skills._skills_lock; hash returned bytes."""
     result = []
     for skill_id in ids:
         skill = skills.get_skill(skill_id)
@@ -65,8 +83,17 @@ def _fingerprints(ids: list[str]) -> list[dict[str, str]]:
         encoded = json.dumps(
             document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        result.append({"id": skill_id, "sha256": hashlib.sha256(encoded).hexdigest()})
-    return result
+        result.append(
+            CapturedSkill(skill_id, hashlib.sha256(encoded).hexdigest(), encoded)
+        )
+    return tuple(result)
+
+
+def _identity(captured: tuple[CapturedSkill, ...]) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "skills": [{"id": item.id, "sha256": item.sha256} for item in captured],
+    }
 
 
 def validate_saved(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -124,7 +151,7 @@ def bind_explicit_skills(run_id: str) -> dict[str, Any]:
         execution = refinement_execution._validate_record(record)
         # Lock order is storage then skills; skill library never acquires storage lock.
         with skills._skills_lock:
-            current = {"version": 1, "skills": _fingerprints(ids)}
+            current = _identity(_capture(ids))
             if "explicit_skill_provenance" in record:
                 saved = validate_saved(record)
                 if saved != current:
@@ -145,3 +172,30 @@ def bind_explicit_skills(run_id: str) -> dict[str, Any]:
             record["explicit_skill_provenance"] = current
             run_admission._write(record)
             return current
+
+
+def capture_explicit_skills(run_id: str) -> tuple[CapturedSkill, ...]:
+    """Return content matching an already-bound identity, without changing state.
+
+    Capture and verification use the same canonical bytes. Concurrent supported
+    library mutations are serialized; independent filesystem writers are not,
+    but mixed/drifted content fails the saved-digest comparison. A returned value
+    remains detached if library files later change or disappear. A later executor
+    must use this value without rereading paths, and must separately recheck run
+    revision/cancellation immediately before guarded dispatch. This is not a
+    durable copy, a full pipeline snapshot, or authorization to call a provider.
+    """
+    with storage._storage_lock:
+        record = run_admission.get_prepared(run_id)
+        saved = validate_saved(record)
+        if saved is None:
+            raise SkillProvenanceConflict("Explicit skill identity has not been bound")
+        run_interaction._validate_record(record)
+        refinement_execution._validate_record(record)
+        with skills._skills_lock:
+            captured = _capture(record["request"]["skill_ids"])
+            if _identity(captured) != saved:
+                raise SkillProvenanceConflict(
+                    "Selected skill identity changed or is invalid"
+                )
+            return captured

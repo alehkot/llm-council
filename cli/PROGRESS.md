@@ -1,3 +1,68 @@
+# CLI checkpoint — verified explicit skill content capture (2026-11-03)
+
+## Baseline and scope
+
+Starting persistent `development` and freshly fast-forwarded `main`:
+[fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+Local implementation commit: `a59381ddfce6100613e6e996b617ab7497996606`, tree
+`58005b59e932bec3adfa2689eee934d2a309ddc6`. It is local-only at this checkpoint;
+publication and exact final documentation-head SHA/CI belong in the publication
+receipt. Main's changes remain preserved; further implementation is on development.
+
+The previous guard detected changes but left consumers to reread mutable library
+files. The new internal `capture_explicit_skills` returns frozen canonical bytes
+whose digest was checked against the already-bound identity. Body, reference
+text and routing metadata are captured together; future consumers must use this
+returned snapshot instead of rereading library paths. Supported concurrent
+library mutation is serialized. Independent filesystem edits are not locked,
+but any mixed or changed snapshot must match the saved digest before return.
+
+This is a bounded dependency for durable execution, not worker integration:
+no public endpoint, provider call, Rust CLI change or API-version change. Saved
+identity format and hashes are unchanged. Capture is memory-only, not a durable
+content archive or cancellation/dispatch permission. Future executors must still
+check run revision/cancellation and bind full effective settings/transport.
+
+## Verification and review
+
+- 26 explicit-skill tests passed, including eight new regression tests for exact
+  hashed content, detached copies, cancellation/deletion, missing/corrupt identity,
+  external body/reference edits, and supported concurrent library deletion.
+- Full offline backend rerun: 436 tests passed with outbound networking blocked.
+  The initial full run had one transient failure in the unchanged ACP descendant
+  cancellation assertion (`cancel=True`). That focused test and the complete
+  rerun passed without modifying ACP code. Retain this intermittent test signal.
+- 92 existing Node tests, frontend Biome format and ESLint passed. Repository-wide
+  Ruff lint/format and whitespace checks passed. No frontend implementation changed.
+- Actual backend startup, authenticated loopback HTTP and graceful shutdown passed
+  using an empty temporary data directory and unused synthetic credentials. An
+  initial subprocess probe observed complete shutdown but incorrectly expected
+  exit 0 rather than Uvicorn's SIGTERM return; an in-process server lifecycle
+  probe then passed with controlled shutdown and exit 0.
+- Independent review ran the 26 skill tests and found no moderate-or-higher
+  introduced finding; whole-change self-review agreed. Clean review is not a
+  guarantee of correctness.
+- No local full build, live provider, paid call, browser rendering, macOS Keychain
+  or Rust platform verification ran. Those results are not established by unit tests.
+
+## CI and next steps
+
+At the exact starting head, GitHub statuses, checks and Woodpecker commit comments
+were absent. This is missing evidence, not a running build or a pass. Local-only
+commits have no corresponding remote build evidence; full build remains unrun.
+Normal publication must recheck both remote heads, preserve concurrent changes,
+verify the published commit/tree, and inspect its exact-SHA normal CI reports.
+
+Next bind effective settings/transport and implement guarded execution consumption
+of these captured bytes, durable human waiting/release, and explicit uncertain-work
+retry. Complete public idempotent API acceptance cases before connecting live CLI
+ask/resume. Do not expose API version 1 prematurely.
+
+Reference: Python [immutable bytes](https://docs.python.org/3/library/stdtypes.html#bytes)
+and [frozen dataclasses](https://docs.python.org/3/library/dataclasses.html#frozen-instances).
+
+---
+
 # CLI checkpoint — explicit uploaded-skill identity (2026-11-03)
 
 Starting `development` and `main`: `ed383ae07c87b9bad2a4f40a69eb35e1c62e394f`. Local equivalent implementation commit `dcdf9164f5ff6523c7c806be1e125916289f3dd8`; published implementation [604d1d97643c31318093a69d2ada866598341953](https://github.com/alehkot/llm-council/commit/604d1d97643c31318093a69d2ada866598341953) has the identical reviewed tree and adds an opt-in guard for explicitly selected uploaded skill contents and routing metadata, and read-only inspection of validated identity. It rejects unsupported auto/local selection, drift, cancellation, deletion and retrospective binding. No public run execution, worker, provider dispatch or API upgrade is added.
