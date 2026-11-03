@@ -1,3 +1,88 @@
+# OpenRouter terminal-outcome checkpoint
+
+## Baseline and publication
+
+- Repository: [alehkot/llm-council](https://github.com/alehkot/llm-council).
+- Persistent working branch: `development`, starting at
+  [b737aa9f77e8ab7bbb8cefcb00457f48ed0160c3](https://github.com/alehkot/llm-council/commit/b737aa9f77e8ab7bbb8cefcb00457f48ed0160c3).
+- Upstream `main`:
+  [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+  It remains an ancestor; all main changes and accumulated CLI work are preserved.
+- Local implementation: `6fce9293de48cc95300670f7c88e702cb500ad08`.
+- Published implementation:
+  [24ef33b2cedf568ceae12194247248025c602e6f](https://github.com/alehkot/llm-council/commit/24ef33b2cedf568ceae12194247248025c602e6f),
+  tree `195d641c06b40eb69b3f58680f929f71e0aeeecc`, matches the reviewed local tree.
+  The exact published commit was imported and verified locally, preserving real
+  history. Publication rechecked both remote heads and used a non-force,
+  expected-head update. This checkpoint is a documentation-only descendant;
+  its exact final publication/CI receipt is retained in [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17).
+
+## Problem, rationale and change
+
+The live OpenRouter client accepted HTTP 200 responses with nonempty partial
+text even when the provider explicitly reported `content_filter`, `error`, or
+`tool_calls`, or attached a top-level/choice error. Such text could become a
+member answer, peer evidence, revision or final synthesis. Independently reproduced
+through the real `query_model` path with synthetic HTTP responses.
+
+[OpenRouter's API reference](https://openrouter.ai/docs/api_reference/overview)
+defines the normalized terminal reasons and choice error field. Its
+[HTTP-success error example](https://openrouter.ai/blog/tutorials/model-routing-for-support-bots-cheap-first-faq-handling/)
+explains that generation errors can arrive with HTTP 200 and partial content.
+These protocol sources and reproductions support this bounded repair. Broader
+pipeline-provenance/CLI integration was considered but deferred rather than
+expanding scope or claiming that partially implemented milestones are complete.
+
+The client now rejects explicit terminal failure/filter/tool outcomes, embedded
+errors and unresolved tool calls. It does not automatically retry them, continue
+the partial prose or expose provider error text in diagnostics. Existing
+HTTP-status retries (including 429/5xx), malformed/blank-response retry budgets,
+normal completions, missing/provider-specific finish reasons and token-limit
+continuations remain unchanged. No frontend, durable-adapter, API capability,
+CLI command, model selection or ACP behavior changed.
+
+## Verification and review
+
+- Baseline: 445 offline Python 3.10.22 tests passed.
+- Final source: 456 offline Python tests passed; outbound network calls are
+  forbidden by the runner. Eleven new tests cover terminal reasons with blank
+  and partial text, embedded errors, unresolved tools, single-request behavior,
+  sanitized traces, stage1 failure, preserved deliberation originals, rejected
+  synthesis, interrupted continuation, and successful/missing/unknown outcomes.
+- The initial seven regression tests produced 12 failing subcases on the baseline;
+  they pass with the repair. Additional integration/compatibility tests also pass.
+- 92 Node tests, repository-wide Ruff format/check, frontend format/lint and Git
+  whitespace checks passed. Backend startup, authenticated loopback config/API0
+  and graceful shutdown passed using synthetic credentials and empty data.
+- Independent full-change review: no introduced moderate-or-higher findings.
+  The reviewer ran 33 focused OpenRouter tests and 24 additional actual HTTPX
+  MockTransport cases, including trace redaction and no-retry checks. A wording
+  ambiguity about HTTP-status retries was corrected. Self-review agreed; a clean
+  review is not a guarantee of bug-free code.
+- No full local builds, live/paid provider calls, model-quality evaluations,
+  macOS Keychain, end-to-end CLI workflow or new rendered-browser verification ran.
+  No frontend presentation changed. These offline tests establish handling of
+  specified response shapes, not production-provider reliability or answer quality.
+
+## CI and remaining work
+
+At 15:59 UTC, exact starting development, main and published implementation have
+zero GitHub statuses, check runs and Woodpecker commit comments. The workflow
+expects normal pushes to main/development, but missing reports are not evidence
+of a running build, failure or pass. No full-build or platform coverage is claimed.
+No manual CI dispatch/rerun, private runner access, security/settings changes or
+PR lifecycle action occurred.
+
+Observe normal CI for the exact latest published head; diagnose relevant failures
+before unrelated work. If reports remain absent, the owner can inspect normal
+Woodpecker activation/webhook/worker/reporting health. Existing recovery issue #17
+tracks this integration-evidence blocker without a duplicate issue. There are no
+outstanding moderate-or-higher introduced review findings or unpublished code
+changes for this repair. Continue the separately documented CLI plan dependencies
+only after fresh branch, ownership and CI checks.
+
+---
+
 # Authentication replacement checkpoint — 2026-11-01
 
 ## Baseline and completed change
