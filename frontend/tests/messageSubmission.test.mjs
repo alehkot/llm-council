@@ -23,6 +23,8 @@ const deferred = () => {
 function harness(active = false) {
 	const pending = deferred();
 	const state = {
+		config: { skills_enabled: true },
+		skillsLoaded: true,
 		currentConversationId: "A",
 		isLoading: active,
 		consultationStatus: active
@@ -224,3 +226,42 @@ test("returning to A before its submission completes applies the result to A", a
 	assert.equal(h.state.isLoading, true);
 	assert.equal(h.state.consultationStatus.consultation_id, "A-new");
 });
+
+for (const config of [
+	null,
+	{ skills_enabled: true },
+	{ skills_enabled: null },
+]) {
+	test(`unresolved skills with ${config ? "enabled" : "pending"} config prevent submission`, async () => {
+		const h = harness();
+		h.state.config = config;
+		h.state.skillsLoaded = false;
+		assert.equal(await h.callback("Keep my draft", ""), false);
+		assert.deepEqual(h.calls.requests, []);
+		assert.deepEqual(h.state.conversationsById.A.messages, []);
+		assert.equal(h.state.isLoading, false);
+		assert.match(h.state.error.message, /not been sent/);
+	});
+}
+
+test("loaded skill catalog allows enabled-skill submission", async () => {
+	const h = harness();
+	h.state.config = { skills_enabled: true };
+	h.state.skillsLoaded = true;
+	const running = h.callback("Question", "", ["review"]);
+	h.pending.resolve({ status: "started", consultation_id: "A-new" });
+	assert.equal(await running, true);
+	assert.deepEqual(clone(h.calls.requests[0][3]), ["review"]);
+});
+
+for (const loaded of [false, true]) {
+	test(`server-disabled skills omit cached picks with loaded=${loaded}`, async () => {
+		const h = harness();
+		h.state.config = { skills_enabled: false };
+		h.state.skillsLoaded = loaded;
+		const running = h.callback("Question", "", ["review"]);
+		h.pending.resolve({ status: "started", consultation_id: "A-new" });
+		assert.equal(await running, true);
+		assert.deepEqual(clone(h.calls.requests[0][3]), []);
+	});
+}

@@ -547,7 +547,8 @@ function App() {
 					negative_mode_enabled: false,
 					deliberation_enabled: false,
 					interactive_mode_enabled: false,
-					skills_enabled: false,
+					// Unknown is not an authoritative disabled-skills configuration.
+					skills_enabled: null,
 					prompt_max_chars: null,
 					negative_prompt_max_chars: null,
 					synthesis_context_max_chars: null,
@@ -562,18 +563,26 @@ function App() {
 	const loadSkills = useCallback(async () => {
 		try {
 			const data = await api.listSkills();
-			setSkills(Array.isArray(data?.skills) ? data.skills : []);
+			if (!Array.isArray(data?.skills)) {
+				throw new Error("The server returned an invalid skills list.");
+			}
+			setSkills(data.skills);
 			setSkillSources(data?.sources || { codex: false, claude: false });
-		} catch (err) {
-			// Skills are disabled server-side (404) or unreachable; the picker
-			// simply stays hidden instead of blocking the console.
-			console.error("Failed to load skills:", err);
-			handleApiError(err);
-			setSkills([]);
-		} finally {
 			setSkillsLoaded(true);
+		} catch (err) {
+			// Unavailable is not empty: only a successful catalogue may prune
+			// saved defaults. Keep the last verified list on refresh failures.
+			console.error("Failed to load skills:", err);
+			// A disabled skill endpoint may legitimately return 404. It is not
+			// an authoritative empty catalogue and must not erase defaults.
+			if (!handleApiError(err) && err.status !== 404) {
+				setError({
+					message: "Failed to load skills. Your saved selection is unchanged.",
+					details: "Refresh the page to retry loading the skill library.",
+				});
+			}
 		}
-	}, [handleApiError, setSkills, setSkillsLoaded]);
+	}, [handleApiError, setSkills, setSkillsLoaded, setError]);
 
 	// Load conversations on mount (only if API key exists)
 	useEffect(() => {
@@ -1474,6 +1483,16 @@ function App() {
 	const handleSendMessage = async (content, negativePrompt, skillIds) => {
 		if (!currentConversationId) return false;
 
+		const { config, skillsLoaded } = useAppStore.getState();
+		if (!skillsLoaded && config?.skills_enabled !== false) {
+			setError({
+				message: "Skills are not loaded yet. Your message has not been sent.",
+				details:
+					"Refresh the page to load your saved skill selection, then retry.",
+			});
+			return false;
+		}
+
 		const isCurrent = () =>
 			useAppStore.getState().currentConversationId === currentConversationId;
 
@@ -1486,10 +1505,13 @@ function App() {
 
 		try {
 			const conversationId = currentConversationId;
-			const requestedSkillIds = normalizeSkillIds(
-				skillIds === undefined ? selectedSkillIds : skillIds,
-				availableSkillIds,
-			);
+			const requestedSkillIds =
+				config?.skills_enabled === false
+					? []
+					: normalizeSkillIds(
+							skillIds === undefined ? selectedSkillIds : skillIds,
+							availableSkillIds,
+						);
 			const userMessage = { role: "user", content };
 			const assistantMessage = {
 				role: "assistant",

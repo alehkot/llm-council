@@ -319,9 +319,11 @@ export const api = {
 	async listSkills() {
 		const response = await apiFetch("/api/skills");
 		if (!response.ok) {
-			throw new Error(
+			const error = new Error(
 				await parseErrorDetail(response, "Failed to list skills"),
 			);
+			error.status = response.status;
+			throw error;
 		}
 		return response.json();
 	},

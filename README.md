@@ -271,6 +271,14 @@ chat. In the composer, unchecking a default skill turns it off for that one
 chat only (per-chat override), with a "Reset to default" button to clear the
 overrides. Instructions are injected into **Stage 1** (every council model's
 system prompt) and **Stage 3** (the chairman's synthesis prompt).
+A failed skill-library load does not erase saved defaults. If no library has loaded
+yet and skills are not explicitly disabled, sending keeps the draft unsent and
+asks you to refresh rather than silently omitting the selected skills. After a
+successful load, a failed refresh retains the last known library; the backend
+still validates selected skills when sending. A successful empty library or a
+deleted/disabled skill still removes unavailable IDs from the default. If the
+server disables the entire skills feature, requests omit skills while saved
+defaults remain available for when it is enabled again.
 
 Jev automatically selects skills and relevant references by default. Set
 `TYPESAFE_API_KEY` in the backend environment and restart the backend. Explicit
