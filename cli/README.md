@@ -111,3 +111,34 @@ References: [clap](https://docs.rs/clap/latest/clap/),
 
 Credential integration references: [security-framework password APIs](https://docs.rs/security-framework/3.7.0/security_framework/passwords/index.html),
 [nix termios APIs](https://docs.rs/nix/0.30.1/nix/sys/termios/index.html).
+
+## Experimental offline submission records
+
+An **unwired Unix-only** receipt-store primitive is available for development
+and tests. It creates no directory, network request, credential entry, CLI
+command or API capability. It requires an already-created directory with owner-only POSIX mode bits
+and pins its directory descriptor. Mode bits alone do not exclude access through
+macOS ACLs or establish a secure storage root. It stores the exact serialized typed request
+and loopback origin before submission could be considered, rejects conflicting
+identities, and replaces the pending payload with a matching acknowledgment only
+when the caller has independently validated that acknowledgment. Operations use
+an advisory lock among cooperating clients; a busy lock is an error, not a cue
+to send without a receipt. Stored content can contain private user questions and
+must be treated accordingly. No credential field is part of the typed request;
+users can nevertheless type sensitive content into a question.
+
+This primitive is **not ready for live submission**. A crash while the first
+record is being written can leave a partial file that fails closed and requires
+manual recovery; it never permits a send. An interrupted acknowledgment can leave
+an owner-only temporary receipt file. Logical replacement does not guarantee
+physical erasure from storage, backups or snapshots. Tests simulate selected
+sync errors but not actual power loss or arbitrary filesystem behavior. Linux
+checks do not verify macOS: macOS `fsync` may not flush device caches, and the
+additional platform-specific durability work and tests remain open. ACL validation,
+trusted stable parent/root provisioning and reopening the same directory after an
+ancestor is renamed are also unresolved. Do not wire
+this store to `ask` or enable the run API before the backend contract and native
+platform persistence semantics are complete and independently verified.
+
+References: [Rust file locking](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock),
+[Apple fsync notes](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html).

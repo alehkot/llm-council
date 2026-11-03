@@ -226,6 +226,7 @@ name = "council-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "libc",
  "nix",
  "reqwest",
  "security-framework",

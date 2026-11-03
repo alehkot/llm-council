@@ -10,3 +10,6 @@ pub mod wire;
 pub mod credentials;
 pub mod setup;
 pub mod terminal;
+
+#[cfg(unix)]
+pub mod receipt_store;

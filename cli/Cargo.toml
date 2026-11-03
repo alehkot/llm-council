@@ -25,3 +25,6 @@ nix = { version = "0.30", default-features = false, features = ["term"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"
+
+[target.'cfg(unix)'.dependencies.libc]
+version = "0.2"
