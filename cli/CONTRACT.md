@@ -366,3 +366,23 @@ Research: [Python JSON serialization](https://docs.python.org/3.10/library/json.
 and [hashlib](https://docs.python.org/3.10/library/hashlib.html) document the stable
 serialization and SHA-256 primitives used for change detection; repository tests
 establish the projection's actual behavior.
+
+## Internal explicit uploaded-skill identity guard
+
+`run_skill_provenance.bind_explicit_skills(run_id)` is an internal, opt-in
+fingerprint guard for explicitly selected, available and enabled **uploaded**
+skills identified by their canonical lowercase IDs. It hashes the ordered skill IDs, prompt-readable content and routing
+metadata under the existing storage and skills locks, persists only IDs and
+SHA-256 digests, and refuses mismatches, unsupported automatic selection,
+external local skill sources, cancellation, deletion, or retroactive binding
+after a saved prompt or provider configuration/work. Read-only inspection validates
+the saved structure and includes detached hashes in its cursor, without reading
+the current skill library. It does not schedule or invoke anything.
+
+This is not yet complete skill or pipeline provenance. It is not called by a
+worker, HTTP route, legacy flow or provider. A later executor must account for
+auto-selection, all effective settings, mutable external sources and atomically
+copy/consume checked content: locks do not prevent independent filesystem edits
+and a check followed by later reads has a time-of-check/time-of-use gap. Never
+interpret an identity check as permission to dispatch, retry, or bill. API
+version remains 0.

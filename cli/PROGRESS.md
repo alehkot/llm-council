@@ -1,3 +1,15 @@
+# CLI checkpoint — explicit uploaded-skill identity (2026-11-03)
+
+Starting `development` and `main`: `ed383ae07c87b9bad2a4f40a69eb35e1c62e394f`. Internal implementation commit `dcdf9164f5ff6523c7c806be1e125916289f3dd8` adds an opt-in guard for explicitly selected uploaded skill contents and routing metadata, and read-only inspection of validated identity. It rejects unsupported auto/local selection, drift, cancellation, deletion and retrospective binding. No public run execution, worker, provider dispatch or API upgrade is added.
+
+The identity is not a guarantee of immutable execution: same-process library operations are locked, but external filesystem writers and time between checking and use remain unprotected. Complete settings, transport, skill selection, durable waiting and executor integration remain open. Digests are change detectors, not confidentiality. Preserve API version 0 and fail closed.
+
+Verification: 428 offline Python tests, 92 Node tests, Ruff check/format, synthetic backend startup/shutdown and whitespace checks passed. Independent review identified legacy reference routing and inspection validation gaps; fixes and regressions were reviewed with no remaining moderate-or-higher findings. No full local build, paid provider, live service, macOS Keychain or browser verification ran. Check the publication receipt for exact resulting commit and normal CI; absent CI evidence is not a pass.
+
+Next: design atomic capture/consumption and effective settings/transport provenance, then complete guarded worker release/resumption and public durable APIs before connecting `ask` or `resume`.
+
+---
+
 # CLI checkpoint — read-only durable run inspection (2026-11-03)
 
 ## Exact baseline and implementation

@@ -17,6 +17,7 @@ from . import (
     refinement_provider,
     run_admission,
     run_interaction,
+    run_skill_provenance,
     storage,
 )
 
@@ -45,6 +46,7 @@ class _SnapshotEvidence(TypedDict):
     interaction: dict[str, Any] | None
     execution: dict[str, Any] | None
     refinement_provider: dict[str, Any] | None
+    explicit_skill_provenance: dict[str, Any] | None
     refinement: dict[str, Any] | None
     current_prompt: dict[str, Any] | None
     retry_token: str | None
@@ -92,6 +94,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "interaction": None,
             "execution": None,
             "refinement_provider": None,
+            "explicit_skill_provenance": run_skill_provenance.validate_saved(record),
             "refinement": None,
             "current_prompt": None,
             "retry_token": None,

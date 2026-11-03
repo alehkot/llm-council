@@ -390,3 +390,12 @@ parsers or testing wire fixtures. Setup now verifies local backend authenticatio
 and stores an origin-bound credential in macOS Keychain. All consultation
 commands still fail closed; no run execution or API version upgrade is enabled. See
 [README.md](README.md) and [PROGRESS.md](PROGRESS.md) for verified scope and limits.
+
+### Explicit skill identity checkpoint (partial)
+
+An internal, opt-in guard can bind identities for explicitly selected uploaded
+skills before saved prompt/provider work. It records hashes, not skill text, and
+rejects changed, missing or disabled skills. It neither supports auto-selection
+or external skill sources nor binds effective pipeline settings. It does not
+install a worker, guarantee later execution sees the checked bytes, or advance
+API0. See [CONTRACT.md](CONTRACT.md) for important TOCTOU limitations.
