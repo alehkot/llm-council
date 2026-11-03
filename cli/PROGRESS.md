@@ -1,3 +1,73 @@
+# CLI checkpoint — configured refinement bridge (2026-11-03)
+
+## Baseline, implementation and purpose
+
+Persistent working branch `development` started at
+[cd892e7c01125128a52b3abd2fe649168b3d8824](https://github.com/alehkot/llm-council/commit/cd892e7c01125128a52b3abd2fe649168b3d8824).
+Upstream `main` remains
+[fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d)
+and is an ancestor: all its changes are retained.
+Published implementation:
+[4a5e9ada908b2a12c8dde55ae72f254c7d05bcb0](https://github.com/alehkot/llm-council/commit/4a5e9ada908b2a12c8dde55ae72f254c7d05bcb0),
+verified tree `3d36e8b2f2052048b849e3c5efc2985ae37d56b3`, exactly matching genuine
+local implementation `d7851a2d368a0a41084d3e8b9ebb34cce2d31213`.
+This documentation-only descendant records the completed scope; its own exact
+published SHA and final CI observation are in the publication receipt/recovery
+record, avoiding a self-referential hash.
+
+The explicit refinement adapter previously required a caller to manually choose
+its settings, leaving a missing configured-transport boundary after ACP landed.
+The new internal bridge reads the loaded transport/model/endpoint/token ceiling
+once, rejects unsupported ACP/unknown transport before writes or HTTP, and passes
+one frozen configuration through binding and the existing durable attempt guard.
+Saved settings drift conflicts on retry or duplicate result reads. Caller-supplied
+credentials remain ephemeral and can rotate without changing request identity.
+
+This is a refinement-only prerequisite, not a completed plan milestone. Its fixed
+v1 single-request policy differs from legacy catalog/fitting/retry behavior.
+Legacy paths remain unchanged; no public route/worker invokes it and API stays 0.
+Full settings/skills provenance, ACP durable execution, worker waiting/release and
+public whole-consultation acceptance remain unfinished.
+
+## Verification and review
+
+- Final source: 445 offline Python 3.10.22 tests passed with unmocked outbound
+  networking forbidden. Baseline in the correct existing environment passed 436.
+  An initial attempt used an older environment missing ACP and produced 16 import
+  errors; using the existing synchronized environment resolved that tooling mismatch.
+- Nine new synthetic tests cover exact saved/request settings, unsupported or
+  invalid configuration, settings drift, explicit same-settings retry, global
+  changes after capture, stale/non-refinement/cancelled/deleted work, and credential
+  exclusion. They make no paid or live provider requests.
+- Independent whole-change review found no introduced moderate-or-higher issues;
+  all 89 refinement-related tests (including the nine new cases) passed independently.
+  Parent self-review agreed; clean review is not a correctness guarantee.
+- 92 Node tests, frontend format/lint, repository-wide Ruff format/check and
+  whitespace checks passed. Backend startup, authenticated loopback `/api/config`
+  with API0, and graceful shutdown passed using empty data and synthetic unused keys.
+- Full local builds, live providers, macOS/Keychain, complete CLI consultation and
+  rendered-browser checks are unrun. No frontend/Rust behavior changed. Unit tests
+  do not establish remote provider behavior, power-loss or multi-process durability.
+
+## Publication, CI and next steps
+
+Non-force publication rechecked exact development/main heads and preserved both.
+Exact implementation remote commit/tree verified. At 14:59 UTC the implementation
+SHA and starting heads have zero GitHub statuses, check runs and Woodpecker commit
+comments. Evidence is missing, not a running build, failure or pass. No full-build
+or platform coverage can be claimed. No manual dispatch/rerun, private runner,
+security/settings changes or paid call occurred. Existing [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17)
+retains the normal-CI blocker without creating a duplicate.
+
+Next bind remaining effective pipeline/skills settings and guarded stage execution,
+including ACP support, durable waiting/release and explicit uncertain-work retry.
+Complete public idempotent API acceptance before enabling live CLI ask/resume.
+Observe normal exact-head CI and investigate relevant failures before new work.
+The repository's existing fixed-policy contract and new synthetic regressions are
+the evidence for this bounded implementation; no external behavior is assumed.
+
+---
+
 # CLI checkpoint — verified explicit skill content capture (2026-11-03)
 
 ## Baseline and scope
