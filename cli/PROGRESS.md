@@ -1,3 +1,38 @@
+# CLI checkpoint — configured council selection (2026-11-04)
+
+## Baseline and published work
+
+Persistent remote `development` started at [8c0a83875951723b23caceff53c61fc575ac4abc](https://github.com/alehkot/llm-council/commit/8c0a83875951723b23caceff53c61fc575ac4abc).
+Upstream `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), a retained ancestor.
+Published implementation [f0dc5c7b076d43cf53f53e2073171a8d6f7c1e5a](https://github.com/alehkot/llm-council/commit/f0dc5c7b076d43cf53f53e2073171a8d6f7c1e5a) has tree `422b32a49a5266283273cc9cda9c6bc34b1601d4`, identical to tested local implementation `f1bb6d869f78b48420a2d2e2923cde24d5c85848`.
+This documentation-only descendant records the outcome; its final exact local/published SHA and CI observation belong to the publication receipt and [recovery issue 17](https://github.com/alehkot/issues-tracker/issues/17), avoiding a self-referential hash. Real-history local commits, bundle and patch are preserved without resetting history.
+
+## Scope and rationale
+
+Future durable council execution needs to retain the configured roster and stage choices rather than silently use different choices after a restart. The new explicit `council_selection.bind` snapshots the ordered council models and configured negative/deliberation/pairwise switches, with the exact saved response-policy identity and revision. Rebinding compares current loaded settings and conflicts on drift; historical inspection remains independent of today's configuration and never writes.
+
+The returned roster is an immutable tuple with strict booleans. Incomplete/stale/cancelled/deleted work, invalid roster, unsupported transport and inconsistent saved evidence fail closed. Concurrent duplicates share one write; a lost write acknowledgment can be recovered by reloading/rebinding. A negative prompt does not implicitly turn on a disabled stage, matching existing manager behavior.
+
+This is configured selection, not full effective request provenance or an executor. Version 1 supports OpenRouter selection only. Endpoint/token/context/retry policies, synthesis/helper settings and skills remain separate dependencies. The legacy pipeline continues to use its own imports and context. Future execution must consume saved values and recheck cancellation/revision before guarded external work. API0, public run routes and all consultation command gates are unchanged. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline 553 and final 568 offline Python 3.10.22 tests passed with unmocked outbound networking forbidden. Fifteen new tests cover all eight stage-switch combinations, ordered roster, source identity, frozen detached return values, 24 duplicate binds with one write, every captured setting's drift, byte-pure reads, malformed/version/source evidence, fresh-process restoration, before/after-write exceptions, cancellation and deletion.
+- Independent whole-change review found no introduced moderate-or-higher findings. It reran the 15 new tests and passed 64 bind/cancel races, explicit-skip preservation and six additional malformed-state probes. Self-review agreed. Clean review does not guarantee correctness.
+- All 114 existing Node tests, frontend formatting/ESLint, repository-wide Ruff format/lint for 99 files and whitespace checks passed. An initial `npm test` invocation was unavailable because this repository has no such script; the documented Node test files were then run directly, without code changes.
+- Actual loopback Uvicorn startup, authenticated API0 configuration and graceful shutdown passed with empty temporary storage and synthetic credentials.
+- Rust/UI source is unchanged; Rust tests were not rerun and rendered-browser checks are inapplicable. Full local builds, macOS Keychain/platform and live-provider checks remain unrun. These tests do not establish full consultation orchestration, model quality, power-loss durability or concurrent backend processes.
+
+## CI and next steps
+
+Exact starting development, main and published implementation have zero status contexts, check runs and commit comments. No normal Woodpecker result or job/platform coverage is observable. Empty aggregate `pending` is missing evidence, not an observed running build, pass or failure. Full builds remain unrun under the no-local-full-build policy. No manual CI dispatch/rerun, private-runner access, security/settings change, deployment, PR action or paid call occurred.
+
+Next: observe normal exact-head Woodpecker evidence. Complete request/skill/synthesis provenance and guarded stage execution using the retained input/selection; add remaining human-input boundaries, durable scheduling and whole-run public acceptance before enabling consultation commands. Keep historical read validation aligned with deliberately extended future continuations.
+
+Research: [Pydantic model immutability](https://docs.pydantic.dev/latest/concepts/models/#faux-immutability) distinguishes frozen models from mutable nested fields; the roster uses a tuple. Concrete semantics and regression evidence come from the repository's manager and tests.
+
+---
+
 # CLI checkpoint — exact response-policy input (2026-11-04)
 
 ## Baseline and published work
