@@ -488,3 +488,14 @@ identity and exact derivation without rewriting or dispatching. This is one inpu
 to future council prompts, not resolved model/skill provenance, complete Stage 1
 configuration or full execution. API0 and consultation command gates remain.
 See [CONTRACT.md](CONTRACT.md) for semantics-version and future-boundary limits.
+
+### Configured council selection checkpoint (partial)
+
+An internal binding now retains the configured ordered council roster and
+negative/deliberation/pairwise switches, causally bound to the saved response
+policy. Repeated binding rejects configuration drift; read-only inspection keeps
+historical choices without consulting current settings. This OpenRouter-only
+selection snapshot is not full provider/synthesis/skills provenance or an
+execution permission. Full request policy and guarded stage execution remain
+required. API0 and unavailable consultation commands are unchanged. See
+[CONTRACT.md](CONTRACT.md) for boundaries.

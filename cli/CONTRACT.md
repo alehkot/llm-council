@@ -617,3 +617,38 @@ or permission to dispatch. It is not a cryptographic tamper-proof record. A futu
 executor must recheck run state/revision/cancellation and separately resolve
 remaining provenance before using it. No public route, API1 capability, legacy
 web behavior, Rust consultation command, or provider call changes.
+
+### Internal configured council selection (partial)
+
+`council_selection.bind(run_id, expected_revision=...)` saves the ordered,
+nonempty, distinct council roster and configured negative-mode, deliberation and
+pairwise-ranking switches after a completed saved response policy. Version 1 is
+OpenRouter-only; ACP and malformed configuration fail closed. These are loaded
+backend configuration choices, not per-run model overrides or a declaration that
+any stage ran. A supplied negative prompt is retained separately and does not
+implicitly enable the negative-stage switch, matching the legacy manager. Later
+human review can still exclude member results; this snapshot does not resolve
+those future choices.
+
+The immutable return value uses a tuple roster and strict booleans. Storage binds
+its source revision and a digest of the exact response-policy value. Concurrent
+binds serialize under the storage lock, and identical retries do not rewrite the
+receipt. Rebinding compares today's loaded choices to the saved selection and
+conflicts on drift rather than silently replacing it. Ordinary inspection never
+reads current settings: it preserves historical selection across restart/config
+changes, including after cancellation. Cancellation, deletion and stale revisions
+prevent binding; malformed or unsupported saved evidence fails without repair.
+The inspection cursor includes the selection, but the interaction revision does
+not advance because no prompt or answer has been added.
+
+This is **not a complete execution configuration or dispatch token**. Endpoint,
+credential, token/context/retry policy, synthesis model/CLI configuration, skills,
+other helper-model settings and remaining stage input boundaries are not covered.
+The legacy pipeline continues to use its own imports and context; no executor
+consumes this snapshot yet. Future durable execution must use the frozen values,
+resolve all remaining provenance, and recheck cancellation/revision immediately
+before guarded external work. The current source validator supports the final
+pre-query boundary only; extending durable histories requires a deliberate causal
+validation update. Digests are identities, not tamper-proof storage. API0 and all
+public consultation gates remain unchanged. No provider call or legacy behavior
+changes, and tests do not establish multi-process writers or power-loss durability.
