@@ -1142,7 +1142,9 @@ def extract_json_object(text: str) -> Optional[dict]:
     Extract JSON object from text using multiple strategies.
 
     Handles cases where text contains braces before the actual JSON,
-    markdown code blocks, and multiple JSON objects.
+    markdown code blocks, and multiple JSON objects. Literal braces inside JSON
+    strings do not delimit objects. An unterminated string/object is not repaired;
+    it may prevent discovery of a later object in that malformed candidate.
 
     Args:
         text: Text potentially containing JSON
@@ -1165,13 +1167,28 @@ def extract_json_object(text: str) -> Optional[dict]:
     depth = 0
     start = -1
     candidates = []
+    in_string = False
+    escaped = False
 
     for i, char in enumerate(text):
-        if char == "{":
+        # JSON strings can contain literal braces and escaped quotation marks.
+        # Count structure only outside strings inside a candidate object; prose
+        # before/between objects must not put the scanner into string state.
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if depth > 0 and char == '"':
+            in_string = True
+        elif char == "{":
             if depth == 0:
                 start = i
             depth += 1
-        elif char == "}":
+        elif char == "}" and depth > 0:
             depth -= 1
             if depth == 0 and start != -1:
                 candidates.append(text[start : i + 1])
