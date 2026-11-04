@@ -499,3 +499,15 @@ selection snapshot is not full provider/synthesis/skills provenance or an
 execution permission. Full request policy and guarded stage execution remain
 required. API0 and unavailable consultation commands are unchanged. See
 [CONTRACT.md](CONTRACT.md) for boundaries.
+
+### Configured request-policy checkpoint (partial)
+
+An internal binding now retains configured OpenRouter endpoint, token/context/
+continuation/retry limits and backoff settings, causally bound to the saved
+council selection. Drift conflicts; historical reads preserve the saved policy.
+This is not effective per-model wire configuration, catalog provenance or
+permission for automatic retry of uncertain work. Each potentially billed
+request still needs a durable guard respecting explicit-retry recovery. Complete
+remaining model metadata, exact inputs, synthesis/skills provenance and guarded
+stage execution before public acceptance. API0 and consultation command gates
+remain unchanged. See [CONTRACT.md](CONTRACT.md) for boundaries.

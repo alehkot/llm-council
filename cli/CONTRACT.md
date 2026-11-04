@@ -652,3 +652,45 @@ pre-query boundary only; extending durable histories requires a deliberate causa
 validation update. Digests are identities, not tamper-proof storage. API0 and all
 public consultation gates remain unchanged. No provider call or legacy behavior
 changes, and tests do not establish multi-process writers or power-loss durability.
+
+### Internal configured OpenRouter request policy (partial)
+
+`council_request_policy.bind(run_id, expected_revision=...)` saves the loaded
+OpenRouter endpoint, output-token ceiling, context-reduction and continuation
+call limits, retry count and backoff/jitter settings after a completed saved
+council selection. Its versioned immutable value includes the exact selection's
+digest and source revision. All fields are required. Counts are strict integers;
+backoff values must be finite, nonnegative/positive as appropriate and ordered.
+The endpoint must be HTTPS without URL credentials, query, fragment, whitespace
+or control characters. No provider key or local authentication key is retained.
+
+Both initial binding and rebinding check current loaded council selection as
+well as request settings. Missing prerequisites are not implicitly created.
+Configuration drift conflicts instead of replacing saved choices. Binding uses
+the same storage lock as cancellation/deletion and rejects stale revisions even
+on an otherwise identical retry. Concurrent duplicate binds write once, and an
+uncertain write acknowledgment can be recovered by inspecting/rebinding. Adding
+this provenance changes the inspection cursor, not the interaction revision.
+Historical inspection uses saved values without current settings or network
+access, validates their causal source, and never repairs or rewrites. Cancelled
+runs retain read-only evidence; deletion erases it.
+
+These are **configured limits, not a complete effective request policy or
+permission to execute retries**. The legacy OpenRouter path also obtains model
+catalog metadata, computes per-model budgets, decides reasoning support, reduces
+context and continues prose. None of that metadata, exact wire messages, timeout
+policy or external-operation state is resolved here. In particular, a configured
+retry count cannot override the accepted `explicit_retry` recovery policy:
+future durable execution must guard each potentially billed request and require
+explicit consent for uncertain work, including context-reduction/continuation
+calls. It must consume saved settings rather than the legacy module's imported
+globals. This snapshot is not used by that legacy path and does not change it.
+
+Synthesis/helper configuration, skills, guarded stages, remaining human-input
+boundaries, scheduling and whole-run acceptance are still required. The current
+causal validator supports only the completed pre-query boundary; later workflow
+histories need deliberate validation extensions. Digests identify values but do
+not make storage tamper-proof. No provider/catalog request, API1 capability,
+public run route or CLI consultation command is enabled. Offline tests establish
+single-process and fresh-process restoration behavior, not power-loss durability
+or concurrent backend-process writers.
