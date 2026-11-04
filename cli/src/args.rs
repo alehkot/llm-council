@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::config::BackendOrigin;
 
-/// Local LLM Council client. Setup is available; consultation commands are not connected yet.
+/// Local LLM Council client. Setup and skill listing are available; consultation commands are not connected yet.
 #[derive(Debug, Parser)]
 #[command(name = "council", version, color = ColorChoice::Never)]
 pub struct Cli {
@@ -46,7 +46,7 @@ pub enum Command {
     },
     /// Cancel only the named consultation (not connected yet).
     Cancel { run: Uuid },
-    /// List installed skills (not connected yet).
+    /// List installed skills using the saved backend credential (read-only).
     Skills,
 }
 

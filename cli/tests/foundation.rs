@@ -294,3 +294,25 @@ fn setup_without_keychain_fails_before_prompt_or_network() {
         .unwrap()
         .contains("macOS Keychain"));
 }
+
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn skill_listing_requires_supported_credential_store_without_prompting() {
+    for flags in [
+        vec!["skills", "--json"],
+        vec!["skills", "--non-interactive", "--json"],
+    ] {
+        let result = Process::new(env!("CARGO_BIN_EXE_council"))
+            .args(flags)
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        assert!(result.stderr.is_empty());
+        let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "credential_store");
+        assert!(value["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("macOS Keychain"));
+    }
+}

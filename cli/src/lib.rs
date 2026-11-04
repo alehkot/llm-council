@@ -9,6 +9,7 @@ pub mod wire;
 
 pub mod credentials;
 pub mod setup;
+pub mod skills;
 pub mod terminal;
 
 #[cfg(unix)]

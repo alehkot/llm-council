@@ -64,6 +64,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
   exist. Native macOS verification, consultation commands and the monitor loop
   remain incomplete; the item stays open.
 - [ ] Add `show`, `history`, `export`, `cancel`, and installed-skill listing.
+  **Partial:** read-only `skills` now uses the existing authenticated endpoint
+  and saved origin-bound credential. Consultation/result commands remain gated.
   Complete editor/file/stdin input, generic prompt rendering, clean stdout/stderr
   behavior, and JSON output. Reuse backend exports and results.
 - [ ] Run the acceptance cases below with fake model responses, Rust formatting,
@@ -443,3 +445,12 @@ scheduling, the full council workflow or finished persistent-human-input support
 API0 and unavailable consultation commands remain unchanged. Next integrate
 remaining guarded workflow boundaries, settings/skills and durable scheduling;
 complete public acceptance before enabling CLI run commands. See [CONTRACT.md](CONTRACT.md).
+
+### Read-only installed-skill listing checkpoint (partial)
+
+`council skills` now reads the existing authenticated skill-list endpoint after
+a single config/authentication probe, using the saved origin-bound key. It labels
+enabled/disabled entries and supports escaped terminal output and JSON. API0/1
+is accepted for this read-only command only; no run endpoint, credential mutation
+or provider call is introduced. Native macOS Keychain verification remains
+outstanding, and all consultation commands remain unavailable.

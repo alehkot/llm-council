@@ -1,7 +1,8 @@
-# council CLI — setup and foundations
+# council CLI — setup, skills and foundations
 
 The Rust client now connects `council setup` to the local backend and macOS
-Keychain. **It cannot run a consultation yet.** The backend still advertises
+Keychain, and `council skills` lists installed skill summaries using the saved key.
+**It cannot run a consultation yet.** The backend still advertises
 **CLI API 0**; durable run operations and the monitor/resume loop are unfinished.
 
 ## First-use setup
@@ -20,7 +21,8 @@ verifies `GET /api/config` once, then creates or updates the origin-specific
 macOS Keychain entry. Authentication, network, malformed configuration and
 unsupported-version failures leave the previous entry untouched. It displays
 the configured council and chairman, and explicitly reports that consultation
-commands are unavailable. API 0 or 1 is accepted **only for credential setup**;
+commands are unavailable. API 0 or 1 is accepted for credential setup and
+read-only skill listing;
 future versions are rejected. The separate execution-capability probe still
 requires exact API 1. No legacy submission route is used.
 
@@ -33,7 +35,7 @@ stdout. Native Keychain errors are sanitized. Actual macOS Keychain/runtime
 verification remains outstanding; Linux tests use an injected credential store.
 
 `--help` and `--version` work. Other commands (`ask`, `resume`, `show`, `history`,
-`export`, `cancel`, `skills`) deliberately exit **2** with `not_implemented`,
+`export`, `cancel`) deliberately exit **2** with `not_implemented`,
 without reading question files, sending requests, launching editors, accessing
 Keychain or writing exports. Invalid configuration exits 2. Setup failures exit
 1, unavailable/noninteractive input exits 3, and cancelled key entry exits 130.
@@ -42,6 +44,30 @@ Clap syntax/help diagnostics remain text, including with `--json`.
 This is source implementation, not an installed or released client. Do not enable
 run submission, resume, answer, retry or cancellation until the durable backend
 acceptance cases in [PLAN.md](PLAN.md) pass.
+
+## Installed skills
+
+After setup, use `council skills` or `council skills --json`. An alternate
+`--backend-url` reads only that origin's existing Keychain entry. The command
+never prompts for a key, stores a credential, installs/enables a skill or starts
+model work. `--non-interactive` needs no terminal input. Native Keychain access
+may still require the operating system's permission; native verification remains
+outstanding.
+
+The command probes authenticated configuration once, accepting API 0 or 1 for
+this existing read-only endpoint, then reads `GET /api/skills` once. Rejected
+authentication/lockout stops before listing; failures are never retried. A missing
+key exits 2 with a setup instruction. Other failures exit 1, including unsupported
+platforms, inaccessible Keychain and unavailable skill endpoint. Skills disabled
+on the backend can produce that endpoint-unavailable result, not an empty-success
+claim.
+
+Output preserves IDs, source, names, descriptions, numeric versions and enabled
+state. Disabled entries are labeled disabled; skill sources disabled on the
+backend are omitted by its existing list endpoint. Terminal control characters
+are escaped only for display, while JSON preserves summary text. Empty lists are
+reported explicitly. No skill body/reference content is requested, and listing
+does not enable consultation commands or advertise API1.
 
 ## Development checks
 
@@ -67,7 +93,9 @@ terminal escape display copies and fail-closed configuration/version checks.
 Transport tests additionally exercise real local HTTP requests with synthetic
 keys, authentication lockout, redirection refusal, response bounds and protocol
 errors. Setup tests cover verification-before-storage and preservation of the
-previous entry on failure. The optional [PTY check](tests/manual/README.md)
+previous entry on failure. Skill-list tests use a shared fixture generated from
+the real backend summary type and cover missing keys, API0/1 reads, disabled
+entries, auth failures, response bounds, redirects and terminal/JSON output. The optional [PTY check](tests/manual/README.md)
 exercises real hidden input, editing, cancellation, restored terminal settings,
 and refusal of piped input with synthetic keys. These checks do **not** establish
 working consultation orchestration, safe provider retries,
@@ -80,16 +108,19 @@ compatibility. No real credentials or provider calls are used.
 - Backend origins accept HTTP(S) loopback addresses only. `localhost` is pinned
   to `127.0.0.1`, avoiding host/DNS overrides. Credentials, non-root paths,
   queries, fragments and port zero are rejected without echoing the URL.
-  `ConfigClient` binds an in-memory key to this validated origin. Its sole
-  request is `GET /api/config`; redirects, proxies and automatic retries are
+  `ConfigClient` binds an in-memory key to this validated origin. Its only exposed
+  requests are the fixed `GET /api/config` and `GET /api/skills` paths; redirects,
+  proxies and automatic retries are
   disabled. TLS certificate/hostname verification remains enabled. No caller can
   supply an arbitrary request URL or mutate this client to another origin.
-- Configuration responses are capped at 1 MiB, including chunked responses.
+- Configuration and skill-list responses are capped at 1 MiB each, including
+  chunked responses.
   The total request deadline is 35 seconds with a five-second connection timeout.
   Errors discard server bodies and underlying transport diagnostics rather than
   echoing credentials or server-controlled text. HTTP 401/403/429 latch the
   client closed: subsequent probes make no request until explicitly replaced.
   The transport itself does not save keys; setup stores only after verification.
+  Skill listing reads an existing key and never writes it.
 - Wire models use the shared synthetic files in `tests/fixtures/cli`. Request
   validation must apply the authenticated backend's current limits before any
   submission; structural decoding alone has no fixed deployment-specific cap.

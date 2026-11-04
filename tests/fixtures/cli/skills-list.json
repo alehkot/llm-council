@@ -1,0 +1,38 @@
+{
+  "skills": [
+    {
+      "source": "uploaded",
+      "id": "first",
+      "name": "Первый",
+      "description": "Useful guidance",
+      "version": 1,
+      "enabled": true,
+      "created_at": "2026-11-01T00:00:00",
+      "updated_at": "2026-11-01T00:00:00",
+      "skill_md_chars": 42,
+      "reference_count": 0,
+      "bundled_unused_count": 0,
+      "counts": {},
+      "warnings": []
+    },
+    {
+      "source": "codex",
+      "id": "second",
+      "name": "Second",
+      "description": "Not selected",
+      "version": 1,
+      "enabled": false,
+      "created_at": "2026-11-01T00:00:00",
+      "updated_at": "2026-11-01T00:00:00",
+      "skill_md_chars": 42,
+      "reference_count": 0,
+      "bundled_unused_count": 0,
+      "counts": {},
+      "warnings": []
+    }
+  ],
+  "sources": {
+    "codex": true,
+    "claude": false
+  }
+}

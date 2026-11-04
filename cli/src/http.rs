@@ -1,4 +1,4 @@
-//! Origin-bound configuration probe. No consultation mutation or credential store.
+//! Origin-bound configuration and skill reads. No consultation mutation or credential store.
 use std::{fmt, time::Duration};
 
 use reqwest::{header::HeaderValue, redirect::Policy, Client, StatusCode};
@@ -25,6 +25,7 @@ pub enum ProbeError {
     UnsupportedVersion,
     InvalidLimits,
     UnsupportedSetupVersion,
+    UnsupportedReadVersion,
 }
 
 impl fmt::Display for ProbeError {
@@ -39,9 +40,10 @@ impl fmt::Display for ProbeError {
             Self::Timeout => f.write_str("The local backend request timed out. No retry was made."),
             Self::Redirect => f.write_str("The local backend returned a redirect, which was not followed."),
             Self::HttpStatus(status) => write!(f, "The local backend returned HTTP {status}. No retry was made."),
-            Self::ResponseTooLarge => f.write_str("The backend configuration response exceeded its size limit."),
-            Self::InvalidResponse => f.write_str("The backend did not return a complete valid configuration response."),
+            Self::ResponseTooLarge => f.write_str("The backend response exceeded its size limit."),
+            Self::InvalidResponse => f.write_str("The backend did not return a complete valid response."),
             Self::UnsupportedVersion => f.write_str("This client requires CLI API v1. Update the backend; no legacy submission fallback is available."),
+            Self::UnsupportedReadVersion => f.write_str("This client supports read-only commands only for CLI API v0 or v1. Update the client before reconnecting."),
             Self::UnsupportedSetupVersion => f.write_str("This client can configure credentials only for CLI API v0 or v1. No credential was saved."),
             Self::InvalidLimits => f.write_str("The backend reported invalid input limits."),
         }
@@ -50,7 +52,7 @@ impl fmt::Display for ProbeError {
 impl std::error::Error for ProbeError {}
 
 /// One validated origin and in-memory key per client. A fresh client is required
-/// after authentication rejection. Its only request is GET /api/config.
+/// after authentication rejection. Only fixed config and skill-list GET requests are exposed.
 /// Debug output deliberately excludes the client/header containing the key.
 pub struct ConfigClient {
     client: Client,
@@ -126,12 +128,36 @@ impl ConfigClient {
         Ok(config)
     }
 
+    /// Existing read-only endpoints are supported on API0 as well as API1.
+    /// This must never be used as an execution-capability probe.
+    pub async fn probe_for_read_only(&mut self) -> Result<BackendConfig, ProbeError> {
+        let config = self.fetch_config().await?;
+        if config.cli_api_version > REQUIRED_API_VERSION {
+            return Err(ProbeError::UnsupportedReadVersion);
+        }
+        config
+            .require_valid_limits()
+            .map_err(|_| ProbeError::InvalidLimits)?;
+        Ok(config)
+    }
+
+    /// Read summaries only; no arbitrary path, upload or mutation is exposed.
+    pub async fn list_skills(&mut self) -> Result<crate::skills::SkillCatalog, ProbeError> {
+        let body = self.fetch_body("/api/skills").await?;
+        crate::skills::SkillCatalog::decode(&body).map_err(|_| ProbeError::InvalidResponse)
+    }
+
     async fn fetch_config(&mut self) -> Result<BackendConfig, ProbeError> {
+        let body = self.fetch_body("/api/config").await?;
+        serde_json::from_slice(&body).map_err(|_| ProbeError::InvalidResponse)
+    }
+
+    async fn fetch_body(&mut self, path: &str) -> Result<Vec<u8>, ProbeError> {
         if self.authentication_stopped {
             return Err(ProbeError::AuthenticationStopped);
         }
         let mut url = self.origin.as_url().clone();
-        url.set_path("/api/config");
+        url.set_path(path);
         let mut response = self
             .client
             .get(url)
@@ -168,9 +194,7 @@ impl ConfigClient {
             }
             body.extend_from_slice(&chunk);
         }
-        let config: BackendConfig =
-            serde_json::from_slice(&body).map_err(|_| ProbeError::InvalidResponse)?;
-        Ok(config)
+        Ok(body)
     }
 }
 

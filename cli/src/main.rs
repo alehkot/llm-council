@@ -5,6 +5,7 @@ use council_cli::{
     args::{Cli, Command},
     credentials::SystemCredentialStore,
     setup::{run_setup, HttpConfigVerifier},
+    skills::run_skills,
     terminal::TerminalPrompt,
 };
 use serde_json::json;
@@ -35,6 +36,23 @@ async fn main() -> ExitCode {
         )
         .await
         {
+            Ok(result) => {
+                if cli.json {
+                    println!("{}", json!(result));
+                } else {
+                    print!("{}", result.terminal_summary());
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => failure(
+                cli.json,
+                error.exit_code(),
+                error.code(),
+                &error.to_string(),
+            ),
+        }
+    } else if matches!(cli.command, Command::Skills) {
+        match run_skills(&origin, &SystemCredentialStore).await {
             Ok(result) => {
                 if cli.json {
                     println!("{}", json!(result));
