@@ -1,3 +1,35 @@
+# CLI checkpoint — internal run history (2026-11-04)
+
+## Baseline and published work
+
+Persistent remote `development` started at [998c02fcf9dc2e7176b0fe81a34b576cb6daf969](https://github.com/alehkot/llm-council/commit/998c02fcf9dc2e7176b0fe81a34b576cb6daf969).
+Upstream `main` remained [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), an ancestor. All accumulated development work is retained.
+Implementation [fba3936ce5adf107a5b62cc4caa0098ced01a009](https://github.com/alehkot/llm-council/commit/fba3936ce5adf107a5b62cc4caa0098ced01a009) has verified tree `d72a5131d39504d38dbb52c3b86252820336629a`, identical to genuine local implementation `0d74ec82abc3a40595e4b6ff512f4b3c00fb8bb6`.
+This documentation-only descendant records the result. Its own final SHA and CI observation are recorded in the publication receipt and [recovery issue 17](https://github.com/alehkot/issues-tracker/issues/17), avoiding a self-referential hash. Local real-history commits, patch and bundle are retained for recovery.
+
+## Scope and rationale
+
+The existing read-only inspector required callers to already know a run UUID. Internal `run_history.list_runs` now discovers durable CLI work through bounded summary pages, advancing the plan's history prerequisite without exposing an incomplete public contract. UTC creation time and canonical UUID establish deterministic exclusive cursor positions. Cursors remain usable after anchor deletion, and newer admissions appear when refreshing the first page.
+
+Summaries use the existing validated inspector and preserve real internal phases, including uncertain work after restart. Reads never resume, repair, settle or dispatch work. Tombstones and legacy conversations are omitted; corrupt receipts fail explicitly rather than silently presenting an incomplete history. The output and excerpt sizes are bounded, but the file store still scans all receipt headers; this is not a scalable secondary index or a cross-process transaction. API0 and public consultation command gates remain unchanged. Refinement completion is not whole-council completion.
+
+## Verification and review
+
+- 509 offline Python 3.10.22 tests passed with unmocked networking forbidden, including 13 new history regressions; baseline496 passed.
+- New tests cover103-record pagination, normalized timezone ordering and UUID ties, deleted cursor anchors/new admissions, Unicode excerpt bounds, read byte purity, strict cursor/limit handling, real prompt/answer/refinement/cancellation phases, corruption and missing conversations, plus uncertainty surviving transient journal deletion and a fresh Python process.
+- Independent whole-change review found no moderate-or-higher introduced findings and independently reran all13 new tests. Additional adversarial checks covered125 mixed-zone/tied records and32 concurrent admission/history calls without missing or duplicated retained records. Self-review also found no moderate-or-higher introduced findings. Review is not a guarantee of correctness.
+- Repository-wide Ruff formatting and lint passed for91 Python files; whitespace checks passed.114 frontend Node tests, frontend formatting and ESLint passed; frontend is unchanged.
+- Actual loopback Uvicorn startup, authenticated config API0 response and graceful application shutdown passed with synthetic credentials and empty temporary storage.
+- Rust source is unchanged; Rust tests were not rerun for this Python-only scope. No browser UI changed, so rendered verification is inapplicable.
+
+## CI limitations and next steps
+
+GitHub statuses, checks and commit comments were read for exact starting development, upstream main and published implementation SHAs. Each had zero entries; no applicable Woodpecker report was observable. The aggregate status field's `pending` with zero contexts is missing evidence, not an observed running job. Normal full-build verification remains unrun/unverified, not passed; no local full build or manual CI dispatch was performed. Native macOS Keychain and live-provider verification remain unrun.
+
+Next: observe normal exact-head Woodpecker evidence; continue full-pipeline execution/provenance, durable scheduling and public whole-run acceptance before enabling consultation commands. Integrate this internal discovery only when the public history/completed-result contract is satisfied. Preserve explicit unsupported transport and process-local ownership limits; do not advertise API1 execution yet.
+
+---
+
 # CLI checkpoint — read-only skill discovery (2026-11-04)
 
 ## Baseline and published work
