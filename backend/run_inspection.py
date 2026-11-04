@@ -12,6 +12,7 @@ import json
 from typing import Any, Literal, TypedDict
 
 from . import (
+    durable_prequery,
     durable_refinement,
     refinement_execution,
     refinement_provider,
@@ -28,6 +29,7 @@ InternalPhase = Literal[
     "answer_accepted",
     "refinement_ready",
     "refinement_complete",
+    "pre_query_complete",
     "running_refinement",
     "needs_retry",
     "cancelling",
@@ -48,6 +50,7 @@ class _SnapshotEvidence(TypedDict):
     refinement_provider: dict[str, Any] | None
     explicit_skill_provenance: dict[str, Any] | None
     refinement: dict[str, Any] | None
+    pre_query: dict[str, Any] | None
     current_prompt: dict[str, Any] | None
     retry_token: str | None
     operation_owned: bool
@@ -96,6 +99,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "refinement_provider": None,
             "explicit_skill_provenance": run_skill_provenance.validate_saved(record),
             "refinement": None,
+            "pre_query": None,
             "current_prompt": None,
             "retry_token": None,
             "operation_owned": False,
@@ -120,7 +124,17 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         latest_refinement = None
         # Validate every retained boundary, including consumed answer derivations.
         # Generic future workflows are intentionally unsupported, not runnable.
-        for entry in interaction.prompts:
+        for index, entry in enumerate(interaction.prompts):
+            if entry.continuation.point == durable_prequery.POINT:
+                pre_query = durable_prequery.validate_checkpoint(
+                    record, interaction, index
+                )
+                snapshot["pre_query"] = (
+                    pre_query.model_dump(mode="json")
+                    if entry.phase == "consumed"
+                    else entry.continuation.state
+                )
+                continue
             latest_refinement = durable_refinement._validate_checkpoint(record, entry)
             if entry.phase in ("answered", "consumed"):
                 derived = durable_refinement._derive_answer(record, entry)
@@ -156,6 +170,8 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                 snapshot["current_prompt"] = latest.instance.model_dump(mode="json")
             elif latest.phase == "answered":
                 snapshot["internal_phase"] = "answer_accepted"
+            elif latest.continuation.point == durable_prequery.POINT:
+                snapshot["internal_phase"] = "pre_query_complete"
             elif (
                 latest_refinement is not None and latest_refinement.phase == "complete"
             ):

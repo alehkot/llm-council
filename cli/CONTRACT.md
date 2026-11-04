@@ -544,3 +544,40 @@ admissions between pages, real prompt/answer/refinement/cancellation boundaries,
 uncertain work after transient journal deletion and fresh-process restart, read
 purity and corruption failures. No public history route, finished-conversation
 lookup contract, API1 capability or CLI consultation command is enabled here.
+
+## Internal pre-query configuration continuation (partial)
+
+`durable_prequery.advance(run_id, expected_revision=...)` explicitly prepares or
+consumes one provider-free response-style boundary. It is allowed after fresh
+admission with `refine=false`, or after the final refinement answer was consumed
+and refinement is complete. The saved question is the exact admitted question or
+finalized refinement result. A valid refinement prefix may be followed by one
+terminal `pre_query_v1` checkpoint; unsupported or disconnected history fails
+closed. This helper does not infer or change the global interactive-mode setting.
+
+Preparation persists the existing pre-query prompt with a unique instance ID,
+exact schema and versioned continuation, then returns `waiting_input`. A valid
+first answer is saved through `run_interaction.answer`. A separate explicit call
+consumes that receipt into `pre_query_complete`, preserving the exact response
+mapping and `skipped` flag. Optional omissions remain absent; an explicitly
+submitted empty response differs from an explicit skip. Display defaults are
+never turned into accepted answers. A future execution adapter must preserve
+these distinctions when resolving effective prompt modifiers and settings.
+
+Each mutation checks the current interaction revision under the existing storage
+lock. Stale retries conflict; reload to recover a lost acknowledgment. Calls at
+current waiting/completed revisions return saved evidence without writes or
+schema regeneration. Read-only inspection/history retain the latest refinement
+alongside the pre-query evidence and keep cancellation precedence. The refinement
+driver/manager reject attempts to advance a run already at pre-query; historical
+completed refinement-operation reads remain available without provider dispatch.
+
+This is a durable input prerequisite, **not** council execution, resolved pipeline
+configuration, worker scheduling, or completion of a consultation. No provider
+credential/call, implicit next stage, public run route, API1 capability or Rust
+consultation command is enabled. The legacy web graph is unchanged. Full model,
+feature and skill provenance; guarded council stages; remaining review/synthesis
+prompts; durable scheduling; and whole-run public acceptance remain required.
+Offline tests establish synthetic single-process concurrency, write-boundary
+recovery, fresh-process restoration, source/answer validation and cancellation/
+deletion behavior, not power-loss or multi-process concurrency guarantees.

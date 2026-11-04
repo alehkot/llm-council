@@ -465,3 +465,15 @@ and corrupt evidence is not silently hidden. This is an internal prerequisite,
 not the public history/lookup contract or full council completion. API0 and the
 consultation command gates remain unchanged. Whole-pipeline execution, durable
 scheduling and public acceptance remain next dependencies. See [CONTRACT.md](CONTRACT.md).
+
+### Internal pre-query configuration checkpoint (partial)
+
+An explicit provider-free coordinator now saves the next response-style prompt
+after optional completed refinement (or direct unrefined admission). It consumes
+the first saved answer into a finite `pre_query_complete` continuation, retaining
+optional omissions, explicit skip, the finalized question and all refinement
+evidence. Reads preserve the exact saved prompt; stale or disconnected work fails
+closed. This is not effective pipeline configuration or council execution. No
+public API, API1 capability, worker auto-loop or CLI consultation command is
+enabled. Continue settings/skills provenance, guarded council stages and remaining
+human-input boundaries before complete public acceptance. See [CONTRACT.md](CONTRACT.md).

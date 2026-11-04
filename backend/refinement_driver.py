@@ -62,6 +62,10 @@ async def advance(
                 "Run did not request refinement"
             )
         phase = snapshot["internal_phase"]
+        if snapshot["pre_query"] is not None:
+            raise refinement_execution.ExecutionConflict(
+                "Run has advanced beyond refinement"
+            )
         if phase in ("cancelling", "cancelled"):
             return snapshot
         if retry_token is not None and phase != "needs_retry":

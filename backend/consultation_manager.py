@@ -570,6 +570,10 @@ class ConsultationManager:
                 raise refinement_execution.ExecutionConflict(
                     "Run did not request refinement"
                 )
+            if snapshot["pre_query"] is not None:
+                raise refinement_execution.ExecutionConflict(
+                    "Run has advanced beyond refinement"
+                )
             conversation_id = snapshot["conversation_id"]
             if conversation_id in self._futures or self._queues.get(conversation_id):
                 raise refinement_execution.ExecutionConflict(
