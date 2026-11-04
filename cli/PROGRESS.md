@@ -1,3 +1,36 @@
+# CLI checkpoint — configured OpenRouter request policy (2026-11-04)
+
+## Baseline and published work
+
+Persistent remote `development` started at [dd03795d551024bd2e788054038bbe7016c8e971](https://github.com/alehkot/llm-council/commit/dd03795d551024bd2e788054038bbe7016c8e971).
+Upstream `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), a retained ancestor.
+Published implementation [5a777d834d78fee02c018f10f84f81c9144a3211](https://github.com/alehkot/llm-council/commit/5a777d834d78fee02c018f10f84f81c9144a3211) has tree `4ad190b46a36972d2db8799eaa8ef04643a8ea6a`, identical to tested local implementation `911a178d31724d45dfbdf04837e6e21075468452`. Its parent and all five changed blob identities were checked against reviewed source.
+This documentation-only descendant records the outcome. Its final local/published SHA and exact CI observation belong to the publication receipt, avoiding a self-referential hash. A complete real-history bundle and binary patch are retained without resetting existing history.
+
+## Scope and rationale
+
+The configured council roster previously had no retained OpenRouter request limits. The explicit internal `council_request_policy.bind` now stores endpoint, token/context/continuation/retry ceilings and backoff/jitter settings with the saved council selection's digest and revision. Binding rejects current selection or request-setting drift; historical inspection preserves saved values without reading current settings or making requests.
+
+The frozen value uses required fields, strict integer counts, finite ordered backoff settings and an HTTPS endpoint without URL credentials, query, fragment, whitespace or controls. No provider/local authentication keys are captured. Missing prerequisites, stale revisions, cancellation/deletion and invalid saved evidence fail closed. Concurrent duplicates write once, and an uncertain write acknowledgment can be recovered without rewriting an already-saved value.
+
+Research in [openrouter.py](../backend/openrouter.py) and [model_context.py](../backend/model_context.py) confirmed that the legacy client also obtains changing catalog metadata, computes per-model budgets, reduces context and continues prose. Therefore these are configured limits, not complete effective wire provenance or permission to retry uncertain work. Every potentially billed request still needs durable guards respecting explicit-retry recovery. Synthesis/helper settings, skills and exact stage inputs remain separate dependencies. No legacy execution path, public run route, API1 capability or CLI consultation command is enabled or changed. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline 568 and final 586 offline Python 3.10.22 tests passed with unmocked outbound networking forbidden. Eighteen new tests cover exact loaded settings/source identity, all captured settings' drift, strict invalid values and unsafe endpoints, zero extra-call limits, frozen/detached values, credential rotation/exclusion, 24 concurrent binds, before/after-write failures, fresh-process restoration, missing/corrupt sources, stale revisions, cancellation and deletion.
+- Independent whole-change review found no introduced moderate-or-higher findings. It passed 136 related offline tests, six refined-history/skip cases at revisions 6/9/12, a secret-free invalid-URL traceback probe and 98 malformed saved-policy probes without rewrites. It did not rerun Ruff because its environment lacked that executable; the implementation environment's final repository-wide Ruff checks passed. Review is not a correctness guarantee.
+- Self-review found no moderate-or-higher issue and passed 32 bind/cancel plus 32 bind/delete races, historical reads with current-setting resolver failure spies, and five invalid policy-container probes. The initial Ruff check required only test-import spacing; after correction the final exact source passed all 586 tests and Ruff format/lint for 101 files.
+- All 114 frontend Node tests, frontend formatting/ESLint and whitespace checks passed. Actual loopback Uvicorn startup, authenticated API0 config and graceful shutdown passed with empty temporary storage and synthetic credentials.
+- Rust/UI source is unchanged. Rust tests were not rerun and rendered-browser checks are inapplicable. Full builds, macOS Keychain/platform and live-provider checks remain unrun. Tests do not establish full consultation execution, model quality, power-loss durability or concurrent backend-process writers.
+
+## CI and next steps
+
+Exact starting development, main and published implementation expose zero status contexts, check runs and commit comments. No normal Woodpecker result or job/platform coverage is observable. Empty aggregate `pending` is missing evidence, not an observed running build, pass or failure. Full builds remain unrun under the no-local-full-build policy. No manual CI dispatch/rerun, private-runner/user-computer access, settings/security change, PR action, deployment or paid call occurred.
+
+Next: observe normal exact-head Woodpecker evidence; retain effective model metadata, exact inputs and remaining synthesis/skill provenance; implement guarded council stages and remaining human-input boundaries, durable scheduling and whole-run public acceptance before enabling consultation commands. Preserve explicit retry for uncertain work and deliberately extend causal validation when later workflow boundaries are added.
+
+---
+
 # CLI checkpoint — configured council selection (2026-11-04)
 
 ## Baseline and published work
