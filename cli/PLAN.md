@@ -477,3 +477,14 @@ closed. This is not effective pipeline configuration or council execution. No
 public API, API1 capability, worker auto-loop or CLI consultation command is
 enabled. Continue settings/skills provenance, guarded council stages and remaining
 human-input boundaries before complete public acceptance. See [CONTRACT.md](CONTRACT.md).
+
+### Saved response-policy input checkpoint (partial)
+
+An explicit internal binding now saves the exact finalized question and response
+modifier after completed pre-query input, with source prompt/revision and effective
+legacy domain/style/priority. Optional execution defaults remain distinct from
+raw accepted values; explicit skip applies no modifier. Inspection checks causal
+identity and exact derivation without rewriting or dispatching. This is one input
+to future council prompts, not resolved model/skill provenance, complete Stage 1
+configuration or full execution. API0 and consultation command gates remain.
+See [CONTRACT.md](CONTRACT.md) for semantics-version and future-boundary limits.

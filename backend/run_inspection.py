@@ -14,6 +14,7 @@ from typing import Any, Literal, TypedDict
 from . import (
     durable_prequery,
     durable_refinement,
+    prequery_policy,
     refinement_execution,
     refinement_provider,
     run_admission,
@@ -51,6 +52,7 @@ class _SnapshotEvidence(TypedDict):
     explicit_skill_provenance: dict[str, Any] | None
     refinement: dict[str, Any] | None
     pre_query: dict[str, Any] | None
+    pre_query_policy: dict[str, Any] | None
     current_prompt: dict[str, Any] | None
     retry_token: str | None
     operation_owned: bool
@@ -100,6 +102,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "explicit_skill_provenance": run_skill_provenance.validate_saved(record),
             "refinement": None,
             "pre_query": None,
+            "pre_query_policy": None,
             "current_prompt": None,
             "retry_token": None,
             "operation_owned": False,
@@ -111,6 +114,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "interaction",
                     "refinement_execution",
                     "refinement_provider",
+                    "pre_query_policy",
                 )
             ):
                 raise run_admission.AdmissionUnavailable(
@@ -140,6 +144,9 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                 derived = durable_refinement._derive_answer(record, entry)
                 if entry.phase == "consumed":
                     latest_refinement = derived
+        policy = prequery_policy.validate_saved(record, interaction)
+        if policy is not None:
+            snapshot["pre_query_policy"] = policy.model_dump(mode="json")
         snapshot["interaction"] = interaction.model_dump(mode="json")
         snapshot["execution"] = execution.model_dump(mode="json")
         if provider is not None:

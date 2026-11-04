@@ -581,3 +581,39 @@ prompts; durable scheduling; and whole-run public acceptance remain required.
 Offline tests establish synthetic single-process concurrency, write-boundary
 recovery, fresh-process restoration, source/answer validation and cancellation/
 deletion behavior, not power-loss or multi-process concurrency guarantees.
+
+### Internal response-policy snapshot (partial)
+
+`prequery_policy.bind(run_id, expected_revision=...)` now binds a provider-free,
+immutable response-policy input only after a durable pre-query answer is consumed.
+Version 1 retains the exact finalized query and generated system modifier, its
+source prompt instance/revision, and effective domain/style/priority. It reuses
+`InteractiveConfig` semantics, not the prompt schema's display defaults. An
+omitted optional field has a backend execution default, but that default is **not
+an accepted user answer**: the original answer and its omissions remain unchanged.
+Explicit skip applies no modifier and has no effective domain/style/priority.
+
+The receipt persists these exact strings before any future council dispatch.
+Binding is serialized with answer/cancellation/deletion operations. Repeated binds
+are byte-pure and return a frozen, detached value; a lost write acknowledgment is
+recovered by inspecting/rebinding the same run and revision. The interaction
+revision does not advance because no new prompt/answer/continuation is created;
+the inspection cursor does change to include the newly saved policy. Cancellation
+retains read-only evidence but prevents binding even when a policy already exists;
+deletion erases it with the receipt payload.
+
+Inspection validates the saved policy against the completed source checkpoint,
+including exact query and modifier bytes. Unsupported versions, mismatched source
+identity/revision, corrupt values or changed interpretation fail closed without
+rewriting the record. Version 1 derives its meaning from today's legacy mapping;
+changing that mapping requires an explicit version/migration policy rather than
+silently reinterpreting an old run. This validator currently supports only the
+final pre-query boundary; later durable workflow boundaries must extend source
+lookup deliberately instead of treating a changed interaction revision as safe.
+
+This is a concrete future prompt input, **not** effective model/transport/skill
+configuration, a complete Stage 1 system prompt, scheduling, provider execution,
+or permission to dispatch. It is not a cryptographic tamper-proof record. A future
+executor must recheck run state/revision/cancellation and separately resolve
+remaining provenance before using it. No public route, API1 capability, legacy
+web behavior, Rust consultation command, or provider call changes.
