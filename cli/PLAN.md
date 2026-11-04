@@ -454,3 +454,14 @@ enabled/disabled entries and supports escaped terminal output and JSON. API0/1
 is accepted for this read-only command only; no run endpoint, credential mutation
 or provider call is introduced. Native macOS Keychain verification remains
 outstanding, and all consultation commands remain unavailable.
+
+### Internal run-history discovery checkpoint (partial)
+
+Retained durable CLI receipts can now be discovered through bounded, read-only
+summary pages, ordered by UTC creation time and UUID. Cursor positions survive
+anchor deletion; real internal phases distinguish prepared, waiting, uncertain
+and refinement-complete work. Deleted runs and legacy conversations are excluded,
+and corrupt evidence is not silently hidden. This is an internal prerequisite,
+not the public history/lookup contract or full council completion. API0 and the
+consultation command gates remain unchanged. Whole-pipeline execution, durable
+scheduling and public acceptance remain next dependencies. See [CONTRACT.md](CONTRACT.md).

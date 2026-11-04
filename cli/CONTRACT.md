@@ -512,3 +512,35 @@ cancellation/deletion/stale dispatch protection, immutable queued settings,
 explicit retry, saved waiting restoration, and legacy ownership exclusion. They
 do not establish full consultation scheduling, cross-process concurrency,
 power-loss durability or exactly-once remote provider execution.
+
+## Internal read-only run history (partial)
+
+`run_history.list_runs(limit=50, before=None)` discovers retained CLI receipts as
+newest-first summaries. The page size is an integer from 1 to 100. Ordering uses
+UTC creation time, then canonical run UUID descending; historical naive receipt
+timestamps mean UTC. The opaque continuation cursor identifies an exclusive
+position, survives deletion of its anchor, and is neither authorization nor a
+mutation revision. Pages are separate snapshots: refresh the first page to see
+newer admissions, and reload a run to see its latest state.
+
+Each summary contains run/conversation IDs, the original creation timestamp,
+a question excerpt limited to 160 Unicode code points, the inspector's actual
+internal phase and its content-change cursor. `prepared` is not queued work and
+`refinement_complete` is not a complete council result. The projection excludes
+prompt answers, provider settings and full question text. It does not provide a
+terminal escaping contract; a future client must escape untrusted text.
+
+Reads do not write, repair, settle cancellation or dispatch work. Tombstones and
+legacy conversations are omitted. Invalid/unreadable receipt headers fail the
+page rather than silently hiding work; selected entries additionally receive the
+full inspector validation, so corrupt checkpoints outside the page are detected
+when read. The single-process storage lock coordinates supported mutations. The
+file store still scans all receipt headers: only output size is bounded, not disk
+I/O or directory-scan memory. This is not a persistent secondary index or a
+cross-process snapshot guarantee.
+
+Offline tests cover multi-page ordering, timezone/tie handling, deletion and new
+admissions between pages, real prompt/answer/refinement/cancellation boundaries,
+uncertain work after transient journal deletion and fresh-process restart, read
+purity and corruption failures. No public history route, finished-conversation
+lookup contract, API1 capability or CLI consultation command is enabled here.
