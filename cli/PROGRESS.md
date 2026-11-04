@@ -1,3 +1,35 @@
+# CLI checkpoint — read-only skill discovery (2026-11-04)
+
+## Baseline and published work
+
+Persistent remote `development` baseline was [7f59e6b5bab37f777f016a443b0095cba4cd71a1](https://github.com/alehkot/llm-council/commit/7f59e6b5bab37f777f016a443b0095cba4cd71a1).
+Upstream `main` was [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), an ancestor; all accumulated work is retained.
+Implementation [c2c42fc9432f00931a76e9d72e22dcd7e8f370a7](https://github.com/alehkot/llm-council/commit/c2c42fc9432f00931a76e9d72e22dcd7e8f370a7) has verified tree `b7f1681023d0966bc796b89d3622008809021bf4`, identical to local implementation `d717925502508caa51b6f8f194b3af25f5986c6d`.
+This documentation-only descendant records the result. Its final SHA and CI observation are recorded in the publication receipt and [recovery issue 17](https://github.com/alehkot/issues-tracker/issues/17), avoiding a self-referential hash.
+
+## Scope and rationale
+
+`council skills` now performs real read-only skill discovery using the existing authenticated `/api/skills` backend endpoint. This delivers a bounded public command while whole-consultation scheduling remains unfinished. It reads the saved origin-bound credential without prompting or saving, probes config once, and requests the fixed skill-list endpoint once. API 0 and API 1 support these reads; execution remains gated and backend API stays0. There are no retries, redirects, proxies, mutations or provider calls.
+
+Typed summaries retain IDs, names, descriptions, source, numeric version and enabled state. Terminal output escapes untrusted text; JSON preserves it. Missing credentials, unavailable endpoints, unsupported platforms and malformed responses fail explicitly. A fixture generated from `Skill.to_summary` and a Python equality regression keep the Rust wire shape aligned with the backend. Initial draft string-version mismatch was caught and corrected before final verification. Plan and README document the partial delivery, not completion of the consultation CLI.
+
+## Verification and review
+
+- 496 offline Python 3.10.22 tests passed with unmocked outbound networking forbidden, including the new backend summary fixture equality test. Baseline 495 passed. An existing temporary-journal deletion warning did not fail the suite.
+- 62 selected Rust tests passed on final source and independently: 32 library, 16 foundation and 14 HTTP tests. A nested proxy subprocess is not counted twice. Tests cover auth/origin constraints, fixed paths, API compatibility, malformed/oversized lists, disabled/empty/unavailable lists, terminal safety and unsupported-platform failure.
+- Focused Clippy and Cargo formatting passed. Repository-wide Ruff lint/format passed for 89 files. 114 frontend Node tests and frontend formatting/lint passed; frontend code is unchanged.
+- Real loopback backend startup, authenticated config API 0 and graceful shutdown passed using synthetic keys and an empty temporary data directory.
+- Independent whole-change review and self-review found no moderate-or-higher introduced findings; whitespace checks passed. Review is not a correctness guarantee.
+- The preceding manager-handoff change `2b8f219a83a60210232037e9b705f226948908ea..7f59e6b5bab37f777f016a443b0095cba4cd71a1` also received its previously missing independent review: 47 focused tests passed, 64 simultaneous cross-thread admissions shared one worker/provider attempt, and a closed waiter loop did not strand ownership. No moderate-or-higher introduced findings were reported.
+
+## Limits, CI and next priorities
+
+Exact starting/main/implementation heads had zero statuses, zero check runs and zero commit comments when inspected. Expected normal Woodpecker evidence is **missing**, not a confirmed running build or a pass. No manual CI dispatch/retry, full local build, deployment or paid provider request was performed. Full application/release builds remain unrun without applicable normal CI evidence. Native macOS Keychain/runtime, minimum supported Rust version and live-provider/model-quality verification remain unrun. Rust tests use synthetic loopback transport and injected credential stores; they do not establish native macOS behavior. Browser verification is inapplicable to this CLI-only change.
+
+Next: observe exact final normal Woodpecker reports; validate the command on native macOS with an existing local backend; then resume durable complete-consultation scheduling/provenance and public whole-run acceptance before enabling run commands. Do not advertise API 1 execution or completed consultation support until those prerequisites and end-to-end tests are satisfied. Preserve process-local worker ownership limitations and fail-closed unsupported transports.
+
+---
+
 # CLI checkpoint — configured refinement bridge (2026-11-03)
 
 ## Baseline, implementation and purpose
