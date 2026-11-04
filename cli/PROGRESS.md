@@ -1,3 +1,36 @@
+# CLI checkpoint — exact response-policy input (2026-11-04)
+
+## Baseline and published work
+
+Persistent remote `development` started at [8f7c40b3f494b663db79651e5b88722dd5dafa2d](https://github.com/alehkot/llm-council/commit/8f7c40b3f494b663db79651e5b88722dd5dafa2d).
+Upstream `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), a retained ancestor.
+Implementation [8b9e53436987ad2c3f77fcea52070e124ef5e553](https://github.com/alehkot/llm-council/commit/8b9e53436987ad2c3f77fcea52070e124ef5e553) has verified tree `28ec11b1750dd947743676075fe0c4047fc4caac`, identical to tested genuine local implementation `89ccdadec09ba5fbb809e9ac66cb6194c0646557`.
+This documentation-only descendant records the outcome. Its final exact local/published SHA and CI observation are recorded in the publication receipt and [recovery issue17](https://github.com/alehkot/issues-tracker/issues/17), avoiding a self-referential hash. Real-history local branches, bundle and patch are retained; no existing history was reset.
+
+## Completed scope and rationale
+
+Completed pre-query input previously retained choices but not the concrete response modifier a future council request would consume. An explicit internal binding now saves the exact finalized question and modifier with its source prompt instance/revision and effective domain/style/priority. This closes one prompt-input prerequisite without pretending to resolve all model, transport or skill settings.
+
+The policy uses existing legacy execution semantics. Omitted optional fields may have execution defaults, but the raw accepted answer remains unchanged; explicit skip has no modifier or effective defaults. Frozen detached values and read-only inspection preserve exact evidence. Binding shares the existing storage lock with cancellation/deletion, validates the completed causal source, and recovers an uncertain write acknowledgment idempotently. Unsupported versions, inconsistent sources and changed semantic mappings fail closed rather than silently rewriting an accepted run.
+
+No provider request, public route, API1 capability, scheduler or Rust consultation command is enabled. The legacy web workflow is unchanged. The current validator supports the final pre-query boundary only; future prompt histories need deliberate source-validation extension. The policy is not a dispatch/cancellation token, complete Stage1 input, cryptographic integrity guarantee, or full pipeline provenance. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline537 and final553 offline Python3.10.22 tests passed with unmocked outbound network forbidden. Sixteen new tests cover160 combinations of choices/omissions, skip, exact refined queries, concurrent binds, detached/frozen values, read purity, before/after-write failures, fresh-process restoration, stale/incomplete/corrupt state, cancellation/deletion and explicit version requirements.
+- Self-review caught an implicit missing-version fallback before publication; making the version mandatory and adding a regression fixed it. Independent whole-change code/test/contract/plan review found no remaining introduced moderate-or-higher findings. It independently reran16 tests, compared160 combinations plus skip against the actual graph modifier, and passed64 bind/cancel races. A clean review is not a correctness guarantee.
+- Repository-wide Ruff0.16.4 format/lint passed for97 files; whitespace checks passed. All114 existing frontend Node tests, frontend formatting and ESLint passed. Actual Uvicorn loopback startup, authenticated API0 config and graceful application shutdown passed using empty temporary storage and synthetic credentials.
+- The first baseline harness lacked the already-installed ACP package on its import path and produced19 import errors; adding the existing package path yielded the unchanged537-test baseline. A startup harness initially expected exit0 only; Uvicorn re-raised the requested SIGTERM after logging complete graceful shutdown. The corrected harness accepted that expected signal and passed a fresh run. Neither required repository changes.
+- Rust/UI source unchanged: Rust tests were not rerun and rendered-browser verification is inapplicable. No local full builds, macOS Keychain/platform or live-provider checks ran. Tests do not establish power-loss durability, multiple concurrent backend processes, full consultation orchestration or model-answer quality.
+
+## CI limitation and next priorities
+
+Exact starting development, upstream main and published implementation SHAs each expose zero statuses, check runs and commit comments, including no normal Woodpecker report. Empty aggregate `pending` is missing evidence, not a confirmed running build or a pass/failure. Full builds remain unrun under the no-local-full-build policy. No manual CI dispatch/rerun, private-runner access, security/settings changes, PR actions, deployment or paid calls occurred.
+
+Next: observe normal exact-head Woodpecker evidence and actual job coverage. Bind remaining effective model/feature/skill provenance and implement guarded council execution using the saved response-policy input. Continue review/synthesis human-input boundaries and durable scheduling; complete whole-run public acceptance before enabling consultation commands or advertising API1.
+
+---
+
 # CLI checkpoint — durable pre-query configuration (2026-11-04)
 
 ## Baseline and published work
