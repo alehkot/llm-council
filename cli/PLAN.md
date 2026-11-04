@@ -431,3 +431,15 @@ effect of consuming an answer. Stale calls conflict; uncertain requests require
 explicit retry. This is not the real consultation manager's worker integration,
 durable scheduling or client-detachment contract. Public run operations and API1
 remain gated on the outstanding whole-pipeline acceptance cases.
+
+### Internal refinement worker handoff checkpoint (partial)
+
+The manager can now explicitly schedule one revision-bound refinement step on
+its existing pool. Duplicate active requests share ownership, a detached waiter
+does not cancel the worker, and a saved prompt/answer boundary releases the slot.
+Queued steps capture refinement configuration and recheck state before dispatch.
+This is an internal opt-in method, not public durable admission, automatic restart
+scheduling, the full council workflow or finished persistent-human-input support.
+API0 and unavailable consultation commands remain unchanged. Next integrate
+remaining guarded workflow boundaries, settings/skills and durable scheduling;
+complete public acceptance before enabling CLI run commands. See [CONTRACT.md](CONTRACT.md).

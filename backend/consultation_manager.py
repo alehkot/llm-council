@@ -14,7 +14,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, cast
 
-from . import consultation_journal, run_admission, storage
+from . import (
+    consultation_journal,
+    refinement_driver,
+    refinement_execution,
+    refinement_provider,
+    run_admission,
+    run_inspection,
+    storage,
+)
 from .config import (
     CONSULTATION_POOL_SIZE,
     DELIBERATION_ENABLED,
@@ -105,6 +113,31 @@ class ConsultationState:
         return result
 
 
+@dataclass(frozen=True)
+class RefinementStepHandle:
+    """An internal step receipt whose waiter cannot cancel executor ownership."""
+
+    run_id: str
+    revision: int
+    retry_token: str | None
+    _future: Future = field(repr=False, compare=False)
+
+    async def wait(self) -> run_inspection.RunInspectionSnapshot:
+        """Wait without transferring ownership to a request/client task.
+
+        Detaching a waiter leaves queued/running work intact. Each waiter gets
+        detached result data. This handle is process-local, not a durable queue
+        receipt or public API promise; use run_inspection after a restart.
+        """
+        wrapped = asyncio.wrap_future(self._future)
+        # If a detached waiter never returns, still consume a later exception on
+        # the asyncio wrapper. The executor's Future retains it for other waiters.
+        wrapped.add_done_callback(
+            lambda done: None if done.cancelled() else done.exception()
+        )
+        return deepcopy(await asyncio.shield(wrapped))
+
+
 def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
     """Stable digest of a snapshot used as a long-poll change cursor."""
 
@@ -144,6 +177,7 @@ class ConsultationManager:
         self._queues: Dict[str, List[QueuedMessage]] = {}
         self._futures: Dict[str, Future] = {}
         self._interactive_sessions: Dict[str, ConsultationState] = {}
+        self._cli_refinement_steps: Dict[str, RefinementStepHandle] = {}
         self._restored = False
 
     @staticmethod
@@ -490,6 +524,110 @@ class ConsultationManager:
         with self._lock:
             return run_admission.prepare(run_id, request)
 
+    def schedule_cli_refinement_step(
+        self,
+        run_id: str,
+        *,
+        expected_revision: int,
+        api_key: str | None = None,
+        retry_token: str | None = None,
+        _transport: Any = None,
+    ) -> RefinementStepHandle:
+        """Schedule one internal boundary on the existing worker pool.
+
+        No public route or restart hook calls this. Exact active duplicates share
+        ownership; changed revisions/consent conflict. No next round is scheduled
+        automatically. Waiting and answer-only boundaries need no provider key.
+        The durable driver rechecks state when the queued worker actually starts.
+        Queue admission itself is process-local: a crash before dispatch leaves
+        the saved boundary untouched, not proof of a durable queued submission.
+        """
+        run_id = str(uuid.UUID(run_id))
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("Expected revision must be a nonnegative integer")
+        retry_token = str(uuid.UUID(retry_token)) if retry_token is not None else None
+        with self._lock:
+            owned = self._cli_refinement_steps.get(run_id)
+            if owned is not None and not owned._future.done():
+                if (owned.revision, owned.retry_token) != (
+                    expected_revision,
+                    retry_token,
+                ):
+                    raise refinement_execution.ExecutionConflict(
+                        "Another refinement boundary is already scheduled"
+                    )
+                return owned
+            snapshot = run_inspection.inspect(run_id)
+            if snapshot is None or snapshot["internal_phase"] == "initializing":
+                raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+            interaction = snapshot["interaction"]
+            assert interaction is not None
+            if interaction["revision"] != expected_revision:
+                raise refinement_execution.ExecutionConflict(
+                    "Refinement revision changed; reload this run"
+                )
+            if not snapshot["request"]["refine"]:
+                raise refinement_execution.ExecutionConflict(
+                    "Run did not request refinement"
+                )
+            conversation_id = snapshot["conversation_id"]
+            if conversation_id in self._futures or self._queues.get(conversation_id):
+                raise refinement_execution.ExecutionConflict(
+                    "Conversation is owned by legacy consultation work"
+                )
+            configuration = None
+            if snapshot["internal_phase"] in (
+                "prepared",
+                "refinement_ready",
+                "needs_retry",
+            ):
+                configuration = refinement_provider.resolve_configured_refinement()
+            future = self._executor.submit(
+                self._run_cli_refinement_step,
+                run_id,
+                expected_revision,
+                api_key,
+                retry_token,
+                _transport,
+                configuration,
+            )
+            handle = RefinementStepHandle(
+                run_id, expected_revision, retry_token, future
+            )
+            self._cli_refinement_steps[run_id] = handle
+        # Registration is outside the lock: a completed future invokes this
+        # callback immediately, and the manager lock is intentionally not reentrant.
+        future.add_done_callback(
+            lambda finished: self._release_cli_refinement_step(run_id, finished)
+        )
+        return handle
+
+    @staticmethod
+    def _run_cli_refinement_step(
+        run_id: str,
+        revision: int,
+        api_key: str | None,
+        retry_token: str | None,
+        transport: Any,
+        configuration: refinement_provider.OpenRouterRefinementConfig | None,
+    ) -> run_inspection.RunInspectionSnapshot:
+        return asyncio.run(
+            refinement_driver.advance(
+                run_id,
+                expected_revision=revision,
+                api_key=api_key,
+                retry_token=retry_token,
+                _transport=transport,
+                _configuration=configuration,
+            )
+        )
+
+    def _release_cli_refinement_step(self, run_id: str, future: Future) -> None:
+        with self._lock:
+            owned = self._cli_refinement_steps.get(run_id)
+            if owned is not None and owned._future is future:
+                self._cli_refinement_steps.pop(run_id)
+
     def submit(
         self,
         conversation_id: str,
@@ -506,6 +644,13 @@ class ConsultationManager:
         selected_skill_ids = list(skill_ids or [])
 
         with self._lock:
+            if any(
+                conversation_id == f"cli-{run_id}" and not handle._future.done()
+                for run_id, handle in self._cli_refinement_steps.items()
+            ):
+                raise refinement_execution.ExecutionConflict(
+                    "Conversation is owned by an internal refinement step"
+                )
             active = self._consultations.get(conversation_id)
             if active and active.status not in (
                 ConsultationStatus.COMPLETE,

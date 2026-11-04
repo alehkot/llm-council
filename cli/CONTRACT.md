@@ -462,11 +462,53 @@ replaying a provider call. Corrupt checkpoints are not repaired implicitly.
 Cancellation is rechecked by the existing provider guard before dispatch. The
 driver does not hold the storage lock across the provider await.
 
-This is a compositional backend prerequisite, **not** public run execution or
-integration with the consultation manager. Returning at a prompt means this
-driver has no outstanding provider task while waiting; it does not prove worker
-pool release/resumption. The invoking task still owns its await: cancelling that
-task during provider work retains uncertainty, not guaranteed CLI detachment.
+Direct calls to this driver remain caller-owned: cancelling that task during
+provider work retains uncertainty, not guaranteed CLI detachment. The internal
+manager handoff below adds separate ownership for explicitly scheduled steps.
 Reads/polling must use the read-only inspector, not `advance`. Full pipeline and
-skill provenance, ACP support, real worker ownership, durable scheduling and all
-public HTTP/CLI acceptance cases remain unfinished. API version stays 0.
+skill provenance, ACP support, durable scheduling and all public HTTP/CLI
+acceptance cases remain unfinished. API version stays 0.
+
+## Internal manager-owned refinement steps (partial)
+
+`ConsultationManager.schedule_cli_refinement_step` now schedules one named
+revision on the existing thread pool and immediately returns a process-local
+handle. Exact queued/active duplicates share that handle; different revision or
+retry consent conflicts. Its optional async `wait()` shields the owned future:
+cancelling a waiting caller does not cancel queued or running work. Each waiter
+receives detached result data, and the manager retires completed ownership rather
+than retaining completed futures or credentials. An explicit run cancellation
+still uses the existing durable cancellation marker and owned provider task.
+
+The worker uses `asyncio.run(refinement_driver.advance(...))`, returning its slot
+at each saved prompt or answer boundary. Consuming an answer never schedules the
+next suggestion. The driver rechecks revision, cancellation and deletion when a
+queued step actually starts; no future handle gives permission to ignore those
+checks. A run's legacy conversation cannot be scheduled concurrently through the
+manager's ordinary submission path while an internal step owns it, and an
+internal step refuses already owned legacy work. This is not yet complete
+conversation ordering or a public compatibility contract for persistent runs.
+
+For provider boundaries, scheduling captures the immutable supported refinement
+configuration and the worker uses that exact value for existing durable binding
+and dispatch. Later global configuration changes cannot silently change an
+already queued request. New scheduling under changed settings still faces the
+existing saved-provenance guard. Waiting, answer-only and terminal boundaries
+need neither a provider credential nor usable current provider configuration.
+Credentials remain ephemeral and are not part of the handle identity or receipt.
+
+Admission into this worker queue is **not durable scheduling**. A process crash
+before dispatch leaves the prior durable boundary, not proof of queued execution.
+A crash after provider dispatch retains uncertainty and needs explicit retry;
+startup does not automatically schedule these steps. The handle cannot survive a
+process restart: read saved run evidence and explicitly schedule a current safe
+boundary instead. Public routes, API1 and CLI consultation commands remain off.
+Full council execution, non-refinement stages, settings/skills integration, ACP,
+macOS/platform and live-provider behavior remain outside this partial step.
+
+Offline worker regressions use the actual one-thread executor and synthetic HTTP
+to establish worker release, duplicate ownership, queued and active detachment,
+cancellation/deletion/stale dispatch protection, immutable queued settings,
+explicit retry, saved waiting restoration, and legacy ownership exclusion. They
+do not establish full consultation scheduling, cross-process concurrency,
+power-loss durability or exactly-once remote provider execution.

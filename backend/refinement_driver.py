@@ -28,6 +28,7 @@ async def advance(
     api_key: str | None = None,
     retry_token: str | None = None,
     _transport: httpx.AsyncBaseTransport | None = None,
+    _configuration: refinement_provider.OpenRouterRefinementConfig | None = None,
 ) -> run_inspection.RunInspectionSnapshot:
     """Advance only the named current boundary, with at most one provider call.
 
@@ -88,13 +89,25 @@ async def advance(
         raise ValueError("A provider credential is required for a suggestion")
     # The adapter rechecks revision, cancellation and ownership before dispatch.
     # Never hold the storage lock while awaiting external work.
-    await refinement_provider.suggest_configured_refinement(
-        run_id,
-        api_key=api_key,
-        expected_revision=expected_revision,
-        retry_token=retry_token,
-        _transport=_transport,
-    )
+    # A queued manager step captures this immutable value at admission, before
+    # waiting for a worker. Direct callers retain the configured bridge behavior.
+    if _configuration is None:
+        await refinement_provider.suggest_configured_refinement(
+            run_id,
+            api_key=api_key,
+            expected_revision=expected_revision,
+            retry_token=retry_token,
+            _transport=_transport,
+        )
+    else:
+        await refinement_provider.suggest_openrouter(
+            run_id,
+            _configuration,
+            api_key=api_key,
+            expected_revision=expected_revision,
+            retry_token=retry_token,
+            _transport=_transport,
+        )
     result = run_inspection.inspect(run_id)
     if result is None:
         raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
