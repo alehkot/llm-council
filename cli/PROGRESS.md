@@ -1,3 +1,36 @@
+# CLI checkpoint — durable pre-query configuration (2026-11-04)
+
+## Baseline and published work
+
+Persistent remote `development` started at [c9504c59dfeebb06dfb60ad07e108a1270c415e4](https://github.com/alehkot/llm-council/commit/c9504c59dfeebb06dfb60ad07e108a1270c415e4).
+Upstream `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), a retained ancestor.
+Implementation [4dc222e48185b87b44f69cc76e6f98a91e0f256a](https://github.com/alehkot/llm-council/commit/4dc222e48185b87b44f69cc76e6f98a91e0f256a) has verified tree `4c6121d3a08e5703a22de4daca827b11ffaaa1be`, identical to genuine local implementation `8a9d3e99cdf1ae3d8d05b8a1eeff6dc63160b312`.
+This documentation-only descendant records the result. Its final exact SHA and CI observation are recorded in the publication receipt and [recovery issue 17](https://github.com/alehkot/issues-tracker/issues/17), avoiding a self-referential hash. Real-history local branches, bundle and binary patch are retained; no existing local history was reset.
+
+## Scope and rationale
+
+The next legacy workflow boundary after optional refinement is the pre-query response-style prompt. Durable runs previously stopped at completed refinement. An explicit internal coordinator now saves that exact prompt and finalized question, then separately consumes its first accepted answer into `pre_query_complete`. Direct unrefined admission is supported as well. This advances the persistent-human-input prerequisite rather than enabling incomplete council execution.
+
+The versioned continuation preserves raw accepted values, optional omissions and explicit skip. No display default becomes an answer and no current pipeline setting is inferred. The inspector retains refinement and pre-query evidence separately, validates their causal order and final source question, and rejects unsupported or inconsistent checkpoints. Revision guards serialize concurrent preparation/consumption and recover lost acknowledgments by reloading saved evidence. Waiting/completed reads are byte-pure. Refinement driver/manager re-entry is rejected, while historical completed-operation reads remain safe.
+
+No provider request, public route, API 1 capability, worker auto-loop or Rust consultation command is enabled. The legacy web graph is unchanged. `pre_query_complete` is not whole-council completion or resolved execution provenance. [CONTRACT.md](CONTRACT.md) records exact interfaces and limits; [PLAN.md](PLAN.md) retains the unfinished milestones.
+
+## Verification and review
+
+- Baseline 521 and final 537 offline Python 3.10.22 tests passed with unmocked outbound connections forbidden. An initial custom runner supplied the wrong synthetic API key and caused six authorization-related test failures; correcting the runner and rerunning the untouched baseline resolved them without repository changes.
+- Sixteen new regressions cover direct/refined/original paths, separate revisions, concurrent duplicates, before/after-write exceptions, fresh-process prompt restoration, omission/skip, saved display defaults, malformed schemas/continuations/answers, disconnected history, cancellation/deletion, read purity and manager/driver re-entry rejection. Synthetic refinement callbacks make no live requests.
+- Independent whole-change review passed all 16 new and 135 existing related tests, plus three-round refinement, skipped-refinement query preservation and eight additional malformed-state/schema probes. No introduced moderate-or-higher findings; self-review agreed. Clean review does not guarantee correctness.
+- Repository-wide Ruff formatting/lint passed for 95 files; whitespace checks passed. 114 existing frontend Node tests, frontend formatting and ESLint passed. Actual loopback Uvicorn startup, authenticated API 0 config and graceful shutdown passed with empty temporary storage and synthetic credentials.
+- Rust and UI source are unchanged; Rust tests were not rerun and rendered-browser checks are inapplicable. Tests do not establish power-loss durability, multi-process concurrent writers, effective pipeline modifiers, full consultation orchestration or external provider behavior.
+
+## CI limitations and next priorities
+
+Exact starting development, upstream main and published implementation SHAs had zero GitHub statuses, check runs and commit comments, including no normal Woodpecker report. Empty aggregate `pending` is missing evidence, not a confirmed queued/running build or pass. Full builds remain unrun under the no-local-full-build policy; native macOS Keychain/platform and live-provider verification remain unrun. No manual CI dispatch/rerun, private-runner access, security/settings changes, PR action, deployment or paid calls occurred.
+
+Next: observe normal exact-head Woodpecker evidence and actual job coverage. Continue resolving immutable model/feature/skill provenance and consuming accepted pre-query values without conflating omission and skip; implement guarded council stages and the remaining review/synthesis human-input boundaries. Complete durable scheduling and whole-run public acceptance before exposing public run routes or enabling CLI consultation commands. Do not replay refinement or advertise API 1 prematurely.
+
+---
+
 # CLI checkpoint — internal run history (2026-11-04)
 
 ## Baseline and published work
