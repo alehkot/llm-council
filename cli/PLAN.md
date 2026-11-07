@@ -59,7 +59,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
   in-flight attempts and complete/partial responses, requires consent for uncertain
   retries and protects concurrent-member ownership; an explicitly called OpenRouter
   adapter now makes one bounded request from those saved inputs without automatic
-  retries, redirects or continuations. No worker selects it;
+  retries, redirects or continuations. An explicit internal manager handoff can
+  now own one initial member on the existing pool without an automatic roster loop;
   exact first-continuation inputs can now be pinned separately from retained
   initial partial responses when the full continued context already fits the
   saved budget. This preparation neither dispatches nor replaces the partial;
@@ -593,3 +594,14 @@ or still-length-limited work. It does not rewrite receipts, change inspection
 status, run another request, finalize the whole roster or expose public APIs.
 Whole-stage/worker integration, later turns and guarded context reduction remain
 unfinished. API0 and consultation gates remain; see [CONTRACT.md](CONTRACT.md).
+
+### Internal initial-member worker checkpoint (partial, local)
+
+The manager can explicitly own one initial Stage 1 member request on its existing
+pool, using the exact saved inputs and guarded OpenRouter adapter. Active duplicate
+revision/consent requests share ownership; detached waiters cannot cancel work.
+Completion, partial results and uncertain failure release the slot without an
+implicit retry, continuation, sibling request or later stage. Legacy submission
+is excluded during ownership; queued work rechecks current state/configuration
+before dispatch. This is process-local scheduling, not durable queue admission or
+public detach/recovery support. API0 and consultation-command gates stay unchanged.

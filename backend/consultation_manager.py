@@ -21,6 +21,8 @@ from . import (
     refinement_provider,
     run_admission,
     run_inspection,
+    run_stage1_execution,
+    run_stage1_provider,
     storage,
 )
 from .config import (
@@ -138,6 +140,13 @@ class RefinementStepHandle:
         return deepcopy(await asyncio.shield(wrapped))
 
 
+@dataclass(frozen=True)
+class Stage1StepHandle(RefinementStepHandle):
+    """Process-local ownership of one explicitly selected initial member."""
+
+    model: str
+
+
 def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
     """Stable digest of a snapshot used as a long-poll change cursor."""
 
@@ -178,6 +187,7 @@ class ConsultationManager:
         self._futures: Dict[str, Future] = {}
         self._interactive_sessions: Dict[str, ConsultationState] = {}
         self._cli_refinement_steps: Dict[str, RefinementStepHandle] = {}
+        self._cli_stage1_steps: Dict[tuple[str, str], Stage1StepHandle] = {}
         self._restored = False
 
     @staticmethod
@@ -632,6 +642,116 @@ class ConsultationManager:
             if owned is not None and owned._future is future:
                 self._cli_refinement_steps.pop(run_id)
 
+    def schedule_cli_stage1_member(
+        self,
+        run_id: str,
+        model: str,
+        *,
+        expected_revision: int,
+        api_key: str,
+        retry_token: str | None = None,
+        _transport: Any = None,
+    ) -> Stage1StepHandle:
+        """Own one explicit initial-member request on the existing pool.
+
+        No public route/startup hook selects this operation. Inputs must already
+        be pinned. Queue ownership is process-local, not durable admission; the
+        guard rechecks current state/configuration when the worker starts. There
+        is no roster loop, automatic continuation, retry or next-stage dispatch.
+        """
+        run_id = str(uuid.UUID(run_id))
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("Expected revision must be a nonnegative integer")
+        if not isinstance(model, str) or not model:
+            raise ValueError("A saved member identity is required")
+        retry_token = str(uuid.UUID(retry_token)) if retry_token is not None else None
+        # Validate before queue admission without retaining a callback or key in
+        # the handle. Exact active duplicates keep the original worker credential.
+        run_stage1_provider._provider(api_key, _transport)
+        key = (run_id, model)
+        with self._lock:
+            owned = self._cli_stage1_steps.get(key)
+            if owned is not None and not owned._future.done():
+                if (owned.revision, owned.retry_token) != (
+                    expected_revision,
+                    retry_token,
+                ):
+                    raise run_stage1_execution.ExecutionConflict(
+                        "Another initial member boundary is already scheduled"
+                    )
+                return owned
+            snapshot = run_inspection.inspect(run_id)
+            if snapshot is None or snapshot["internal_phase"] == "initializing":
+                raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+            interaction = snapshot["interaction"]
+            if interaction is None or interaction["revision"] != expected_revision:
+                raise run_stage1_execution.ExecutionConflict("Stage 1 revision changed")
+            stage1 = snapshot["stage1"]
+            if stage1 is None or not any(
+                m["model"] == model for m in stage1["members"]
+            ):
+                raise run_stage1_execution.ExecutionConflict(
+                    "Member does not identify saved Stage 1 input"
+                )
+            conversation_id = snapshot["conversation_id"]
+            refinement = self._cli_refinement_steps.get(run_id)
+            if (
+                conversation_id in self._futures
+                or self._queues.get(conversation_id)
+                or (refinement is not None and not refinement._future.done())
+            ):
+                raise run_stage1_execution.ExecutionConflict(
+                    "Conversation is owned by other consultation work"
+                )
+            future = self._executor.submit(
+                self._run_cli_stage1_member,
+                run_id,
+                model,
+                expected_revision,
+                api_key,
+                retry_token,
+                _transport,
+            )
+            handle = Stage1StepHandle(
+                run_id, expected_revision, retry_token, future, model
+            )
+            self._cli_stage1_steps[key] = handle
+        # Completed futures invoke callbacks synchronously; register outside lock.
+        future.add_done_callback(
+            lambda finished: self._release_cli_stage1_member(key, finished)
+        )
+        return handle
+
+    @staticmethod
+    def _run_cli_stage1_member(
+        run_id: str,
+        model: str,
+        revision: int,
+        api_key: str,
+        retry_token: str | None,
+        transport: Any,
+    ) -> run_inspection.RunInspectionSnapshot:
+        asyncio.run(
+            run_stage1_provider.execute_openrouter(
+                run_id,
+                model,
+                api_key=api_key,
+                expected_revision=revision,
+                retry_token=retry_token,
+                _transport=transport,
+            )
+        )
+        snapshot = run_inspection.inspect(run_id)
+        if snapshot is None:
+            raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+        return snapshot
+
+    def _release_cli_stage1_member(self, key: tuple[str, str], future: Future) -> None:
+        with self._lock:
+            owned = self._cli_stage1_steps.get(key)
+            if owned is not None and owned._future is future:
+                self._cli_stage1_steps.pop(key)
+
     def submit(
         self,
         conversation_id: str,
@@ -648,6 +768,13 @@ class ConsultationManager:
         selected_skill_ids = list(skill_ids or [])
 
         with self._lock:
+            if any(
+                conversation_id == f"cli-{run_id}" and not handle._future.done()
+                for (run_id, _), handle in self._cli_stage1_steps.items()
+            ):
+                raise run_stage1_execution.ExecutionConflict(
+                    "Conversation is owned by an internal Stage 1 member"
+                )
             if any(
                 conversation_id == f"cli-{run_id}" and not handle._future.done()
                 for run_id, handle in self._cli_refinement_steps.items()

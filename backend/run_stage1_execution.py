@@ -1,6 +1,7 @@
 """Internal durable guard for one initial Stage 1 member request at a time.
 
-No route, worker or automatic loop invokes this module. Explicitly selected
+An explicit internal manager member step can invoke the wire adapter; no
+public route or automatic loop invokes this module. Explicitly selected
 providers must make exactly one attempt using the supplied saved request. Local
 ownership is process-wide, not distributed or exactly-once at a remote provider.
 """

@@ -1,6 +1,7 @@
 """Explicit OpenRouter adapters share one bounded Stage 1 request implementation.
 
-No worker or public route selects this adapter. Retries require the durable
+An explicit internal manager member step can select this adapter; no public
+route or automatic worker loop does. Retries require the durable
 member guard's current consent token; length stops are retained without issuing
 continuations. The separately invoked continuation adapter reuses the same wire
 contract. Credentials are supplied ephemerally and never enter receipts.

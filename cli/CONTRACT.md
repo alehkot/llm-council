@@ -898,7 +898,8 @@ inputs; conversation deletion erases them through the existing tombstone. A
 previously returned copy remains historical evidence, not permission to dispatch.
 
 The internal member-attempt guard below can consume this plan explicitly; no
-public API or worker does so. Preparation does not perform any HTTP
+public API does so; the explicit internal worker described below can select the
+initial member adapter. Preparation does not perform any HTTP
 request, schedule a worker, advance an interaction, accept a prompt, or authorize
 retries, continuation or context-reduction calls. A future durable executor must
 use saved inputs and separately recheck revision/cancellation under an owned,
@@ -923,8 +924,8 @@ This is an internal callback seam, **not an automatically selected HTTP adapter*
 must supply a trusted adapter that makes one request, honors the supplied timeout
 and performs no retries, context reduction or continuation calls. The guard
 guarantees one callback invocation per owned attempt, not what arbitrary injected
-code does inside it. No routes, workers, startup hooks or automatic member loops
-invoke it. Configured retry limits do not override explicit uncertain-work consent.
+code does inside it. No public routes, startup hooks or automatic member loops invoke it. The
+explicit internal manager handoff below selects the bounded adapter. Configured retry limits do not override explicit uncertain-work consent.
 
 Distinct members can run concurrently. Process-wide ownership prevents a second
 live invocation of the same member, including across local event loops. A lost
@@ -1021,8 +1022,9 @@ historical reads still use its separate read-only interface.
 
 The optional injected HTTP transport is a trusted offline-test seam; an arbitrary
 transport could ignore cancellation or perform hidden retries, which this
-adapter cannot police. No public route, startup hook, configured worker or CLI
-consultation command selects this adapter. Public API version remains 0. The
+adapter cannot police. No public route, startup hook, automatic configured worker or CLI
+consultation command selects this adapter. The explicit internal manager handoff
+below can select it for one named initial member. Public API version remains 0. The
 remaining stages, context reduction/continuations, human boundaries, independent
 worker ownership, receipt-to-export integration and whole-consultation acceptance
 remain incomplete.
@@ -1255,3 +1257,46 @@ public API, export update or authorization to call another model. Ephemeral loca
 ownership changes polling cursors without rewriting receipts; it is not a
 cross-process ownership guarantee. Full guarded remaining stages, human-input
 boundaries and acceptance remain pending. API version stays 0.
+
+
+### Internal manager-owned initial Stage 1 member (partial)
+
+`ConsultationManager.schedule_cli_stage1_member(run_id, model,
+expected_revision=..., api_key=..., retry_token=...)` explicitly schedules one
+named initial-member boundary on the existing thread pool. Inputs must already
+be pinned. The worker invokes the bounded OpenRouter adapter through its existing
+durable attempt guard and returns a detached inspection snapshot, not a new
+public run capability. It never loops over the roster, binds missing inputs,
+automatically retries uncertainty, dispatches continuations or starts later stages.
+A partial response releases the slot and stays partial. A repeated completed
+member call uses the guard's saved-result path without another provider request.
+
+Ownership is keyed by run and member. Exact active revision/consent duplicates
+share the original handle and its ephemeral credential; conflicting revision or
+consent fails. Other members can be explicitly scheduled separately. Handle
+`wait()` shields executor ownership from caller cancellation and returns detached
+copies. A later failed worker remains observable through the handle even when an
+earlier waiter detached. Completed handles are removed from the manager. Credentials are not fields of the handle or durable receipt; execution objects
+and retained failure tracebacks may still reference the caller-supplied key in
+process memory. This is not a secure memory-erasure guarantee.
+
+Queueing does not change or rebind saved inputs. The existing guard rechecks
+revision, runnable admission, cancellation/deletion, configuration and exact saved
+causal inputs when the queued worker starts. Relevant configuration changes while
+queued therefore fail closed rather than selecting new wire inputs. Run-specific
+cancellation still persists its marker and signals active provider ownership;
+queued cancelled/deleted work cannot dispatch. It cannot guarantee remote request
+cancellation or avoid charges after a provider accepted a request.
+
+A member step refuses legacy conversation work/queues or an owned refinement
+step. Legacy submission refuses a conversation with active/queued member work.
+This is the single manager's process-local exclusion, not a complete public
+conversation-ordering contract or cross-process coordination. Direct internal
+guard calls keep their own duplicate-attempt protection.
+
+The queue/handle is not durable: a crash before dispatch leaves the original saved
+boundary; after dispatch it retains completed evidence or explicit uncertainty.
+There is no startup scheduling, public HTTP route, version upgrade, CLI run-command
+connection or full consultation acceptance. Later turns, context reduction,
+remaining guarded stages and human input, durable scheduling and export integration
+remain pending. Full builds, live-provider, macOS and Rust verification are unrun.

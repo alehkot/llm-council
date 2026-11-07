@@ -1,3 +1,79 @@
+# CLI checkpoint: manager-owned initial Stage 1 member (2026-11-07)
+
+## Baseline and completed scope
+
+Remote development remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default main remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This local-only slice extends `fbffe06f993e4d61168d6152e337afc60f8f3bbf`,
+preserving twelve unpublished ancestors. Its containing commit is the final
+implementation checkpoint; the separate recovery receipt records that exact SHA
+and tree without a circular self-reference. No publication was attempted because
+the earlier remote commit-creation denial remains unresolved.
+
+Direct Stage 1 coroutine ownership previously meant cancelling a caller cancelled
+the attempt. The manager now offers an explicit initial-member handoff on its
+existing pool. It selects the bounded adapter and existing durable guard from
+already-pinned inputs. Queued/active duplicate revision and consent share one
+handle; waiters receive detached snapshots and cannot cancel owned work merely
+by disconnecting. Different members can be explicitly scheduled concurrently.
+
+Completion, partial response or uncertain failure releases the slot without an
+automatic sibling request, continuation, retry or next stage. The guard rechecks
+queued cancellation/deletion, revision, causal inputs and current configuration
+before dispatch. Configuration drift fails closed rather than changing saved
+wire inputs. Legacy submissions and internal member ownership exclude each other.
+No public route, startup recovery, durable queue receipt, API1 capability or Rust
+consultation command is enabled. Existing direct guard behavior is unchanged.
+See [CONTRACT.md](CONTRACT.md) for memory, queue and recovery limitations.
+
+## Verification and review
+
+- All 914 offline Python 3.10 tests passed in 71.523 seconds with unmocked outbound
+  connections forbidden. Fifteen new tests cover actual one/two-worker ownership,
+  exact active duplicates, detached copies, queued/running detachment, queued
+  cancellation/deletion/stale state/configuration, active cancellation, explicit
+  retry and repeated consent, partial result boundaries, legacy exclusion and
+  invalid scheduling arguments.
+- Independent review found no moderate-or-higher introduced findings and reran
+  all 15 focused tests. Additional independent probes verified 64 concurrent
+  schedule calls share one provider request and handle, return 64 detached values,
+  and retain failure delivery without an unhandled loop exception after detachment.
+  Documentation was corrected to avoid promising credential memory erasure or
+  claiming the manager is the only possible direct adapter caller.
+- Whole-change self-review and parent review found no moderate-or-higher issue.
+  A clean review is not a guarantee of correctness. Existing guards retain the
+  cancellation/persistence/retry behavior; the new tests verify manager integration.
+- Repository-wide Ruff format/lint passed for 126 Python files. All 114 Node tests,
+  frontend formatting/ESLint and whitespace checks passed. Actual authenticated
+  loopback Uvicorn startup returned API0 and shut down gracefully with isolated
+  empty storage and synthetic unused credentials.
+- Full builds, rendered browser, Rust, native macOS/Keychain and live providers
+  were unrun. Frontend/Rust behavior is unchanged. These checks do not establish
+  whole-consultation completion, remote billing semantics, power-loss durability,
+  cross-process ownership or native platform behavior.
+
+## CI, recoverability and next priority
+
+Exact current remote development/main statuses, check-runs and commit comments
+remain empty, without a Woodpecker result. Missing evidence is not a running build
+or pass. This unpublished revision has no remote CI/full-build evidence. No remote
+source write, CI dispatch/rerun, PR action, private-runner/user-machine access,
+security/settings change, deployment or paid request occurred.
+
+A complete-history recovery bundle and current-slice patch preserve the new local
+commit and all previous ancestry. Restore verification checks the exact commit,
+tree and parent, Git object integrity, reverse-patch applicability and focused
+tests. Existing recovery issue [17](https://github.com/alehkot/issues-tracker/issues/17)
+retains publication and recovery status without a duplicate issue.
+
+Next: extend guarded continuation/stage/human-input ownership deliberately, then
+durable scheduling and complete public acceptance. Do not infer automatic work
+from saved inputs or state. Later-turn/context-reduction semantics and remaining
+stage provenance remain incomplete. Publication requires materially new direct
+authorization and fresh safe reconciliation of remote heads without force/reset.
+
+---
+
 # CLI checkpoint: whole-roster Stage 1 state and results (2026-11-06)
 
 ## Baseline and scope
