@@ -154,7 +154,7 @@ def _derive(
 
     return SkillPlan(
         version=1,
-        source_revision=interaction.revision,
+        source_revision=policy.source_revision,
         response_policy_sha256=_digest(policy.model_dump(mode="json")),
         archive_sha256=_digest(run_skill_provenance._identity(captured)),
         settings=settings,

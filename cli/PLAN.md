@@ -627,3 +627,16 @@ cancelled/deleted or corrupt runs fail closed. It does not persist a prompt, acc
 an answer, advance revisions or schedule work. The later durable review boundary
 must extend the pre-query-final history invariant and downstream provenance
 validation deliberately. API0 and public consultation commands remain gated.
+
+### Durable response-review checkpoint (partial)
+
+An explicit provider-free coordinator now persists the exact response-review
+instance after the complete Stage 1 roster and consumes its first accepted answer
+once. It retains original result provenance, omissions/skip and all prior
+pre-query configuration identities across the newer interaction revisions.
+Historical source validation recognizes only this one successor; old Stage 1
+execution is closed once it is reached. Waiting survives restart without prompt
+regeneration or provider calls. This is not later-stage execution, durable
+scheduling or a public run API. Keep API0 and consultation command gates until the
+remaining stages and whole-run acceptance cases are complete. See
+[CONTRACT.md](CONTRACT.md).

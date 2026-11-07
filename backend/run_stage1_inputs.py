@@ -140,7 +140,7 @@ def _derive(
         )
     return Stage1Inputs(
         version=1,
-        source_revision=interaction.revision,
+        source_revision=response.source_revision,
         response_policy_sha256=_digest(response),
         skill_plan_sha256=_digest(skills),
         model_budgets_sha256=_digest(budgets),

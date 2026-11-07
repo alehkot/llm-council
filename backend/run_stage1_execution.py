@@ -195,6 +195,8 @@ def _load(
     inputs = run_stage1_inputs.validate_saved(record, interaction)
     if inputs is None:
         raise ExecutionConflict("Saved initial Stage 1 inputs are required")
+    if interaction.revision != inputs.source_revision:
+        raise ExecutionConflict("Stage 1 interaction boundary has closed")
     if current:
         run_stage1_inputs._check_current(record, interaction)
     return record, inputs, validate_saved(record, inputs)

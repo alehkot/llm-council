@@ -117,7 +117,6 @@ def validate_saved(
         selection = council_selection.validate_saved(record, interaction)
         if (
             selection is None
-            or saved.source_revision != interaction.revision
             or saved.source_revision != selection.source_revision
             or saved.council_selection_sha256 != _selection_identity(selection)
         ):

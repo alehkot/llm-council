@@ -6,7 +6,7 @@ permission to execute/retry anything. Source receipts are never rewritten.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import ConfigDict, Field, StrictInt, StrictStr
@@ -116,6 +116,17 @@ def _load(
         raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
     record = run_admission._read(run_id)
     interaction = run_interaction._validate_record(record)
+    return _validated_states(record, interaction)
+
+
+def _validated_states(
+    record: dict[str, Any], interaction: run_interaction.InteractionState
+) -> tuple[
+    run_stage1_inputs.Stage1Inputs,
+    run_stage1_execution.ExecutionState | None,
+    run_stage1_continuation_execution.ExecutionState | None,
+]:
+    """Read causal states without recursive inspection; caller holds storage lock."""
     inputs = run_stage1_inputs.validate_saved(record, interaction)
     if inputs is None:
         raise run_stage1_execution.ExecutionConflict("Saved Stage 1 input is required")

@@ -122,7 +122,6 @@ def validate_saved(
         if (
             policy is None
             or selection is None
-            or saved.source_revision != interaction.revision
             or saved.source_revision != policy.source_revision
             or saved.request_policy_sha256 != _identity(policy)
             or tuple(m.model for m in saved.models) != selection.council_models

@@ -40,12 +40,18 @@ class ResponsePolicy(WireModel):
 def _derive(
     record: dict[str, Any], interaction: run_interaction.InteractionState
 ) -> ResponsePolicy:
-    if not interaction.prompts or interaction.prompts[-1].phase != "consumed":
+    indices = [
+        i
+        for i, entry in enumerate(interaction.prompts)
+        if entry.continuation.point == durable_prequery.POINT
+    ]
+    if len(indices) != 1:
+        raise ValueError("Exactly one pre-query boundary is required")
+    index = indices[0]
+    entry = interaction.prompts[index]
+    if entry.phase != "consumed":
         raise ValueError("Pre-query answer has not been consumed")
-    entry = interaction.prompts[-1]
-    state = durable_prequery.validate_checkpoint(
-        record, interaction, len(interaction.prompts) - 1
-    )
+    state = durable_prequery.validate_checkpoint(record, interaction, index)
     if state.phase != "complete" or state.answer is None:
         raise ValueError("Pre-query answer is unavailable")
     answer = state.answer
@@ -64,7 +70,7 @@ def _derive(
     return ResponsePolicy(
         version=1,
         source_instance_id=str(entry.instance.instance_id),
-        source_revision=interaction.revision,
+        source_revision=(index + 1) * 3,
         user_query=state.user_query,
         domain=effective.domain if effective else None,
         style=effective.style if effective else None,

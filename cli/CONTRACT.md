@@ -676,8 +676,9 @@ consumes one provider-free response-style boundary. It is allowed after fresh
 admission with `refine=false`, or after the final refinement answer was consumed
 and refinement is complete. The saved question is the exact admitted question or
 finalized refinement result. A valid refinement prefix may be followed by one
-terminal `pre_query_v1` checkpoint; unsupported or disconnected history fails
-closed. This helper does not infer or change the global interactive-mode setting.
+`pre_query_v1` checkpoint and then, only after complete Stage 1, one
+`response_review_v1` checkpoint. Unsupported or disconnected history fails closed.
+This helper does not infer or change the global interactive-mode setting.
 
 Preparation persists the existing pre-query prompt with a unique instance ID,
 exact schema and versioned continuation, then returns `waiting_input`. A valid
@@ -731,9 +732,10 @@ including exact query and modifier bytes. Unsupported versions, mismatched sourc
 identity/revision, corrupt values or changed interpretation fail closed without
 rewriting the record. Version 1 derives its meaning from today's legacy mapping;
 changing that mapping requires an explicit version/migration policy rather than
-silently reinterpreting an old run. This validator currently supports only the
-final pre-query boundary; later durable workflow boundaries must extend source
-lookup deliberately instead of treating a changed interaction revision as safe.
+silently reinterpreting an old run. The source revision is derived from the
+consumed pre-query prefix, not the latest interaction revision. The one supported
+response-review successor preserves all earlier causal identities; arbitrary
+later boundaries remain unsupported.
 
 This is a concrete future prompt input, **not** effective model/transport/skill
 configuration, a complete Stage 1 system prompt, scheduling, provider execution,
@@ -771,9 +773,9 @@ other helper-model settings and remaining stage input boundaries are not covered
 The legacy pipeline continues to use its own imports and context; no executor
 consumes this snapshot yet. Future durable execution must use the frozen values,
 resolve all remaining provenance, and recheck cancellation/revision immediately
-before guarded external work. The current source validator supports the final
-pre-query boundary only; extending durable histories requires a deliberate causal
-validation update. Digests are identities, not tamper-proof storage. API0 and all
+before guarded external work. The current source validator supports the consumed
+pre-query source (including its response-review successor); extending histories
+requires a deliberate causal validation update. Digests are identities, not tamper-proof storage. API0 and all
 public consultation gates remain unchanged. No provider call or legacy behavior
 changes, and tests do not establish multi-process writers or power-loss durability.
 
@@ -812,8 +814,8 @@ globals. This snapshot is not used by that legacy path and does not change it.
 
 Synthesis/helper configuration, skills, guarded stages, remaining human-input
 boundaries, scheduling and whole-run acceptance are still required. The current
-causal validator supports only the completed pre-query boundary; later workflow
-histories need deliberate validation extensions. Digests identify values but do
+causal validator supports the completed pre-query source and one response-review
+successor; later workflow histories need deliberate validation extensions. Digests identify values but do
 not make storage tamper-proof. No provider/catalog request, API1 capability,
 public run route or CLI consultation command is enabled. Offline tests establish
 single-process and fresh-process restoration behavior, not power-loss durability
@@ -852,8 +854,8 @@ These are initial model budgets, not exact wire messages, context-reduction or
 continuation checkpoints, request timeout policy, synthesis/helper budgets, full
 skill provenance or dispatch permission. The existing legacy execution path is
 unchanged and does not consume this snapshot. The current causal validator only
-supports the completed pre-query boundary. Remaining guarded execution,
-human-input boundaries, scheduling and whole-run acceptance must precede public
+supports the completed pre-query source and its response-review successor.
+Remaining guarded execution, human-input boundaries, scheduling and whole-run acceptance must precede public
 run operations and CLI consultation commands; API version stays 0. No claim of
 exactly-once provider work, power-loss durability or concurrent process writers
 is added.
@@ -969,8 +971,9 @@ needed continuations and completed initial Stage 1. Retry tokens live in the
 member summary, not the refinement-specific top-level retry slot. Stage 1
 completion is not council completion. Results remain in the durable receipt;
 legacy conversation stage fields and exports are not updated by this guard.
-Interaction revision remains at the saved
-pre-query boundary; later prompts need deliberate causal-validation extensions.
+Stage 1 source revision remains pinned to the consumed pre-query prefix through
+one response-review successor; later prompts need deliberate causal-validation
+extensions.
 Calling this coroutine directly does not implement client detachment: cancelling
 its caller cancels the internal attempt, so future public clients require a
 separate worker-owner layer. API0 and all public consultation gates remain.
@@ -1351,12 +1354,51 @@ Nested returned values are detached, not deeply immutable; later reads remain
 unaffected by caller mutation. No instance UUID, revision advance, waiting prompt,
 answer receipt or worker is created, and no provider or current library is read.
 
-This is a reusable prerequisite for the next durable human boundary, not completed
-persistent review. `durable_prequery.validate_checkpoint` currently requires that
-pre-query be the final supported interaction boundary; saved downstream input
-provenance also depends on that history. Adding review to that history requires a
-separate carefully tested transition and causality change. Do not feed this
-preview to public answer routes or treat a previously returned copy as permission
-to advance: a future coordinator must revalidate current admission and provenance
-and persist the exact prompt/schema/instance before collecting input. API0 and
-all public consultation gates remain unchanged.
+This preview is distinct from the durable coordinator below. Do not feed a
+previously returned copy to public answer routes or treat it as permission to
+advance. The coordinator revalidates current admission and source provenance and
+persists its own exact prompt/schema/instance. API0 and public gates remain.
+
+### Durable response-review boundary (partial)
+
+`durable_response_review.advance(run_id, expected_revision=...)` explicitly
+persists the next response-review prompt only after every configured Stage 1
+member has a complete initial answer or complete first-continuation result.
+Unstarted, uncertain and still-length-limited members do not form a partial quorum.
+The checkpoint keeps the exact instance/schema, label mapping, source revision
+and digest of ordered results with original chunk/attempt provenance. It does not
+copy answer bodies into the status projection or replace original result receipts.
+
+`run_interaction.answer` saves the first valid response against that exact schema.
+A separate explicit coordinator call consumes it once into the finite internal
+`response_review_complete` phase. Optional omissions, explicit skip, exclusion
+order and text whitespace remain exact; display defaults are not accepted input.
+Excluding every result is retained as an answer, not silently changed to a quorum.
+A later execution policy must decide what to do with that configuration before
+calling another model. No exclusion, gap analysis, peer review or synthesis is
+executed by this checkpoint.
+
+Each new boundary and consumption requires the current revision under the existing
+single-process storage lock. Reload after a lost write acknowledgment. Waiting
+and completed reads retain the same prompt bytes and never regenerate wording or
+resolve current models/skills. Accepted input is visible in retained interaction
+history; the summarized review state remains waiting until explicit consumption.
+Cancelled runs remain readable but cannot accept or consume input; deletion
+removes the review payload with the admission receipt and leaves its tombstone.
+
+Historical pre-query, policy, selection, request, budget, skill and Stage 1 inputs
+remain anchored to the consumed pre-query prefix revision, not the newer review
+revision. Their existing exact derivation/digest checks remain in force. Only one
+recognized response-review successor is accepted. Initial and continuation
+execution entry points reject dispatch at a newer interaction revision, so this
+historical-read support does not reopen old-stage execution. Inspector/history
+show review waiting/accepted/completed before retained Stage 1 completion, with
+cancellation still taking precedence.
+
+This is an internal provider-free boundary, not a public run API, scheduler loop,
+full persistent-human-input feature or complete consultation. API version remains
+0 and Rust consultation commands remain unavailable. Remaining guarded stages,
+later continuations/context reduction, durable scheduling and public acceptance
+remain required. Offline tests cover synthetic concurrent calls, lost write
+acknowledgments, restart, source tampering and cancellation/deletion; they do not
+establish power-loss durability, multi-process concurrency or live-model behavior.

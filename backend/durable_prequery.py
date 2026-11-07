@@ -115,10 +115,15 @@ def _source_query(
 def validate_checkpoint(
     record: dict[str, Any], interaction: run_interaction.InteractionState, index: int
 ) -> PreQueryState:
-    """Read and validate one supported final boundary, including its derivation."""
+    """Validate the historical pre-query boundary and its supported successor."""
     try:
-        if index != len(interaction.prompts) - 1:
-            raise ValueError("Pre-query must be the final supported boundary")
+        later = interaction.prompts[index + 1 :]
+        if later and (
+            len(later) != 1
+            or later[0].continuation.point != "response_review_v1"
+            or interaction.prompts[index].phase != "consumed"
+        ):
+            raise ValueError("Unsupported boundary after pre-query")
         entry = interaction.prompts[index]
         state = PreQueryState.from_continuation(entry.continuation)
         _validate_prompt(entry.instance.prompt)

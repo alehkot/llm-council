@@ -1,3 +1,68 @@
+# CLI checkpoint: durable response-review boundary (2026-11-07)
+
+## Baseline and completed scope
+
+This iteration starts from verified remote development and upstream main at
+[409c67c9d1c192579231a626053299a66c61fffb](https://github.com/alehkot/llm-council/commit/409c67c9d1c192579231a626053299a66c61fffb).
+The fifteen earlier local implementation commits were published at
+[166b704ee01594ab0ddfecd4d6f6ff69bee71f4b](https://github.com/alehkot/llm-council/commit/166b704ee01594ab0ddfecd4d6f6ff69bee71f4b),
+and the subsequent owner ACP/Pi adapter update is preserved unchanged. Historical
+publication-blocker notes below do not describe the current authorization: normal
+non-force development publication is authorized. The containing source commit
+records this slice; a separate recovery receipt records the exact final local and
+published commit/tree IDs after publication.
+
+A provider-free coordinator now saves the exact response-review instance/schema
+only after every Stage 1 member is complete, then consumes the first valid human
+answer exactly once. Source identity includes ordered results and original
+request/chunk/attempt provenance. Omissions, explicit skip, exclusion order and
+text whitespace are retained without turning display defaults into accepted input.
+This boundary does not execute exclusions, gap analysis, peer review or synthesis.
+
+Pre-query configuration and Stage 1 causal identities stay anchored to their
+historical prefix as the new interaction revision advances. Exactly one review
+successor is allowed; dispatch guards prevent that historical-read support from
+reopening initial or first-continuation execution. Saved waiting/answered/consumed
+history remains readable after restart and configuration drift. Cancellation
+blocks mutation while retaining evidence; deletion removes the review payload.
+API version remains 0 and public consultation commands remain gated.
+
+## Verification and review
+
+- All 955 offline Python tests passed with unmocked outbound networking forbidden.
+  Thirteen new tests cover complete/partial/uncertain rosters, exact accepted input,
+  first-answer races, restart, historical provenance across refinement prefixes,
+  cancellation/deletion, lost write acknowledgments and corrupt source evidence.
+- Independent whole-change review found no moderate-or-higher code issue. All 13
+  new tests and six additional adversarial probes passed, including 24 creation
+  versus cancellation/deletion races, live-configuration drift, tampered results,
+  corrupted mapping/state and post-review dispatch rejection. A minor documentation
+  distinction between source and current interaction revision was corrected.
+  Self-review found no moderate-or-higher issue; review is not a bug-free guarantee.
+- All 114 frontend Node tests, repository-wide Ruff format/lint (131 Python files),
+  frontend format/lint, whitespace, authenticated API0 startup and graceful
+  shutdown checks passed. Reused existing dependencies; no full build was run.
+- Full builds, Rust, native macOS/Keychain, rendered browser and live providers are
+  unrun. No frontend, Rust or platform source changed. The checks do not establish
+  complete consultation, live-provider behavior, power-loss durability,
+  multi-process ownership or exactly-once external execution.
+
+## CI, recovery and next priorities
+
+At the starting exact development/main SHA, GitHub statuses, check runs and
+Woodpecker commit-comment reports are absent. The repository configures normal
+push builds, but missing reports prove neither a running pipeline nor a pass.
+Final exact-commit evidence is recorded in the publication receipt; no manual CI
+operation or private runner access is authorized or used.
+
+The complete real Git history, binary patch and verified recovery bundle are
+preserved locally. Next derive the bounded downstream policy from this accepted
+review, retaining saved source identity and resolving any consequential ambiguity
+before model execution. Continue remaining guarded stages, later continuations/
+context reduction and durable scheduling before whole-run/public acceptance.
+
+---
+
 # CLI checkpoint: read-only response-review preparation (2026-11-07)
 
 ## Baseline and completed scope

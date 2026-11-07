@@ -103,7 +103,6 @@ def validate_saved(
         policy = prequery_policy.validate_saved(record, interaction)
         if (
             policy is None
-            or saved.source_revision != interaction.revision
             or saved.source_revision != policy.source_revision
             or saved.response_policy_sha256 != _policy_identity(policy)
         ):

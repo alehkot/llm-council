@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import ConfigDict, Field, StrictInt, StrictStr
 
-from . import run_admission, run_stage1_inputs, run_stage1_results, storage
+from . import (
+    run_admission,
+    run_interaction,
+    run_stage1_inputs,
+    run_stage1_results,
+    storage,
+)
 from .consultation_contract import PromptSchema, WireModel
 from .council import build_label_mapping
 from .interactive import get_response_review_prompt
@@ -49,34 +55,65 @@ def prepare(run_id: str) -> ReviewPreparation | None:
         results = run_stage1_results.load_complete_results(run_id)
         if results is None:
             return None
-        # Preserve the legacy labels/options and saved roster order. Answer text
-        # is separate from the prompt schema, never copied into option labels.
-        responses = [
-            {"model": result.model, "response": result.content} for result in results
-        ]
-        _, labels = build_label_mapping(responses)
+        return _from_results(run_id, results)
+
+
+def _from_results(
+    run_id: str,
+    results: tuple[run_stage1_results.MemberResult, ...],
+    *,
+    prompt: PromptSchema | None = None,
+) -> ReviewPreparation:
+    # Preserve the legacy labels/options and saved roster order. Answer text
+    # is separate from the prompt schema, never copied into option labels.
+    responses = [
+        {"model": result.model, "response": result.content} for result in results
+    ]
+    _, labels = build_label_mapping(responses)
+    if prompt is None:
         prompt = PromptSchema.model_validate(
             get_response_review_prompt(responses, labels).to_dict()
         )
-        source = {
-            "version": 1,
-            "run_id": run_id,
-            "results": [result.model_dump(mode="json") for result in results],
-        }
-        digest = hashlib.sha256(
-            json.dumps(
-                source,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        return ReviewPreparation(
-            run_id=UUID(run_id),
-            source_revision=results[0].source_revision,
-            source_sha256=digest,
-            label_to_model=labels,
-            results=results,
-            prompt=prompt,
+    source = {
+        "version": 1,
+        "run_id": run_id,
+        "results": [result.model_dump(mode="json") for result in results],
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            source,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return ReviewPreparation(
+        run_id=UUID(run_id),
+        source_revision=results[0].source_revision,
+        source_sha256=digest,
+        label_to_model=labels,
+        results=results,
+        prompt=prompt,
+    )
+
+
+def _prepare_record(
+    record: dict[str, Any],
+    interaction: run_interaction.InteractionState,
+    *,
+    prompt: PromptSchema | None = None,
+) -> ReviewPreparation | None:
+    """Prepare from validated historical state without recursive inspection."""
+    inputs, initial, continuation = run_stage1_results._validated_states(
+        record, interaction
+    )
+    results = []
+    for request in inputs.requests:
+        result = run_stage1_results._complete_result(
+            request.model, inputs, initial, continuation
         )
+        if result is None:
+            return None
+        results.append(result)
+    return _from_results(record["run_id"], tuple(results), prompt=prompt)

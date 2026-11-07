@@ -17,6 +17,7 @@ from . import (
     council_selection,
     durable_prequery,
     durable_refinement,
+    durable_response_review,
     prequery_policy,
     refinement_execution,
     refinement_provider,
@@ -41,6 +42,7 @@ InternalPhase = Literal[
     "refinement_ready",
     "refinement_complete",
     "pre_query_complete",
+    "response_review_complete",
     "running_refinement",
     "running_stage1",
     "running_stage1_continuation",
@@ -73,6 +75,7 @@ class _SnapshotEvidence(TypedDict):
     stage1_continuation_execution: dict[str, Any] | None
     stage1: dict[str, Any] | None
     refinement: dict[str, Any] | None
+    response_review: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
     council_selection: dict[str, Any] | None
@@ -133,6 +136,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "stage1_continuation_execution": None,
             "stage1": None,
             "refinement": None,
+            "response_review": None,
             "pre_query": None,
             "pre_query_policy": None,
             "council_selection": None,
@@ -224,6 +228,16 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     else entry.continuation.state
                 )
                 continue
+            if entry.continuation.point == durable_response_review.POINT:
+                review = durable_response_review.validate_checkpoint(
+                    record, interaction, index
+                )
+                snapshot["response_review"] = (
+                    review.model_dump(mode="json")
+                    if entry.phase == "consumed"
+                    else entry.continuation.state
+                )
+                continue
             latest_refinement = durable_refinement._validate_checkpoint(record, entry)
             if entry.phase in ("answered", "consumed"):
                 derived = durable_refinement._derive_answer(record, entry)
@@ -262,6 +276,15 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         snapshot["operation_owned"] = bool(owned or stage1_owned)
         if record.get("cancellation") is not None:
             snapshot["internal_phase"] = record["cancellation"]["phase"]
+        elif snapshot["response_review"] is not None:
+            latest = interaction.prompts[-1]
+            if latest.phase == "waiting":
+                snapshot["internal_phase"] = "waiting_input"
+                snapshot["current_prompt"] = latest.instance.model_dump(mode="json")
+            elif latest.phase == "answered":
+                snapshot["internal_phase"] = "answer_accepted"
+            else:
+                snapshot["internal_phase"] = "response_review_complete"
         elif snapshot["stage1_execution"] is not None:
             snapshot["internal_phase"] = {
                 "running_continuation": "running_stage1_continuation",
