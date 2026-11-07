@@ -651,3 +651,16 @@ and saved aggregation choice remain pinned. The operation does not execute, retr
 advance interaction state or enable public commands. Negative-mode execution and
 guarded ranking attempts are next dependencies, followed by remaining stages,
 context reduction, durable scheduling and whole-run acceptance. API0 remains.
+
+### Guarded ranking-attempt checkpoint (partial)
+
+An explicit internal callback guard now retains one named Stage 2 reviewer's
+attempt before dispatch, with separate ownership and explicit uncertain-work
+retry consent. It preserves exact saved request inputs and complete or
+length-limited response text while protecting cancellation, deletion, revision
+and configuration boundaries. Per-reviewer inspection distinguishes raw attempt
+completion from valid rankings or aggregation. No HTTP adapter, worker scheduler,
+negative-mode path, public route or CLI consultation command is enabled. Continue
+bounded provider integration, ranking validation/aggregation and the remaining
+workflow dependencies before API1 and whole-run acceptance. See
+[CONTRACT.md](CONTRACT.md) and [PROGRESS.md](PROGRESS.md).

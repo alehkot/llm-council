@@ -1,3 +1,89 @@
+# CLI checkpoint: guarded Stage 2 member attempts (2026-11-07)
+
+## Baseline, rationale and completed scope
+
+Started from persistent `development` at
+[eaceab2a5b4735c1432d47abbdf151a4f6404211](https://github.com/alehkot/llm-council/commit/eaceab2a5b4735c1432d47abbdf151a4f6404211).
+Observed upstream `main` remains
+[409c67c9d1c192579231a626053299a66c61fffb](https://github.com/alehkot/llm-council/commit/409c67c9d1c192579231a626053299a66c61fffb),
+already an ancestor. Fresh branch, issue, PR and coordination checks found no
+conflict or overlapping unfinished work. Owner ACP/Pi changes and all accumulated
+CLI work are retained. The containing source commit records this slice; the
+verified publication/recovery receipt records exact final local/published commits
+and tree after publication.
+
+The prior checkpoint pins exact ranking inputs but cannot safely retain a
+reviewer's attempt across failure/restart. Chose this bounded guard before broader
+negative-mode, aggregation or scheduling work because those need protected
+external-operation boundaries. The separation of stored inputs/results from
+repeatable orchestration follows [LangGraph replay and side-effect guidance](https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/functional-api.mdx).
+Repository behavior and synthetic tests establish the implemented semantics;
+external documentation does not authorize provider execution.
+
+`run_stage2_execution.execute` now explicitly owns one named reviewer's exact
+saved request through a single-attempt callback. Durable attempts precede
+callbacks; per-member uncertainty requires explicit consent, concurrent reviewers
+retain independent results and duplicate active work is blocked. Cancellation,
+deletion, stale revision, changed source/configuration and supersession prevent
+unsafe dispatch or late writes. Complete and length-limited response chunks retain
+exact text/metadata; length stops never start a continuation automatically.
+Historical result reads and compact inspection preserve evidence without provider
+calls. `stage2_attempts_complete` means raw responses stopped, not valid ballots,
+aggregation or whole-run completion.
+
+A review probe identified a new phase-integration mismatch: repeating Stage 2
+input preparation after execution starts rejected already-saved same-revision
+inputs. Saved replay now precedes only the new-preparation phase gate, while
+liveness, revision and full source validation remain first. Three regressions
+cover running/completed/uncertain/length replay and stale/cancel/delete/corrupt
+rejection. Existing Stage 1 binder behavior was not broadened.
+
+No wire adapter, scheduler, automatic roster loop, negative-mode execution,
+ranking aggregation, public route, API1 capability or Rust consultation command
+is enabled by this change. This is an internal tested partial step.
+
+## Verification and review
+
+- All 1,040 final offline Python tests passed in 130.514 seconds with unmocked
+  outbound networking forbidden, including the replay fix. The unchanged baseline
+  passed 984 tests; the final focused Stage 2 input/execution suite passed 70.
+- All 56 new execution tests cover exact request persistence, replay/restart,
+  per-member and cross-stage consent isolation, concurrent owners, out-of-order
+  completion, cancellation suppression and cleanup, deletion, corrupt ancestry,
+  private failures/metadata limits, current configuration drift, saved-result
+  reads and the entire original reviewer roster despite answer exclusions.
+- Independent full code/test/contract/plan review found no outstanding
+  moderate-or-higher issue after the replay fix. Independent 56-test execution
+  rerun, history projection, the bind reproducer and 12 missing-ancestor
+  inspection/result/history probes passed. Self-review agrees; a clean review is
+  not a guarantee of correctness.
+- Repository-wide Ruff format/lint, all 114 frontend Node tests, frontend
+  formatting/lint, authenticated API0 startup/graceful shutdown and whitespace
+  checks passed. No frontend or Rust sources changed.
+- Full builds remain unrun by policy. Native macOS/Keychain, rendered browser and
+  live-provider checks are unrun. Tests do not establish complete consultation,
+  ranking quality, exactly-once remote execution, multiprocess ownership or
+  power-loss durability.
+
+## CI, recovery and next priorities
+
+Exact starting development/main heads have zero GitHub status results, check runs
+or Woodpecker commit-comment reports. Empty aggregate `pending` is missing
+verification, not an observed running build, failure or pass. Normal Woodpecker
+is configured for development pushes, but its actual outcome/platform coverage
+must be verified separately for the published SHA. Final exact-SHA evidence is
+recorded in the publication receipt and existing recovery issue. No manual CI,
+private-runner access or full local build was used.
+
+Preserve the real-history repository, complete patch and verified bundle. Next
+observe normal exact-head CI, implement an explicitly bounded ranking transport
+adapter, then ranking validation/aggregation and the durable negative path.
+Later stages, guarded context reduction/continuations, durable scheduling and
+public whole-run acceptance remain unfinished. No consequential product decision
+was guessed; no PR, deployment, security/settings or paid-service action occurred.
+
+---
+
 # CLI checkpoint: exact Stage 2 ranking inputs (2026-11-07)
 
 ## Baseline, rationale and completed scope

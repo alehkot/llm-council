@@ -1442,3 +1442,42 @@ context reduction/continuations, durable scheduling and whole-run acceptance sta
 unfinished. Offline tests establish the exercised request/recovery semantics,
 not live-provider behavior, model quality, macOS compatibility, exactly-once
 external execution, power-loss durability or multiprocess ownership.
+
+### Guarded Stage 2 member attempts (partial)
+
+`run_stage2_execution.execute` explicitly consumes one named reviewer's saved
+ranking request through an injected single-attempt callback. Before dispatch it
+persists a new attempt identity, source revision, exact input digest and stable
+non-secret adapter identity. The callback receives the saved endpoint, timeout
+and detached canonical payload. This does not install an HTTP adapter, schedule
+a worker or invoke any provider automatically. Callbacks must make one attempt
+only, without retries, reductions or continuations of their own.
+
+Ownership, uncertainty and retry consent are isolated from Stage 1 and between
+reviewers. Concurrent reviewers retain each other's receipts; duplicate live
+requests fail as pending. After interruption or a failed/invalid response, the
+unowned attempt requires its own explicit retry token. Repeating successful work
+returns the retained result without another callback. The guard rechecks run
+liveness, revision, saved sources and current pinned configuration before
+dispatch; cancellation, deletion and supersession prevent late writes. A result
+from the already-dispatched saved request can still be preserved if settings
+change in flight. No changed defaults replace the original request.
+
+Results retain exact nonempty text, finish reason and optional bounded finite
+JSON metadata using the existing normalized chunk contract. A length stop is
+saved as needing a future continuation, not retried or treated as a complete
+review. Historical reads remain detached and read-only after restart,
+configuration drift or cancellation. Polling exposes per-reviewer states and
+retry tokens without duplicating ranking text, reasoning or usage.
+`stage2_attempts_complete` means every initial reviewer response stopped normally;
+it does **not** establish valid ballots, aggregation or completion of Stage 2.
+
+API0 and all unavailable Rust consultation commands remain unchanged. This is an
+internal callback guard, not durable scheduling, client-detachment support or a
+public consultation path. The next dependencies are an explicitly bounded wire
+adapter, ranking validation/aggregation, the durable negative-mode path and
+remaining workflow boundaries. Context reduction, later continuations, whole-run
+acceptance and native macOS verification remain unfinished. Offline tests use
+synthetic callbacks and establish only the exercised persistence, recovery and
+ownership behavior, not live-provider quality, exactly-once remote work,
+multi-process safety or power-loss durability.

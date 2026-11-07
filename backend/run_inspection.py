@@ -32,6 +32,7 @@ from . import (
     run_stage1_execution,
     run_stage1_inputs,
     run_stage1_state,
+    run_stage2_execution,
     run_stage2_inputs,
     storage,
 )
@@ -47,6 +48,10 @@ InternalPhase = Literal[
     "response_review_complete",
     "running_refinement",
     "running_stage1",
+    "running_stage2",
+    "stage2_partial",
+    "stage2_needs_continuation",
+    "stage2_attempts_complete",
     "running_stage1_continuation",
     "stage1_partial",
     "stage1_needs_continuation",
@@ -79,6 +84,7 @@ class _SnapshotEvidence(TypedDict):
     refinement: dict[str, Any] | None
     response_review: dict[str, Any] | None
     response_review_policy: dict[str, Any] | None
+    stage2_execution: dict[str, Any] | None
     stage2_inputs: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -143,6 +149,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "response_review": None,
             "response_review_policy": None,
             "stage2_inputs": None,
+            "stage2_execution": None,
             "pre_query": None,
             "pre_query_policy": None,
             "council_selection": None,
@@ -169,6 +176,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "pre_query_policy",
                     "response_review_policy",
                     "stage2_inputs",
+                    "stage2_execution",
                     "council_selection",
                     "council_request_policy",
                     "council_model_budgets",
@@ -260,6 +268,11 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         stage2_inputs = run_stage2_inputs.validate_saved(record, interaction)
         if stage2_inputs is not None:
             snapshot["stage2_inputs"] = run_stage2_inputs.summary(stage2_inputs)
+        stage2_execution = run_stage2_execution.validate_saved(record, stage2_inputs)
+        if stage2_execution is not None:
+            snapshot["stage2_execution"] = run_stage2_execution.summary(
+                record["run_id"], stage2_execution, stage2_inputs
+            )
         selection = council_selection.validate_saved(record, interaction)
         if selection is not None:
             snapshot["council_selection"] = selection.model_dump(mode="json")
@@ -287,9 +300,28 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             snapshot["stage1"] is not None
             and snapshot["stage1"]["counts"]["running"] > 0
         )
-        snapshot["operation_owned"] = bool(owned or stage1_owned)
+        stage2_members = (
+            snapshot["stage2_execution"]["members"]
+            if snapshot["stage2_execution"] is not None
+            else []
+        )
+        stage2_phases = {member["phase"] for member in stage2_members}
+        snapshot["operation_owned"] = bool(
+            owned or stage1_owned or "running" in stage2_phases
+        )
         if record.get("cancellation") is not None:
             snapshot["internal_phase"] = record["cancellation"]["phase"]
+        elif stage2_members:
+            if "running" in stage2_phases:
+                snapshot["internal_phase"] = "running_stage2"
+            elif "needs_retry" in stage2_phases:
+                snapshot["internal_phase"] = "needs_retry"
+            elif "needs_continuation" in stage2_phases:
+                snapshot["internal_phase"] = "stage2_needs_continuation"
+            elif stage2_phases == {"complete"}:
+                snapshot["internal_phase"] = "stage2_attempts_complete"
+            else:
+                snapshot["internal_phase"] = "stage2_partial"
         elif snapshot["response_review"] is not None:
             latest = interaction.prompts[-1]
             if latest.phase == "waiting":

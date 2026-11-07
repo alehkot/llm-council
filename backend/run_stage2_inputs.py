@@ -216,11 +216,13 @@ def bind(run_id: str, *, expected_revision: int) -> Stage2Inputs:
         record, interaction = run_interaction._load(run_id)
         if interaction.revision != expected_revision:
             raise run_interaction.PromptConflict("Stage 2 input revision changed")
-        if snapshot is None or snapshot["internal_phase"] != "response_review_complete":
-            raise Stage2InputConflict("Consumed response review is required")
         saved = validate_saved(record, interaction)
         if saved is not None:
+            # Execution changes inspection phase, not the pinned source revision.
+            # Recovery may repeat preparation without writing or dispatching.
             return saved
+        if snapshot is None or snapshot["internal_phase"] != "response_review_complete":
+            raise Stage2InputConflict("Consumed response review is required")
         prepared = _derive(record, interaction)
         record["stage2_inputs"] = prepared.model_dump(mode="json")
         run_admission._write(record)
