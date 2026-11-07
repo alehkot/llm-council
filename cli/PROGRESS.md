@@ -1,3 +1,86 @@
+# CLI checkpoint: explicit continuation wire adapter (2026-11-06)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This slice extends local `e6be8af9c4773b7d2990d104dc25302bf11edd33`
+and preserves all nine existing unpublished commits. The earlier remote
+commit-creation denial remains unresolved; no retry or alternative publication
+route was attempted. The recovery receipt records final local commit/tree IDs.
+
+New `run_stage1_continuation_provider.execute_openrouter` explicitly sends one
+saved first-continuation request through its separate durable guard. `turn=1`
+is required. The versioned identity `openrouter-stage1-continuation-v1` cannot
+adopt an existing continuation bound to another callback. Exact endpoint, timeout,
+messages, partial/reasoning and settings are retained; no input binding, mutable
+prompt recomposition, next-turn inference or automatic progression occurs.
+
+The initial adapter's credential-bound callback was extracted for shared use.
+Its parser and request helpers are unchanged, and its existing identity remains
+`openrouter-stage1-v1`. Both adapters use the same finite duplicate-free JSON,
+strict one-choice stop/length envelope, identity encoding, 2 MiB wire/result caps,
+whole-request deadline and no retries/redirects/environment proxies. Credentials
+remain ephemeral. Separate guards preserve operation identity and retry consent;
+initial partials, reasoning, usage and ancestry are never replaced or aggregated.
+
+Failures leave the continuation uncertain. Its own current token is required
+for retry; replay returns the same retained chunk without another POST. The
+existing guard owns cancellation cleanup and deletion checks. Remote execution
+or billing cessation is not guaranteed, and an uncooperative injected test
+transport can delay cleanup. No worker, route, startup hook, automatic loop or
+public CLI consultation command selects this adapter. API version remains 0.
+
+## Verification and review
+
+- Final 857 offline Python 3.10 tests passed in 70.087 seconds, including 16 new
+  continuation wire cases. Coverage includes exact saved payloads, pre-dispatch
+  receipts, separate identities, unchanged initial work, independent stop/length
+  chunks, detached replay/credential rotation, isolated consent, invalid turns
+  and credentials, strict errors, no transport retry/redirect/proxy, wire caps,
+  total deadline, caller/durable cancellation and deletion during body reads.
+- A real mocked initial-adapter `length` response followed by explicit input
+  binding and the new continuation adapter makes exactly two requests, retains
+  exact partial/reasoning text and leaves the initial receipt unchanged. All calls
+  use synthetic credentials and an outbound-network-blocking offline harness.
+- The existing 22 initial-wire tests passed after extraction. An AST comparison
+  confirmed the parser and HTTP request helpers are unchanged. Repository-wide
+  Ruff format/lint passed for 121 Python files. All 114 Node tests, frontend
+  formatting/ESLint and authenticated loopback Uvicorn API0 startup/graceful
+  shutdown passed. No full builds, browser, Rust/native macOS/Keychain or live
+  providers were run; those surfaces remain unchanged.
+- Independent review found no moderate-or-higher issue. It passed the initial
+  22 wire tests and 198 Stage 1 tests, then reviewed the final integration addition
+  and reran all 16 frozen continuation-wire tests. Ruff/whitespace passed. Review
+  covered extraction equivalence, exact requests, separate identity/token family,
+  guard delegation and absence of automatic progression. It did not independently
+  verify the full 857-test run or recovery archive.
+
+## Recovery, CI and next steps
+
+A bounded 256 KiB shared recovery slot was physically preallocated and fsynced
+before implementation despite zero advertised free space. Work/tests use temporary
+storage; no existing work or caches were deleted. The slot is intended for a
+cumulative genuine-history bundle, current-slice patch, exact identities and test
+records. Consult the recovery receipt for the final archive and restore-check
+outcome. Preserve the verified base bundle and all earlier recovery artifacts.
+
+Exact development/default checks at 14:59 UTC still report no statuses, check-runs
+or commit comments; Actions and open PR/issue collections are empty. The empty
+aggregate `pending` is missing normal Woodpecker evidence, not a running or passed
+build. No remote objects, refs or PRs were changed, and no CI dispatch, private
+runner/user computer, deployment, settings change or paid provider was used.
+
+Next define validated chunk aggregation and terminal Stage 1 output without
+rewriting retained inputs/results; any further-turn or context-reduction strategy
+needs its own explicit causal and retry boundaries. Remaining stages, human
+boundaries, durable worker ownership and whole-consultation acceptance remain
+required before public consultation commands. Publication still needs materially
+new direct authorization and fresh exact ref checks, without force/reset or
+manufactured history.
+
+---
+
 # CLI checkpoint: guarded first continuation (2026-11-06)
 
 ## Baseline and scope

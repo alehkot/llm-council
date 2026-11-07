@@ -1069,8 +1069,9 @@ checkpoint and exposes only member identities, digests and token bounds, not
 partial text, reasoning or payloads. An initializing record cannot contain one.
 
 The separately invoked first-continuation guard below adds uncertain retry
-consent for one named turn. A selected wire adapter, further turns, aggregation,
-context reduction, worker ownership, exports and public API remain unimplemented.
+consent for one named turn, and an explicitly invoked wire adapter is described
+below. Further turns, aggregation, context reduction, worker ownership, exports
+and public API remain unimplemented.
 API version stays 0. Public consultation commands remain gated.
 
 ### Internal guarded first Stage 1 continuation (partial)
@@ -1082,8 +1083,9 @@ argument is required; only the integer 1 is supported. It never infers a next
 turn, binds missing inputs or invokes a legacy provider. The trusted injected
 callback receives the exact saved endpoint, timeout and detached JSON payload,
 and must make one request without hidden retries or further calls. The guard
-owns one callback invocation, not arbitrary network behavior inside it. No wire
-adapter, worker, route or automatic loop selects this new helper.
+owns one callback invocation, not arbitrary network behavior inside it. The
+explicit wire adapter below supplies the bounded request implementation; no
+worker, route or automatic loop selects this helper.
 
 Attempts live in a separate continuation execution record. Initial operations,
 partial text, reasoning, usage and retry ancestry remain unchanged. Each new
@@ -1134,3 +1136,44 @@ yields `stage1_needs_continuation` until an aggregation/stage completion contrac
 is implemented. No aggregate answer, exports, public detach,
 API1 or CLI consultation command is enabled. Power-loss, multi-process and
 remote exactly-once guarantees remain outside this step.
+
+### Internal first Stage 1 continuation OpenRouter adapter (partial)
+
+`run_stage1_continuation_provider.execute_openrouter(run_id, model, turn=1,
+api_key=..., expected_revision=..., retry_token=...)` explicitly invokes the
+separate continuation guard with identity `openrouter-stage1-continuation-v1`.
+The integer turn argument is required. A missing, boolean, alternate or later
+turn is not inferred or accepted. The adapter does not bind inputs or execute an
+initial request. The original initial operation, partial, reasoning, usage and
+retry ancestry remain unchanged.
+
+One guarded attempt posts the exact saved first-continuation endpoint, timeout
+and JSON payload. The original messages, partial text and reasoning, continuation
+instruction, model and settings are not recomposed from mutable configuration.
+The initial adapter's single-request implementation is shared without changing
+its identity or wire behavior: no transport retries, redirects, environment
+proxies, fallback, context reduction or extra completion request. Ephemeral
+credentials are validated before durable mutation and may rotate independently;
+they are not saved in receipts or surfaced in errors. Request and body reads share
+the whole-request deadline. The same identity-encoding rule, 2 MiB wire and
+normalized limits, finite duplicate-free UTF-8 JSON, one-choice assistant envelope
+and stop/length-only text contract apply to both adapters.
+
+The continuation attempt is saved before any HTTP call. HTTP/protocol failure,
+timeout and interruption leave this turn uncertain, requiring its own current
+retry token. Initial or sibling tokens cannot authorize its retry, nor can this
+adapter adopt a continuation saved under another callback identity. A successful
+stop or length response is a separate retained chunk, never an aggregate or a
+replacement for the initial partial. Repeated invocation or repeated valid consent
+returns the same saved chunk without another POST, subject to current-state guard
+checks. Even a length chunk does not authorize a second turn. Historical reads
+remain available through `load_result` without invoking this adapter.
+
+The existing guard owns cancellation and deletion checks, waits for transport
+cleanup and rejects late results. Cleanup may outlast a nominal timeout for an
+uncooperative injected transport; local cancellation does not prove remote work
+or billing stopped. The injected transport is a trusted offline-test seam.
+No public route, worker, startup hook, automatic loop or CLI consultation command
+selects this adapter. No aggregation, further-turn/context-reduction strategy,
+exports, public detachment or whole-consultation completion is implemented here.
+API version remains 0.

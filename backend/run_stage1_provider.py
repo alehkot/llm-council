@@ -1,8 +1,9 @@
-"""Explicit, single-request OpenRouter adapter for pinned initial Stage 1 work.
+"""Explicit OpenRouter adapters share one bounded Stage 1 request implementation.
 
 No worker or public route selects this adapter. Retries require the durable
 member guard's current consent token; length stops are retained without issuing
-continuations. Credentials are supplied ephemerally and never enter receipts.
+continuations. The separately invoked continuation adapter reuses the same wire
+contract. Credentials are supplied ephemerally and never enter receipts.
 """
 
 from __future__ import annotations
@@ -133,6 +134,36 @@ async def _request(
             return _response(body)
 
 
+def _provider(
+    api_key: str, transport: httpx.AsyncBaseTransport | None
+) -> run_stage1_execution.Provider:
+    """Create one credential-bound callback for either explicit Stage 1 guard.
+
+    This shares wire/parser/deadline semantics, not saved operation identities or
+    retry consent. Construction performs no I/O and never persists the credential.
+    """
+    if (
+        not isinstance(api_key, str)
+        or not api_key
+        or any(ord(c) < 33 or ord(c) > 126 for c in api_key)
+    ):
+        raise ValueError("A nonempty provider credential is required")
+
+    async def provider(**arguments: Any) -> dict[str, Any]:
+        try:
+            return await asyncio.wait_for(
+                _request(api_key=api_key, transport=transport, **arguments),
+                timeout=arguments["timeout_seconds"],
+            )
+        except (httpx.HTTPError, asyncio.TimeoutError):
+            # Never include provider bodies, URLs, credentials or request text.
+            raise ProviderFailure(
+                "Provider request failed; outcome may be uncertain"
+            ) from None
+
+    return provider
+
+
 async def execute_openrouter(
     run_id: str,
     model: str,
@@ -151,29 +182,10 @@ async def execute_openrouter(
     interruption leave explicit retry required; no potentially paid work repeats
     automatically. This is internal execution, not public CLI detach semantics.
     """
-    if (
-        not isinstance(api_key, str)
-        or not api_key
-        or any(ord(c) < 33 or ord(c) > 126 for c in api_key)
-    ):
-        raise ValueError("A nonempty provider credential is required")
-
-    async def provider(**arguments: Any) -> dict[str, Any]:
-        try:
-            return await asyncio.wait_for(
-                _request(api_key=api_key, transport=_transport, **arguments),
-                timeout=arguments["timeout_seconds"],
-            )
-        except (httpx.HTTPError, asyncio.TimeoutError):
-            # Never include provider bodies, URLs, credentials or request text.
-            raise ProviderFailure(
-                "Provider request failed; outcome may be uncertain"
-            ) from None
-
     return await run_stage1_execution.execute(
         run_id,
         model,
-        provider,
+        _provider(api_key, _transport),
         provider_key=PROVIDER_KEY,
         expected_revision=expected_revision,
         retry_token=retry_token,

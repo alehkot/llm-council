@@ -259,8 +259,9 @@ async def execute(
     The trusted callback must make one attempt with supplied endpoint, timeout
     and payload, without internal retries or context/continuation calls. A saved
     result is replayed for this turn, never interpreted as permission for another.
-    No HTTP adapter or worker selects this helper. Caller cancellation cancels
-    the internal attempt; public detachment requires independent worker ownership.
+    An explicitly called HTTP adapter can supply this callback; no worker or
+    automatic path selects it. Caller cancellation cancels the internal attempt;
+    public detachment requires independent worker ownership.
     """
     _validate_turn(turn)
     if type(expected_revision) is not int or expected_revision < 0:
