@@ -37,12 +37,27 @@ def main() -> None:
                 "currentValue": current_model,
                 "options": [
                     {"value": item, "name": item}
-                    for item in ("native-default", "native-other", "provider/native")
+                    for item in (
+                        "native-default",
+                        "native-other",
+                        "provider/native",
+                        "openrouter/deepseek/test",
+                    )
                 ],
             }
         ]
 
     record({"pid": os.getpid(), "cwd": os.getcwd(), "env_keys": list(os.environ)})
+    if scenario.startswith("agy"):
+        profile = Path(os.environ["GEMINI_HOME"])
+        record(
+            {
+                "profile_settings": {
+                    str(path.relative_to(profile)): json.loads(path.read_text())
+                    for path in profile.rglob("*.json")
+                }
+            }
+        )
     for line in sys.stdin:
         request = json.loads(line)
         record(request)
@@ -50,6 +65,31 @@ def main() -> None:
         params = request.get("params", {})
         result: dict[str, Any] = {}
         if method == "initialize":
+            if scenario.startswith("agy"):
+                send(
+                    {
+                        "id": request["id"],
+                        "result": {
+                            "protocolVersion": 1,
+                            "agentInfo": {
+                                "name": "other"
+                                if scenario == "agy_wrong_identity"
+                                else "antigravity-acp",
+                                "version": "1.4.5",
+                            },
+                            "agentCapabilities": {
+                                "_meta": {"antigravity": {"tier": True}}
+                            },
+                            "authMethods": [
+                                {
+                                    "id": "oauth-personal",
+                                    "name": "Google personal account",
+                                }
+                            ],
+                        },
+                    }
+                )
+                continue
             send(
                 {
                     "id": request["id"],
@@ -63,9 +103,28 @@ def main() -> None:
                 auth("api_key" if scenario == "api_auth" else "account")
             continue
         if method == "session/new":
+            if scenario == "agy_auth_required":
+                send(
+                    {
+                        "id": request["id"],
+                        "error": {"code": -32000, "message": "Login required"},
+                    }
+                )
+                continue
             if scenario == "changed_auth":
                 auth("gateway")
             result = {"sessionId": session_id, "configOptions": options()}
+            if scenario.startswith("agy"):
+                result["_meta"] = {
+                    "antigravity": {
+                        "tier": {
+                            "id": "g1-pro-tier",
+                            "name": "Free"
+                            if scenario == "agy_wrong_tier"
+                            else "Google AI Pro",
+                        }
+                    }
+                }
         elif method == "session/set_config_option":
             if scenario != "wrong_model":
                 current_model = params["value"]

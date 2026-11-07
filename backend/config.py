@@ -43,7 +43,7 @@ def _get_int_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer (got {value!r})") from exc
 
 
-# ACP mode uses local subscription logins for every model call.
+# ACP mode uses native agent authentication for every model call.
 MODEL_BACKEND = os.getenv("MODEL_BACKEND", "openrouter").lower()
 if MODEL_BACKEND not in {"openrouter", "acp"}:
     raise ValueError("MODEL_BACKEND must be openrouter or acp")
@@ -284,13 +284,13 @@ if MODEL_BACKEND == "acp":
     ]:
         _agent, _separator, _native_model = _model.partition("/")
         if (
-            _agent not in {"codex", "claude", "pi"}
+            _agent not in {"codex", "claude", "pi", "agy"}
             or not _separator
             or not _native_model
         ):
             raise ValueError(
                 f"ACP model {_model!r} must be codex/<native-id>, claude/<native-id>, "
-                "or pi/<provider>/<native-id>. Remove OpenRouter model overrides."
+                "agy/<native-id>, or pi/<provider>/<native-id>. Remove OpenRouter model overrides."
             )
         if _agent == "pi":
             _provider, _separator, _pi_model = _native_model.partition("/")

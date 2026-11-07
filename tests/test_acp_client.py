@@ -118,6 +118,45 @@ class ACPClientTests(unittest.IsolatedAsyncioTestCase):
             ):
                 await acp_client.query_model("pi/provider/native", [])
 
+    async def test_explicit_pi_openrouter_route_records_api_auth(self) -> None:
+        trace = TraceCollector()
+        with self.launch("api_auth"):
+            result = await acp_client.query_model(
+                "pi/openrouter/deepseek/test", [], trace=trace
+            )
+        self.assertEqual(result["auth_kind"], "api_key")
+        self.assertEqual(trace.events[0]["auth_kind"], "api_key")
+        with self.launch(), self.assertRaises(acp_client.AgentError):
+            await acp_client.query_model("pi/openrouter/deepseek/test", [])
+
+    async def test_antigravity_verifies_native_account_without_interactive_auth(
+        self,
+    ) -> None:
+        with self.launch("agy"):
+            result = await acp_client.query_model("agy/native-default", [])
+        self.assertEqual(result["auth_kind"], "account")
+        events = self.events()
+        self.assertNotIn("authenticate", [event.get("method") for event in events])
+        profile = next(
+            event["profile_settings"] for event in events if "profile_settings" in event
+        )
+        self.assertEqual(
+            profile["antigravity-acp/settings.json"],
+            {"auth": {"type": "oauth-personal"}},
+        )
+        self.assertFalse(profile["config/config.json"]["userSettings"]["useAiCredits"])
+        self.assertFalse(profile["antigravity-cli/settings.json"]["useG1Credits"])
+
+    async def test_antigravity_rejects_unverified_identity_tier_and_login(self) -> None:
+        for scenario in ("agy_wrong_identity", "agy_wrong_tier", "agy_auth_required"):
+            with self.subTest(scenario=scenario), self.launch(scenario):
+                self.log.unlink(missing_ok=True)
+                with self.assertRaises(acp_client.AgentError):
+                    await acp_client.query_model("agy/native-default", [])
+                self.assertNotIn(
+                    "session/prompt", [event.get("method") for event in self.events()]
+                )
+
     async def test_timeout_and_cancellation_kill_descendants(self) -> None:
         for cancel in (False, True):
             with self.subTest(cancel=cancel), self.launch("hang"):
@@ -334,10 +373,11 @@ class ACPConfigurationTests(unittest.TestCase):
             patch.dict(os.environ, secrets),
             patch.object(Path, "is_file", return_value=True),
         ):
-            for agent in ("codex", "claude", "pi"):
-                command, env, meta = acp_client.launch_settings(
-                    agent, "provider/native"
-                )
+            for agent in ("codex", "claude", "pi", "agy"):
+                with patch.object(sys, "platform", "darwin"):
+                    command, env, meta = acp_client.launch_settings(
+                        agent, "provider/native"
+                    )
                 self.assertFalse(set(env).intersection(secrets))
                 if agent == "claude":
                     self.assertEqual(meta["claudeCode"]["options"]["tools"], [])
@@ -347,6 +387,13 @@ class ACPConfigurationTests(unittest.TestCase):
                 elif agent == "pi":
                     self.assertEqual(command[-1], "provider/native")
                     self.assertEqual(env["PI_OFFLINE"], "1")
+                elif agent == "agy":
+                    self.assertEqual(meta, {"agy": {"enabledTools": []}})
+                    self.assertTrue(
+                        env["ANTIGRAVITY_HARNESS_PATH"].endswith(
+                            "localharness_external"
+                        )
+                    )
 
     def test_pi_requires_explicit_provider_and_model(self) -> None:
         with patch.object(Path, "is_file", return_value=True):

@@ -1,10 +1,11 @@
-"""Isolated, subscription-authenticated ACP text calls. No API fallback."""
+"""Isolated ACP text calls with explicit authentication routes. No fallback."""
 
 import asyncio
 import contextlib
 import json
 import os
 import signal
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -36,11 +37,32 @@ def launch_settings(
 ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
     if os.name != "posix":
         raise AgentError("ACP process isolation currently requires macOS or Linux.")
-    binaries = {"codex": "codex-acp", "claude": "claude-agent-acp", "pi": "pi"}
+    binaries = {
+        "codex": "codex-acp",
+        "claude": "claude-agent-acp",
+        "pi": "pi",
+        "agy": "agy_acp_server.par",
+    }
     if agent not in binaries:
-        raise AgentError(f"Unsupported ACP agent: {agent}. Use codex, claude, or pi.")
-    executable = ADAPTER_DIR / "node_modules" / ".bin" / binaries[agent]
+        raise AgentError(
+            f"Unsupported ACP agent: {agent}. Use codex, claude, pi, or agy."
+        )
+    runtime_dir = (
+        Path(
+            os.getenv("ANTIGRAVITY_ACP_DIR")
+            or ADAPTER_DIR.parent / "data" / "agent-runtimes" / "antigravity"
+        )
+        .expanduser()
+        .resolve()
+    )
+    executable = (
+        runtime_dir if agent == "agy" else ADAPTER_DIR / "node_modules" / ".bin"
+    ) / binaries[agent]
     if not executable.is_file():
+        if agent == "agy":
+            raise AgentError(
+                "Install Google's official Antigravity ACP 1.4.5 runtime in data/agent-runtimes/antigravity, or set ANTIGRAVITY_ACP_DIR."
+            )
         raise AgentError(
             "ACP adapters are missing. Run npm ci --prefix agent-adapters."
         )
@@ -63,7 +85,20 @@ def launch_settings(
         if key in os.environ
     }
     meta: dict[str, Any] = {}
-    if agent == "codex":
+    if agent == "agy":
+        # shortcut: Antigravity reuses macOS keychain login; add file-profile support before enabling other OSes.
+        if sys.platform != "darwin":
+            raise AgentError(
+                "Antigravity currently requires native macOS account storage."
+            )
+        helper = runtime_dir / "localharness_external"
+        if not helper.is_file():
+            raise AgentError(
+                "Antigravity's matching localharness_external helper is missing."
+            )
+        env["ANTIGRAVITY_HARNESS_PATH"] = str(helper)
+        meta = {"agy": {"enabledTools": []}}
+    elif agent == "codex":
         env.update(
             {
                 "CODEX_PATH": str(ADAPTER_DIR / "codex-safe.cjs"),
@@ -105,10 +140,11 @@ def launch_settings(
 
 
 class TextClient:
-    def __init__(self) -> None:
+    def __init__(self, expected_auth_kind: str = "account") -> None:
         self.chunks: list[str] = []
         self.size = 0
         self.auth_kind: str | None = None
+        self.expected_auth_kind = expected_auth_kind
         self.auth_ready = asyncio.Event()
         self.failed = asyncio.Event()
         self.error: str | None = None
@@ -161,9 +197,9 @@ class TextClient:
             status = params.get("authStatus", {})
             self.auth_kind = status.get("kind")
             self.auth_ready.set()
-            if self.auth_kind != "account":
+            if self.auth_kind != self.expected_auth_kind:
                 self.fail(
-                    "Subscription login is required; API, cloud, and gateway authentication are refused."
+                    "Agent authentication does not match the selected route; no fallback is allowed."
                 )
 
 
@@ -205,10 +241,28 @@ async def _select_model(connection: Any, session: Any, native_model: str) -> str
 
 async def _run(agent: str, native_model: str, prompt: str) -> dict[str, Any]:
     command, env, meta = launch_settings(agent, native_model)
-    client = TextClient()
+    client = TextClient(
+        "api_key"
+        if agent == "pi" and native_model.startswith("openrouter/")
+        else "account"
+    )
     process = connection = stderr_task = failure_task = prompt_task = None
     with tempfile.TemporaryDirectory(prefix="llm-council-acp-") as workspace:
         try:
+            if agent == "agy":
+                profile = Path(workspace) / "profile"
+                for relative, settings in {
+                    "antigravity-acp/settings.json": {
+                        "auth": {"type": "oauth-personal"}
+                    },
+                    "config/config.json": {"userSettings": {"useAiCredits": False}},
+                    "antigravity-cli/settings.json": {"useG1Credits": False},
+                }.items():
+                    path = profile / relative
+                    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    path.write_text(json.dumps(settings))
+                    path.chmod(0o600)
+                env["GEMINI_HOME"] = str(profile)
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=workspace,
@@ -232,22 +286,49 @@ async def _run(agent: str, native_model: str, prompt: str) -> dict[str, Any]:
                 client_capabilities=ClientCapabilities(),
                 client_info=Implementation(name="llm-council", version="0.1.0"),
             )
-            if "authStatus" not in (initialized.agent_capabilities.field_meta or {}):
-                raise AgentError(
-                    "Adapter cannot verify subscription authentication. Install the pinned adapters."
-                )
-            try:
-                await asyncio.wait_for(client.auth_ready.wait(), AUTH_TIMEOUT_SECONDS)
-            except asyncio.TimeoutError as exc:
-                raise AgentError(
-                    "Agent did not report authentication. Sign in using its native CLI first."
-                ) from exc
+            if agent == "agy":
+                info = initialized.agent_info
+                if (
+                    not info
+                    or info.name != "antigravity-acp"
+                    or info.version != "1.4.5"
+                    or "oauth-personal"
+                    not in {method.id for method in initialized.auth_methods}
+                ):
+                    raise AgentError(
+                        "Expected Google's official Antigravity ACP 1.4.5 runtime with personal-account authentication."
+                    )
+            else:
+                if "authStatus" not in (
+                    initialized.agent_capabilities.field_meta or {}
+                ):
+                    raise AgentError(
+                        "Adapter cannot verify authentication. Install the pinned adapters."
+                    )
+                try:
+                    await asyncio.wait_for(
+                        client.auth_ready.wait(), AUTH_TIMEOUT_SECONDS
+                    )
+                except asyncio.TimeoutError as exc:
+                    raise AgentError(
+                        "Agent did not report authentication. Sign in using its native CLI first."
+                    ) from exc
             if client.error:
                 raise AgentError(client.error)
             session = await connection.new_session(
                 cwd=workspace, mcp_servers=[], **meta
             )
             client.session_id = session.session_id
+            if agent == "agy":
+                tier = (session.field_meta or {}).get("antigravity", {}).get("tier", {})
+                if not tier.get("id") or tier.get("name") not in {
+                    "Google AI Pro",
+                    "Google AI Ultra",
+                }:
+                    raise AgentError(
+                        "Antigravity did not confirm a Google AI Pro or Ultra subscription."
+                    )
+                client.auth_kind = "account"
             if client.error:
                 raise AgentError(client.error)
             actual_model = await _select_model(connection, session, native_model)
@@ -278,7 +359,7 @@ async def _run(agent: str, native_model: str, prompt: str) -> dict[str, Any]:
                 "finish_reason": "stop",
                 "usage": None,
                 "model": f"{agent}/{actual_model}",
-                "auth_kind": "account",
+                "auth_kind": client.auth_kind,
             }
         finally:
             if (
@@ -339,7 +420,7 @@ async def query_model(
         if isinstance(exc, AgentError):
             error = str(exc)
         elif isinstance(exc, RequestError) and exc.code == -32000:
-            error = "Agent subscription login is missing or expired. Sign in using its native CLI and retry."
+            error = "Agent login is missing or expired. Sign in using its native CLI and retry."
         elif isinstance(exc, asyncio.TimeoutError):
             error = "Agent call timed out."
         else:
@@ -364,7 +445,7 @@ async def query_model(
             model=model,
             transport="acp",
             actual_model=result["model"],
-            auth_kind="account",
+            auth_kind=result["auth_kind"],
             context=trace_context,
             timing={"duration_ms": round((time.perf_counter() - started) * 1000, 2)},
         )

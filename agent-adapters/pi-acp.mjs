@@ -20,6 +20,7 @@ export function createPiAgent(runtime, nativeModel) {
 	}
 	const provider = runtime.getProvider(providerId);
 	const model = runtime.getModel(providerId, modelId);
+	const apiRoute = providerId === "openrouter";
 	let sessionId;
 	let controller;
 	const configOptions = [
@@ -46,13 +47,16 @@ export function createPiAgent(runtime, nativeModel) {
 		}
 	};
 	const checkAuth = async (client, signal) => {
-		const account =
-			provider?.auth.oauth?.isSubscription === true &&
-			(await runtime.checkAuth(providerId, { signal }))?.type === "oauth";
+		const auth = await runtime.checkAuth(providerId, { signal });
+		const accepted = apiRoute
+			? auth?.type === "api_key" && auth.source === "stored credential"
+			: provider?.auth.oauth?.isSubscription === true && auth?.type === "oauth";
 		await client.notify("_auth/status_update", {
-			authStatus: { kind: account ? "account" : "none" },
+			authStatus: {
+				kind: accepted ? (apiRoute ? "api_key" : "account") : "none",
+			},
 		});
-		if (!account) throw RequestError.authRequired();
+		if (!accepted) throw RequestError.authRequired();
 	};
 	const checkSession = (requestedId) => {
 		if (!sessionId || requestedId !== sessionId)
@@ -105,8 +109,9 @@ export function createPiAgent(runtime, nativeModel) {
 					const resolved = await runtime.getAuth(model, {
 						signal: requestSignal,
 					});
-					// Use this exact OAuth resolution; a later credential change cannot switch the request to an API key.
-					if (resolved?.source !== "OAuth") throw RequestError.authRequired();
+					// Use the verified resolution so concurrent credential changes cannot switch the request's billing route.
+					if (resolved?.source !== (apiRoute ? "stored credential" : "OAuth"))
+						throw RequestError.authRequired();
 					const stream = provider.streamSimple(
 						{ ...model, baseUrl: resolved.auth.baseUrl ?? model.baseUrl },
 						{

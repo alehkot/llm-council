@@ -8,7 +8,7 @@ function fixture(overrides = {}) {
 	const model = {
 		id: "native",
 		name: "Native",
-		provider: "provider",
+		provider: overrides.providerId ?? "provider",
 		baseUrl: "https://native.invalid",
 	};
 	const provider = {
@@ -16,7 +16,7 @@ function fixture(overrides = {}) {
 		streamSimple: (selected, context, options) => {
 			calls.push({ selected, context, options });
 			const result = {
-				provider: "provider",
+				provider: model.provider,
 				model: "native",
 				stopReason: "stop",
 				content: [
@@ -40,7 +40,10 @@ function fixture(overrides = {}) {
 	const runtime = {
 		getProvider: () => (overrides.nonSubscription ? { auth: {} } : provider),
 		getModel: (_, id) => (id === model.id ? model : undefined),
-		checkAuth: async () => ({ type: overrides.authType ?? "oauth" }),
+		checkAuth: async () => ({
+			type: overrides.authType ?? "oauth",
+			source: overrides.authSource ?? "OAuth",
+		}),
 		getAuth: async () => {
 			if (overrides.error)
 				throw Object.assign(new Error("secret-token-detail"), {
@@ -212,4 +215,47 @@ test("Pi cancellation aborts the native generation", async () => {
 	);
 	assert.equal(f.calls[0].options.signal.aborted, true);
 	assert.equal(f.updates.filter((u) => u.update).length, 0);
+});
+
+test("Pi OpenRouter requires the explicitly selected stored API credential", async () => {
+	for (const overrides of [
+		{
+			authType: "api_key",
+			authSource: "stored credential",
+			source: "stored credential",
+		},
+		{ authType: "oauth", authSource: "OAuth", source: "OAuth" },
+		{
+			authType: "api_key",
+			authSource: "OPENROUTER_API_KEY",
+			source: "OPENROUTER_API_KEY",
+		},
+		{ authType: "api_key", authSource: "stored credential", source: "OAuth" },
+	]) {
+		const f = fixture({ ...overrides, providerId: "openrouter" });
+		const accepted =
+			overrides.authSource === "stored credential" &&
+			overrides.source === "stored credential";
+		await f.app.connectWith(
+			createPiAgent(f.runtime, "openrouter/native"),
+			async (connection) => {
+				const run = async () => {
+					const session = await initializeSession(connection);
+					return connection.request("session/prompt", {
+						sessionId: session.sessionId,
+						prompt: [{ type: "text", text: "Question" }],
+					});
+				};
+				if (accepted) assert.equal((await run()).stopReason, "end_turn");
+				else await assert.rejects(run);
+			},
+		);
+		assert.equal(f.calls.length, accepted ? 1 : 0);
+		if (accepted)
+			assert.ok(
+				f.updates
+					.filter((u) => u.authStatus)
+					.every((u) => u.authStatus.kind === "api_key"),
+			);
+	}
 });

@@ -57,8 +57,9 @@ Final Answer
 
 - **Multi-model consensus**: Leverage diverse perspectives from GPT, Claude,
   Gemini, Grok, and more.
-- **Local subscription agents**: Run every model call through Codex and Claude
-  over ACP, with verified account login and no API fallback.
+- **Local agents**: Run every model call through Codex, Claude, Antigravity, or Pi
+  over ACP, with verified authentication and no fallback. Pi also supports an
+  explicitly selected, API-billed OpenRouter route.
 - **Anonymized evaluation**: Unbiased peer review without model identification.
 - **Invalid ranking handling**: Peer orders marked invalid by Stage 2 (for example,
   unknown labels, including labels that only share a prefix with a valid response,
@@ -116,10 +117,10 @@ Final Answer
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 22+ for ACP adapters (the frontend follows its Vite requirements)
+- Node.js 22.19+ for ACP adapters (the frontend follows its Vite requirements)
 - [uv](https://github.com/astral-sh/uv) (Python package manager)
-- [OpenRouter API key](https://openrouter.ai/) or signed-in Codex/Claude accounts
-  for [ACP subscription mode](#all-stages-through-local-subscriptions-acp)
+- [OpenRouter API key](https://openrouter.ai/) or signed-in local agents
+  for [ACP mode](#all-stages-through-local-agents-acp)
 
 ### Installation
 
@@ -678,13 +679,14 @@ checks do not exercise real credentials or providers. The ownership fence acts a
 response arrival; it does not cancel server-side work already accepted, nor does
 it fence response-body parsing that began before credentials changed.
 See [React's guidance on ignoring obsolete asynchronous results](https://react.dev/reference/react/useEffect#fetching-data-with-effects).
-### All stages through local subscriptions (ACP)
+
+### All stages through local agents (ACP)
 
 Set `MODEL_BACKEND=acp` to use the official ACP Python SDK and pinned local
-Codex/Claude adapters, plus a text-only ACP bridge to Pi's native SDK. This covers
-individual answers, negative reviews, peer
+Codex/Claude adapters, Google's official Antigravity runtime, and a text-only ACP
+bridge to Pi's native SDK. This covers individual answers, negative reviews, peer
 ranking, deliberation, synthesis, titles, prompt refinement, skill/reference
-selection, and model side chats. The OpenRouter key is optional in this mode;
+selection, and model side chats. The application's OpenRouter key is unused in this mode;
 the separate paid TypeSafe skill router is disabled even if its flag is enabled.
 
 ```bash
@@ -698,25 +700,47 @@ The Claude login command requires the native Claude Code CLI to be installed.
 
 Merge [.env.acp.sample](.env.acp.sample) into your `.env`, preserving your real
 `API_AUTH_KEY`, then restart the backend. Every model override must use
-`codex/<native-model-id>`, `claude/<native-model-id>`, or
+`codex/<native-model-id>`, `claude/<native-model-id>`, `agy/<native-model-id>`, or
 `pi/<provider>/<native-model-id>`; old OpenRouter IDs fail
 validation. `codex/default,claude/default` uses the defaults reported by those
 agents. Select only agents you have signed in to. An explicit model must appear
 in the agent's advertised model list and be confirmed by it; no substitute is
 selected. Traces record the actual model used for `default`.
 
-For Pi, run `./agent-adapters/node_modules/.bin/pi` and use `/login` to sign in
-to a subscription provider. For example, set
+For Antigravity on macOS, install version 1.4.5 from the
+[official ACP registry](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json).
+Place the executable `agy_acp_server.par` and its matching `localharness_external`
+helper in `data/agent-runtimes/antigravity/`, or set `ANTIGRAVITY_ACP_DIR` to their
+directory. Sign in to your Google AI Pro or Ultra account using the native
+Antigravity application first. Calls reuse macOS account storage through an
+isolated profile, disable AI-credit spending, and require the session to report
+the subscription tier. The client never initiates interactive authentication.
+
+For Pi, run `./agent-adapters/node_modules/.bin/pi` and use `/login`. For example, set
 `COUNCIL_MODELS=codex/default,pi/openai-codex/gpt-5.6-sol` to pair Codex with Pi
 using its OpenAI OAuth login. Pi can also be the chairman or any helper model.
 Pi requires an explicit provider and model; `pi/default` is rejected. The bridge
 uses the pinned Pi SDK's built-in model catalog and native credential storage
 (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`), including locked OAuth refresh. Only
 providers Pi marks as subscription-backed, with a current OAuth login, are
-accepted. API-key providers, custom `models.json` routes, saved default settings,
-extensions, tools, and session history are not loaded. The bridge verifies the
-resolved OAuth authentication again immediately before generation. Pi's SDK
-integration is separate from the community `pi-acp` package.
+accepted, except for the explicit `pi/openrouter/<model-id>` route. That route
+requires Pi's own stored OpenRouter API key and incurs API charges; an environment
+key or OAuth login cannot replace it. The bridge verifies the resolved credential
+source immediately before generation. Custom `models.json` routes, saved default
+settings, extensions, tools, and session history are not loaded. Pi's SDK integration
+is separate from the community `pi-acp` package.
+
+For Antigravity, Codex, and Pi/DeepSeek consultation with Codex synthesis:
+
+```dotenv
+MODEL_BACKEND=acp
+COUNCIL_MODELS=agy/gemini-3.8-flash,codex/gpt-6-astra,pi/openrouter/deepseek/deepseek-v4.1-flash-1017
+CHAIRMAN_MODEL=codex/gpt-6-astra
+```
+
+The DeepSeek member uses the versioned
+[DeepSeek V4.1 Flash 1017 model](https://openrouter.ai/deepseek/deepseek-v4.1-flash-1017).
+The sample also sets all helper models to Codex, replacing stale API model IDs.
 
 `CHAIRMAN_MODEL` also selects ACP synthesis. In this mode `SYNTHESIS_BACKEND`
 is always `acp`; the legacy `SYNTHESIS_AGENT_MODEL` and effort settings do not
@@ -725,11 +749,12 @@ apply. Existing per-call timeouts still apply, and
 
 Each call gets its own process and temporary session directory. Children receive
 an allowlisted environment without API keys or cloud/gateway routing variables.
-The client requires the adapter to report account authentication before sending
-a prompt and rejects changes to another authentication route. It does not start
+The client verifies account authentication before sending a prompt, or stored
+API-key authentication for an explicit Pi/OpenRouter model, and rejects changes
+to another authentication route. It does not start
 interactive login. Missing authentication, unavailable models, quota errors,
 timeouts, empty answers, and incomplete output fail the call and stop sibling
-calls in that stage. There is no fallback to OpenRouter, TypeSafe, another agent,
+calls in that stage. There is no fallback to the application's OpenRouter transport, TypeSafe, another agent,
 or a different model. Account-side extra usage/credits remain governed by your
 provider settings; verified account login is not a guarantee of zero charges.
 
@@ -737,7 +762,8 @@ ACP filesystem and terminal callbacks are unavailable and permission requests
 are denied. Claude runs with no tools/settings sources in safe mode; Codex uses
 read-only permissions with native shell, browser, computer, plugin, and MCP tools
 disabled. These controls are not an OS sandbox for the adapter process itself.
-Pi performs one text completion through its model runtime, with no tool loop.
+Antigravity receives an empty enabled-tool list. Pi performs one text completion
+through its model runtime, with no tool loop.
 Only trusted users should have the backend API key.
 
 Synthesis still exports complete evidence under `data/synthesis/` and saves
@@ -749,10 +775,11 @@ group. Raw vendor stderr is drained and discarded to avoid retaining credentials
 errors and safe request metadata appear in the normal trace.
 Native agents may retain their own session data in their usual user directories.
 
-This implementation supports Codex, Claude, and Pi. Gemini, Antigravity, and Grok
+This implementation supports Codex, Claude, Pi, and Antigravity. Standalone Gemini and Grok
 need separate authentication/permission integrations before they can be enabled;
 an arbitrary ACP command is not accepted as a subscription-safe provider.
-Process-group isolation currently requires macOS or Linux.
+Process-group isolation currently requires macOS or Linux; Antigravity currently
+requires macOS account storage.
 
 ### Synthesis through a local subscription CLI
 
@@ -817,7 +844,8 @@ for model labels with Pi's provider/model IDs.
 
 This separate runner makes **real calls using your configured model backend**.
 In OpenRouter mode it uses OpenRouter plus Codex synthesis; in ACP mode all calls
-use the configured subscription agents, including the configured chairman.
+use the configured local agents, including any explicit Pi/OpenRouter API route
+and the configured chairman.
 It is excluded from unittest discovery and CI. It refuses to run without `--run-live`:
 
 ```bash
