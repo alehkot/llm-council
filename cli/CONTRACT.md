@@ -1474,10 +1474,45 @@ it does **not** establish valid ballots, aggregation or completion of Stage 2.
 
 API0 and all unavailable Rust consultation commands remain unchanged. This is an
 internal callback guard, not durable scheduling, client-detachment support or a
-public consultation path. The next dependencies are an explicitly bounded wire
-adapter, ranking validation/aggregation, the durable negative-mode path and
-remaining workflow boundaries. Context reduction, later continuations, whole-run
+public consultation path. The explicit bounded wire adapter is described below;
+next dependencies include ranking validation/aggregation, the durable negative-mode
+path and remaining workflow boundaries. Context reduction, later continuations, whole-run
 acceptance and native macOS verification remain unfinished. Offline tests use
 synthetic callbacks and establish only the exercised persistence, recovery and
 ownership behavior, not live-provider quality, exactly-once remote work,
 multi-process safety or power-loss durability.
+
+### Explicit Stage 2 OpenRouter adapter (partial)
+
+`run_stage2_provider.execute_openrouter` selects one named reviewer's exact saved
+ranking request through the Stage 2 attempt guard. Its `openrouter-stage2-v1`
+identity is separate from initial Stage 1, its continuation and injected test
+callbacks; sharing transport code never grants cross-stage or cross-member retry
+consent. The caller supplies an ephemeral API key. It is not stored in receipts,
+resolved from current environment defaults or included in provider diagnostics.
+
+The adapter reuses the bounded text wire implementation already exercised by the
+Stage 1 adapters: one POST with the saved body/endpoint/timeout, no automatic
+retry, redirect or environment proxy, an identity-encoded response bounded to
+2 MiB, a whole-request deadline and the strict normalized text envelope. Errors,
+timeouts and interruptions remain uncertain until the caller supplies the exact
+reviewer's current retry token. Rotated credentials do not change saved attempt
+identity. Persisted results replay without another HTTP request; failed attempt
+persistence prevents dispatch. Response streams close on completion/cancellation;
+deletion also prevents late results from reviving work.
+
+The adapter retains stopped or length-limited raw review text and bounded metadata.
+It does not parse/validate ballots, aggregate rankings, continue a length stop,
+call another reviewer, reduce context, enable negative mode or schedule a worker.
+In particular, stopped arbitrary prose is not evidence of a usable ranking.
+Client-detachment semantics still require a separate worker ownership layer;
+cancelling this internal coroutine interrupts its owned request.
+
+Offline MockTransport tests cover the exact wire request for all saved reviewers
+despite answer exclusions, durable attempt-before-dispatch, isolated consent,
+replay, transport/parser/size/deadline failures, cancellation and deletion. They
+do not establish live-provider behavior, model quality, whole-run completion,
+native macOS/Keychain behavior, exactly-once remote execution or multiprocess
+durability. No public endpoint, API1 capability or Rust consultation command is
+enabled. Ranking validation/aggregation, remaining guarded stages and continuations,
+durable scheduling and complete public acceptance remain unfinished.

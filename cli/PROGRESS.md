@@ -1,3 +1,76 @@
+# CLI checkpoint: explicit Stage 2 ranking transport (2026-11-07)
+
+## Baseline, rationale and completed scope
+
+Working baseline is persistent `development` at
+[649395a04111a88b23b8d78102508c58196e18f8](https://github.com/alehkot/llm-council/commit/649395a04111a88b23b8d78102508c58196e18f8).
+Observed upstream `main` is
+[409c67c9d1c192579231a626053299a66c61fffb](https://github.com/alehkot/llm-council/commit/409c67c9d1c192579231a626053299a66c61fffb),
+already an ancestor. Fresh branch/issue/PR/coordination checks found no active PR,
+claim or unfinished conflicting implementation. This preserves all accumulated
+work and owner ACP changes. The containing commit records the complete slice;
+the durable publication receipt and existing recovery issue record exact final
+local/published commit and tree identities after publication.
+
+The previous checkpoint provides saved ranking inputs and a durable callback
+guard but no concrete ranking transport. Chose the narrow adapter before broader
+aggregation, negative execution or scheduling because it closes that explicit
+external-operation seam without changing the established wire behavior. Reused
+the existing bounded Stage 1 wire helper rather than duplicating transport/parser
+logic. [LangGraph replay/side-effect guidance](https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/functional-api.mdx)
+supports separating replayable results from external work; repository semantics
+and offline tests establish this implementation's actual guarantees.
+
+`run_stage2_provider.execute_openrouter` explicitly sends one named reviewer's
+saved request through its Stage 2 guard, with a separate stable adapter identity.
+Ephemeral credentials, exact persisted requests, strict bounded response parsing,
+whole-request deadline, no redirects/proxies/automatic retries and isolated
+uncertain-work consent reuse the existing tested contract. Stopped/length-limited
+text remains raw review evidence, not a valid ballot or aggregate. Answer exclusions
+do not remove reviewers. No caller/scheduler/public route was wired automatically;
+API0 and unavailable consultation commands remain unchanged.
+
+## Verification and review
+
+- Baseline: all 1,040 offline Python tests passed. Final: all 1,054 passed in
+  140.589 seconds with unmocked outbound networking forbidden. No live provider
+  or paid service was used.
+- Fourteen new MockTransport tests passed, covering exact saved reviewer requests,
+  durable attempts before HTTP, separate identity and retry consent, rotated-key
+  read-only replay, invalid credentials, write failures, stale revision, unsupported
+  adapter, redirects/retryable errors, malformed/compressed output, byte/deadline
+  limits, cancellation, deletion and stopped non-ballot/length text.
+- Independent complete source/test/contract/plan review found no introduced
+  moderate-or-higher issue and passed 122 related tests. Self-review agrees;
+  review does not guarantee absence of bugs. Final progress claims were also
+  independently reviewed.
+- Repository-wide Ruff format/lint, all 114 frontend Node tests, frontend
+  format/lint, authenticated API0 backend startup/graceful shutdown and whitespace
+  checks passed. Frontend and Rust sources did not change.
+- Full builds are unrun by policy. Native macOS/Keychain, rendered browser and
+  live-provider verification are unrun. Tests do not establish whole-run
+  consultation, ranking quality, exactly-once remote work, multiprocess ownership
+  or power-loss durability. The replay test simulates absence of a live owner;
+  it is not an additional subprocess restart test.
+
+## CI, recovery and next priorities
+
+Starting exact development/main heads have no GitHub status results, check runs
+or Woodpecker commit comments. Empty aggregate `pending` means missing evidence,
+not an observed running build, pass or failure. Normal Woodpecker is configured,
+but final exact-SHA status, outcome and actual job/platform coverage must be
+verified separately and recorded in the publication receipt. No full local build,
+manual CI dispatch/rerun or private runner access was used.
+
+Preserve the complete real-history repository, patch and verified recovery bundle.
+Next observe normal exact-head build evidence, then implement bounded ranking
+validation/aggregation and an explicit reviewer worker handoff, followed by durable
+negative-mode execution, remaining workflow/context boundaries, scheduling and
+whole-run public acceptance. No PR, deployment, release, settings/security or
+paid-service action occurred. No consequential product decision was guessed.
+
+---
+
 # CLI checkpoint: guarded Stage 2 member attempts (2026-11-07)
 
 ## Baseline, rationale and completed scope

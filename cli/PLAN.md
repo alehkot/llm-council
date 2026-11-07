@@ -664,3 +664,14 @@ negative-mode path, public route or CLI consultation command is enabled. Continu
 bounded provider integration, ranking validation/aggregation and the remaining
 workflow dependencies before API1 and whole-run acceptance. See
 [CONTRACT.md](CONTRACT.md) and [PROGRESS.md](PROGRESS.md).
+
+### Explicit ranking transport checkpoint (partial)
+
+An explicitly invoked OpenRouter adapter now sends one named reviewer's exact
+saved Stage 2 request through its durable attempt guard. It shares the bounded
+single-request wire contract while keeping Stage 2 identity and retry consent
+separate, and retains raw stopped/length-limited text without silently repeating
+or continuing calls. No ballot validation, aggregation, scheduler, public endpoint
+or consultation-command capability is enabled. Continue those dependencies and the
+durable negative path before full workflow acceptance; API0 remains unchanged.
+See [CONTRACT.md](CONTRACT.md) and [PROGRESS.md](PROGRESS.md) for tested boundaries.

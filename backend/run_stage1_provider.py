@@ -1,10 +1,10 @@
-"""Explicit OpenRouter adapters share one bounded Stage 1 request implementation.
+"""Explicit OpenRouter adapters share one bounded text-request implementation.
 
 An explicit internal manager member step can select this adapter; no public
 route or automatic worker loop does. Retries require the durable
 member guard's current consent token; length stops are retained without issuing
-continuations. The separately invoked continuation adapter reuses the same wire
-contract. Credentials are supplied ephemerally and never enter receipts.
+continuations. The separately invoked continuation and Stage 2 adapters reuse the
+same wire contract. Credentials are supplied ephemerally and never enter receipts.
 """
 
 from __future__ import annotations
@@ -138,7 +138,7 @@ async def _request(
 def _provider(
     api_key: str, transport: httpx.AsyncBaseTransport | None
 ) -> run_stage1_execution.Provider:
-    """Create one credential-bound callback for either explicit Stage 1 guard.
+    """Create a credential-bound callback for explicit Stage 1/2 guards.
 
     This shares wire/parser/deadline semantics, not saved operation identities or
     retry consent. Construction performs no I/O and never persists the credential.
