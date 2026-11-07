@@ -51,6 +51,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
   explicit uploaded-skill content can also be archived for restart-safe reads;
   a read-only renderer can preview those exact archived bytes with explicit
   reference selections, without rereading mutable library files;
+  the explicitly disabled-router path can now retain deterministic reference
+  choices and exact Stage 1/3 skill blocks and reports;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
@@ -440,6 +442,17 @@ archived source identities in its detached report. It neither persists the
 selection/final prompt nor executes anything. Retained routing decisions,
 automatic selection, complete stage settings and guarded dispatch remain needed.
 API0 and all consultation command gates remain unchanged.
+
+### Pinned deterministic skill preparation checkpoint (partial)
+
+For archived explicit skills with the reference router already disabled, an
+internal binding now saves deterministic reference choices and exact Stage 1/3
+skill blocks, budgets and packing reports. It uses the saved finalized question,
+retains source identities, rejects configuration/revision drift and preserves
+history without current library/configuration reads. It does not change settings
+or bypass an enabled router. Automatic/model-based selection, complete stage and
+provider inputs, guarded execution, durable scheduling and public acceptance
+remain unfinished. The main action items and consultation-command gates stay open.
 
 ### Configured refinement bridge checkpoint (partial)
 

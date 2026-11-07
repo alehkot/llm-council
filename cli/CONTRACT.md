@@ -489,6 +489,54 @@ settings and final rendered prompts, guarded dispatch and public integration
 remain pending. No scripts, model calls, worker scheduling, API1 or Rust run
 commands are enabled.
 
+## Pinned deterministic skill preparation (internal, router disabled)
+
+`run_skill_plan.bind(run_id, expected_revision=...)` completes one provider-free
+preparation path for already-archived, explicitly selected uploaded skills. It
+requires a saved completed pre-query response policy, an exact current revision,
+`SKILLS_ENABLED=true` and `SKILLS_REFERENCE_SELECTION_ENABLED=false`. It does not
+change either setting or silently bypass the normally enabled model router.
+Automatic skill selection, enabled reference routing and router-failure fallback
+remain unsupported by this operation.
+
+Version 1 applies the existing deterministic keyword-overlap fallback to archived
+reference candidates and the saved finalized question. It reserves the Stage 1
+space already occupied by skill bodies, respects configured reference-file and
+selectable-candidate caps, and retains ordered candidate IDs plus grouped
+reference choices. The setting named `max_reference_sections` counts indexed
+candidates: a legacy synthetic whole-file candidate counts once even when its
+archived text contains several heading sections, preserving the existing behavior.
+It then saves the exact Stage 1 and Stage 3 **skill blocks**, with their distinct
+character budgets and packing reports. These are only the skill portions of
+future prompts, not complete stage messages or provider-wire inputs. Selected
+references may subsequently be dropped by either packer; each exact report shows
+what was actually included. Zero caps/budgets remain explicit decisions.
+
+The frozen result carries saved settings, response-policy and archived-content
+digests, source revision, reference budget and both rendered blocks. Reports are
+retained as canonical JSON strings; `RenderedSkillBlock.report()` returns a
+detached dictionary. Repeat binding rejects current relevant-setting drift, stale
+revisions, cancellation and deletion. It never reads the mutable skill library
+or calls a provider. Concurrent supported calls serialize under the existing
+storage lock and write once; lost write acknowledgments are recoverable.
+
+`run_skill_plan.load` and inspection use historical settings/content rather than
+current configuration. Validation recomputes the deterministic version-1
+derivation without side effects and fails closed if saved identities, choices,
+rendered text or reports differ. It neither repairs nor silently refreshes saved
+work. Future changes to fallback/rendering semantics need explicit version
+handling. The digest is an identity, not tamper-proof storage or proof that a
+setting was authorized. Inspection exposes counts, lengths and an aggregate
+digest, not copied private skill text. Cancellation retains historical reads;
+conversation deletion erases the plan through the existing tombstone.
+
+No execution path consumes this plan yet. Future dispatch must use the saved
+blocks, establish complete stage/provider provenance and recheck runnable state;
+loading a plan does not authorize using an old/disabled skill, model retries or
+paid work. Public run APIs, Rust consultation commands, scheduler and API1 remain
+gated. Existing legacy routing/execution is unchanged. Power-loss/multiprocess
+safety and public polling/storage performance remain unverified.
+
 ## Configured refinement bridge (internal, partial)
 
 `refinement_provider.resolve_configured_refinement` reads the loaded backend's

@@ -22,6 +22,7 @@ from . import (
     refinement_provider,
     run_admission,
     run_interaction,
+    run_skill_plan,
     run_skill_provenance,
     run_skill_snapshot,
     storage,
@@ -55,6 +56,7 @@ class _SnapshotEvidence(TypedDict):
     refinement_provider: dict[str, Any] | None
     explicit_skill_provenance: dict[str, Any] | None
     explicit_skill_snapshot: dict[str, Any] | None
+    skill_plan: dict[str, Any] | None
     refinement: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -109,6 +111,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "refinement_provider": None,
             "explicit_skill_provenance": run_skill_provenance.validate_saved(record),
             "explicit_skill_snapshot": None,
+            "skill_plan": None,
             "refinement": None,
             "pre_query": None,
             "pre_query_policy": None,
@@ -137,6 +140,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "council_selection",
                     "council_request_policy",
                     "council_model_budgets",
+                    "skill_plan",
                 )
             ):
                 raise run_admission.AdmissionUnavailable(
@@ -145,6 +149,9 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             return _with_cursor(snapshot)
         run_admission._validate_conversation(record)
         interaction = run_interaction._validate_record(record)
+        skill_plan = run_skill_plan.validate_saved(record, interaction)
+        if skill_plan is not None:
+            snapshot["skill_plan"] = run_skill_plan.summary(skill_plan)
         execution = refinement_execution._validate_record(record)
         provider = refinement_provider._validate_record(record, execution)
         latest_refinement = None

@@ -82,31 +82,55 @@ def render(
     if type(max_chars) is not int or max_chars < 0:
         raise ValueError("Character budget must be a nonnegative integer")
     captured = run_skill_snapshot.load(run_id)
+    return _render_captured(
+        captured, selected_sections, max_chars=max_chars, reasons=reasons
+    )
+
+
+def _models(
+    captured: tuple[run_skill_provenance.CapturedSkill, ...],
+) -> list[skills.Skill]:
+    """Reconstruct only prompt-readable metadata from already-validated bytes."""
+    models = []
+    for item in captured:
+        document = item.document()
+        refs = [_reference(raw) for raw in document["references"]]
+        if len({ref.path for ref in refs}) != len(refs):
+            raise ValueError("Duplicate archived reference paths")
+        models.append(
+            skills.Skill(
+                id=item.id,
+                name=document["name"],
+                description=document["description"],
+                version=document["version"],
+                enabled=True,
+                created_at="",
+                updated_at="",
+                source_filename=None,
+                archive_sha256="",
+                skill_md_chars=len(document["body"]),
+                references=refs,
+            )
+        )
+    return models
+
+
+def _render_captured(
+    captured: tuple[run_skill_provenance.CapturedSkill, ...],
+    selected_sections: dict[str, list[skills.SectionSelection]],
+    *,
+    max_chars: int,
+    reasons: dict[str, dict[str, str]] | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Pure rendering core for validated archives; no run or library reads."""
+    if type(max_chars) is not int or max_chars < 0:
+        raise ValueError("Character budget must be a nonnegative integer")
     documents = {item.id: item.document() for item in captured}
     try:
-        models = []
-        references = {}
-        for item in captured:
-            document = documents[item.id]
-            refs = [_reference(raw) for raw in document["references"]]
-            if len({ref.path for ref in refs}) != len(refs):
-                raise ValueError("Duplicate archived reference paths")
-            references[item.id] = {ref.path: ref for ref in refs}
-            models.append(
-                skills.Skill(
-                    id=item.id,
-                    name=document["name"],
-                    description=document["description"],
-                    version=document["version"],
-                    enabled=True,
-                    created_at="",
-                    updated_at="",
-                    source_filename=None,
-                    archive_sha256="",
-                    skill_md_chars=len(document["body"]),
-                    references=refs,
-                )
-            )
+        models = _models(captured)
+        references = {
+            model.id: {ref.path: ref for ref in model.references} for model in models
+        }
         if (
             not isinstance(selected_sections, dict)
             or set(selected_sections) - documents.keys()

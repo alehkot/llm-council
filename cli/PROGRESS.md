@@ -1,3 +1,88 @@
+# CLI checkpoint — pinned deterministic skill plan (2026-11-05)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This work extends reviewed local commit `a461f97762f34a092d6538ece812b23b07efcb3f`
+and preserves its unpublished model-budget, skill-archive and rendering ancestry.
+Changes remain local pending publication authorization. Exact final local
+commit/tree and recovery artifacts belong in the separate receipt.
+
+The archive renderer could preview content but retained no reference decision or
+exact future skill block. The new internal `run_skill_plan.bind` now saves the
+existing deterministic keyword-overlap reference choices plus exact Stage 1/3
+skill blocks, distinct budgets and packing reports. Inputs are the archived
+explicit skills and the saved finalized question/response policy. Source hashes,
+revision, candidate IDs, grouped references and reference budget remain attached.
+These are the skill portions of future stage messages, not full provider inputs.
+
+This operation only supports skills enabled with the reference router already
+explicitly disabled. It does not change settings or substitute fallback work for
+an enabled model router. Automatic skill selection, model-based reference routing
+and router-failure fallback remain unsupported. Relevant setting drift, stale
+revisions, cancellation/deletion and invalid sources fail closed on binding.
+No model call, queue, prompt answer or interaction revision is introduced.
+
+Frozen historical results use saved settings/content, not the current library or
+configuration. Validation recomputes the deterministic version-1 derivation and
+checks exact identities, choices, blocks and reports without writing or refreshing
+anything. Unsupported future semantics require explicit version handling. Reports
+use immutable canonical JSON with detached dictionary access. Inspection retains
+only counts, lengths and an aggregate digest; private prompt content remains in
+the run receipt. Cancelled history stays readable; deleting its conversation
+removes the plan through the existing tombstone. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline 639 and final 658 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Nineteen new tests cover exact choices and both
+  blocks/reports, actual legacy router-disabled parity, strict supported settings,
+  missing/stale sources, archived reads after library deletion, immutable copies,
+  current-setting drift versus historical reads, credential exclusion, zero
+  budgets/caps, 24 concurrent duplicates, write failures/lost acknowledgments,
+  cancellation/deletion races, malformed evidence and fresh-process restoration.
+- Self-review passed 100 configuration combinations against the actual legacy
+  disabled-router path and both library-rendered blocks/reports; 70 malformed
+  nested-value probes through bind/load/inspect without rewrites; a private-text
+  exception-chain probe; and 32 cross-thread preparation/cancel/delete
+  interleavings. No introduced moderate-or-higher finding was identified in
+  self-review; review is not a correctness guarantee.
+- Independent read-only review found no moderate-or-higher issue and passed all
+  658 offline Python tests and changed-file Ruff checks. Additional probes covered
+  selection from a refined question, skipped pre-query input at revision 6, and
+  legacy synthetic whole-file parity. The seven-file hash manifest was verified.
+  Review clarified that the configured section cap counts selectable candidates;
+  one synthetic legacy candidate can contain multiple rendered heading sections.
+- All 114 frontend Node tests, frontend format/ESLint, repository-wide Ruff
+  format/lint for 109 Python files and whitespace checks passed. Actual loopback
+  Uvicorn startup, authenticated API0 config and graceful shutdown passed with
+  temporary storage and synthetic credentials. A newly added race test initially
+  missed an import; correcting that test-only issue preceded all final reruns.
+- Rust/UI and legacy routing source behavior are unchanged. Rust and rendered
+  browser checks were not rerun. Full builds, native macOS Keychain/platform and
+  live-provider checks remain unrun. Full public polling/storage performance,
+  multiprocess/power-loss safety and end-to-end consultation execution are not
+  established.
+
+## CI, publication and next steps
+
+Remote development/default heads expose no status contexts, check runs or commit
+comments; no GitHub Actions runs or open PRs are reported. No normal Woodpecker
+result is observable. Empty aggregate `pending` remains missing evidence, not an
+observed running build, pass or failure. No new published SHA exists for these
+local changes. No publication retry, CI dispatch, private-runner/other-environment
+access, PR/settings action or paid model test occurred.
+
+Next: resolve the outstanding publication decision and reconcile fresh remote
+heads before publishing reviewed work. Complete automatic/model-based selection,
+remaining exact stage/transport settings and full rendered inputs, guarded council
+work and human checkpoints, then durable scheduling and public run acceptance.
+Loading a saved plan never authorizes dispatch, old/disabled skills or uncertain
+retries. API0 and Rust consultation-command gates remain unchanged.
+
+---
+
 # CLI checkpoint — archived skill rendering (2026-11-05)
 
 ## Baseline and scope
