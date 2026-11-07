@@ -21,6 +21,7 @@ from . import (
     prequery_policy,
     refinement_execution,
     refinement_provider,
+    response_review_policy,
     run_admission,
     run_interaction,
     run_skill_plan,
@@ -76,6 +77,7 @@ class _SnapshotEvidence(TypedDict):
     stage1: dict[str, Any] | None
     refinement: dict[str, Any] | None
     response_review: dict[str, Any] | None
+    response_review_policy: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
     council_selection: dict[str, Any] | None
@@ -137,6 +139,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "stage1": None,
             "refinement": None,
             "response_review": None,
+            "response_review_policy": None,
             "pre_query": None,
             "pre_query_policy": None,
             "council_selection": None,
@@ -161,6 +164,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "refinement_execution",
                     "refinement_provider",
                     "pre_query_policy",
+                    "response_review_policy",
                     "council_selection",
                     "council_request_policy",
                     "council_model_budgets",
@@ -246,6 +250,9 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         policy = prequery_policy.validate_saved(record, interaction)
         if policy is not None:
             snapshot["pre_query_policy"] = policy.model_dump(mode="json")
+        review_policy = response_review_policy.validate_saved(record, interaction)
+        if review_policy is not None:
+            snapshot["response_review_policy"] = review_policy.model_dump(mode="json")
         selection = council_selection.validate_saved(record, interaction)
         if selection is not None:
             snapshot["council_selection"] = selection.model_dump(mode="json")

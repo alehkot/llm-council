@@ -1,3 +1,79 @@
+# CLI checkpoint: downstream response-review policy (2026-11-07)
+
+## Baseline and completed scope
+
+Started from verified remote `development` at
+[c6ad4b21fde58c53688e391b7cc5a071e922d94a](https://github.com/alehkot/llm-council/commit/c6ad4b21fde58c53688e391b7cc5a071e922d94a).
+Observed upstream `main` is
+[409c67c9d1c192579231a626053299a66c61fffb](https://github.com/alehkot/llm-council/commit/409c67c9d1c192579231a626053299a66c61fffb).
+This preserves the prior durable response-review boundary and the owner's ACP/Pi
+adapter work. No upstream integration was needed. The containing source commit
+records this slice; the recovery receipt records exact final local/published
+commit and tree IDs after publication.
+
+`response_review_policy.bind(run_id, expected_revision=...)` now persists effective
+downstream choices after the review answer is consumed. It binds the exact review
+instance, consumed interaction revision and original Stage 1 result/chunk digest.
+The accepted answer and all original receipts remain unchanged. Effective exclusions
+follow saved roster order, surviving answers receive the legacy contiguous labels,
+and excluding every answer produces `blocked_no_active_responses` rather than
+silently reinstating excluded answers.
+
+The historical council selection controls negative mode. Gap concerns cannot
+activate a disabled stage. When enabled, the exact accepted request's negative
+prompt takes precedence over review gap concerns, with the legacy truthiness
+semantics: empty strings defer, but whitespace-only strings remain exact input.
+If neither supplies text, the policy records `generation_required`; it does not
+generate a prompt. `next_stage` records a route, not execution readiness or a
+provider request. No scheduler, provider, public endpoint or API0 gate changed.
+
+Bindings are serialized with answer/cancel/delete operations and are idempotent.
+Stale revisions, unconsumed answers and inconsistent historical sources fail
+closed without rewriting evidence. Inspection includes the detached validated
+policy, survives configuration drift/restart and remains readable after cancellation;
+cancellation blocks rebinding and deletion erases the payload.
+
+## Verification and review
+
+- All 970 offline Python tests passed on Python 3.10 with unmocked outbound
+  networking forbidden. Fifteen new tests cover exclusions/all-excluded routing,
+  source identity, relabeling, omitted/skip/empty answers, 32 negative-prompt
+  precedence combinations, live-configuration drift, JSON object reordering,
+  concurrent binds, malformed source/policy, failed/lost writes, restart,
+  cancellation and deletion.
+- Self-review and independent review identified and fixed one moderate issue:
+  deriving source order from a JSON object's insertion order could swap response
+  labels after a harmless mapping reorder. Derivation now uses the validated
+  saved roster tuple. The new regression and independent adversarial reproduction
+  pass; independent review reports no remaining moderate-or-higher finding.
+  Independent checks also passed 29 adjacent review/inspection tests. Review is
+  not a guarantee of bug-free code.
+- Repository-wide Ruff format/lint passed for 133 Python files. All 114 frontend
+  Node tests, frontend format/lint, authenticated API0 backend startup, graceful
+  shutdown and diff whitespace checks passed. Existing dependencies were reused.
+- Full builds are unrun by policy and deferred to normal Woodpecker evidence.
+  Rust, macOS/Keychain, rendered browser and live-provider checks are unrun; those
+  sources did not change. These offline tests do not establish complete councils,
+  answer quality, platform compatibility, power-loss/multiprocess durability or
+  exactly-once external execution.
+
+## CI, recovery and next priorities
+
+At the starting exact working/main heads, GitHub statuses, check runs and
+Woodpecker commit-comment reports are absent. The normal push workflow exists;
+zero statuses with aggregate `pending` is missing evidence, not a running build
+or a pass. Final exact-SHA evidence is recorded in the publication receipt.
+No full local build, manual CI operation or private-runner access was performed.
+
+Real history, the complete patch and a verified recovery bundle are preserved.
+Next inspect normal exact-head build reports, then prepare the next bounded
+negative-analysis or Stage 2 input contract from the saved policy and original
+response receipts. Generated negative prompts still require a durable, guarded
+provider operation. Remaining stages, later continuations/context reduction,
+durable scheduling and whole-run/public acceptance remain unfinished.
+
+---
+
 # CLI checkpoint: durable response-review boundary (2026-11-07)
 
 ## Baseline and completed scope
