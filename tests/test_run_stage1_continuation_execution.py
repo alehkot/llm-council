@@ -187,7 +187,7 @@ class FirstContinuationExecutionTests(unittest.IsolatedAsyncioTestCase):
         finally:
             release.set()
             await asyncio.gather(*tasks)
-        self.assertEqual(self.snapshot()["internal_phase"], "stage1_needs_continuation")
+        self.assertEqual(self.snapshot()["internal_phase"], "stage1_complete")
 
     async def test_retry_requires_current_per_member_consent_and_never_replays_automatically(
         self,
@@ -996,7 +996,7 @@ class FirstContinuationExecutionTests(unittest.IsolatedAsyncioTestCase):
             for event in release.values():
                 event.set()
             results = await asyncio.gather(*tasks)
-        self.assertEqual(self.snapshot()["internal_phase"], "stage1_needs_continuation")
+        self.assertEqual(self.snapshot()["internal_phase"], "stage1_complete")
         for model, result in zip(self.models, results):
             self.assertEqual(self.load_result(self.run_id, model), result)
             self.assertEqual(result.content, f"answer for {model}")
@@ -1290,7 +1290,7 @@ class FirstContinuationExecutionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(result.usage)
         self.assertEqual([m["phase"] for m in self.members()], ["complete"] * 2)
         self.assertEqual([m["turn"] for m in self.members()], [1, 1])
-        self.assertEqual(self.snapshot()["internal_phase"], "stage1_needs_continuation")
+        self.assertEqual(self.snapshot()["internal_phase"], "stage1_complete")
         self.assertFalse(self.snapshot()["operation_owned"])
         self.assertEqual(self.saved()["stage1_execution"], self.initial_state)
         self.assertEqual(len(self.calls), 2)

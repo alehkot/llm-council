@@ -29,6 +29,7 @@ from . import (
     run_stage1_continuation_inputs,
     run_stage1_execution,
     run_stage1_inputs,
+    run_stage1_state,
     storage,
 )
 
@@ -70,6 +71,7 @@ class _SnapshotEvidence(TypedDict):
     stage1_execution: dict[str, Any] | None
     stage1_continuation_inputs: dict[str, Any] | None
     stage1_continuation_execution: dict[str, Any] | None
+    stage1: dict[str, Any] | None
     refinement: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -129,6 +131,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "stage1_execution": None,
             "stage1_continuation_inputs": None,
             "stage1_continuation_execution": None,
+            "stage1": None,
             "refinement": None,
             "pre_query": None,
             "pre_query_policy": None,
@@ -197,6 +200,14 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     record["run_id"], continuation_execution, continuations
                 )
             )
+        if stage1_inputs is not None:
+            snapshot["stage1"] = run_stage1_state.summary(
+                record["run_id"],
+                stage1_inputs,
+                stage1_execution,
+                continuations,
+                continuation_execution,
+            )
         execution = refinement_execution._validate_record(record)
         provider = refinement_provider._validate_record(record, execution)
         latest_refinement = None
@@ -244,34 +255,23 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             op is not None
             and (record["run_id"], str(op.attempt)) in refinement_execution._active
         )
-        stage1_owned = snapshot["stage1_execution"] is not None and any(
-            member["phase"] == "running"
-            for member in snapshot["stage1_execution"]["members"]
+        stage1_owned = (
+            snapshot["stage1"] is not None
+            and snapshot["stage1"]["counts"]["running"] > 0
         )
-        continuation_phases = (
-            [m["phase"] for m in snapshot["stage1_continuation_execution"]["members"]]
-            if snapshot["stage1_continuation_execution"] is not None
-            else []
-        )
-        continuation_owned = "running" in continuation_phases
-        snapshot["operation_owned"] = bool(owned or stage1_owned or continuation_owned)
+        snapshot["operation_owned"] = bool(owned or stage1_owned)
         if record.get("cancellation") is not None:
             snapshot["internal_phase"] = record["cancellation"]["phase"]
         elif snapshot["stage1_execution"] is not None:
-            phases = [m["phase"] for m in snapshot["stage1_execution"]["members"]]
-            snapshot["operation_owned"] = "running" in phases or continuation_owned
-            if continuation_owned:
-                snapshot["internal_phase"] = "running_stage1_continuation"
-            elif "running" in phases:
-                snapshot["internal_phase"] = "running_stage1"
-            elif "needs_retry" in phases or "needs_retry" in continuation_phases:
-                snapshot["internal_phase"] = "needs_retry"
-            elif "needs_continuation" in phases:
-                snapshot["internal_phase"] = "stage1_needs_continuation"
-            elif all(phase == "complete" for phase in phases):
-                snapshot["internal_phase"] = "stage1_complete"
-            else:
-                snapshot["internal_phase"] = "stage1_partial"
+            snapshot["internal_phase"] = {
+                "running_continuation": "running_stage1_continuation",
+                "running_initial": "running_stage1",
+                "needs_retry": "needs_retry",
+                "needs_continuation": "stage1_needs_continuation",
+                "complete": "stage1_complete",
+                "partial": "stage1_partial",
+                "ready": "pre_query_complete",
+            }[snapshot["stage1"]["phase"]]
         elif op is not None and op.phase == "in_flight":
             snapshot["internal_phase"] = (
                 "running_refinement" if owned else "needs_retry"

@@ -1206,10 +1206,52 @@ two valid chunks can yield more than 2 MiB of aggregate text, bounded by the two
 source caps. Returned nested metadata cannot modify persisted records or future
 reads. Content and chunks are excluded from the result's ordinary representation.
 
-No record is persisted or repaired, no cancellation is settled, no provider work
-is dispatched, and no polling projection or public capability changes. In
-particular, the existing inspector can still report `stage1_needs_continuation`
-from the original partial even when this explicit historical read returns a
-complete member answer. Whole-roster stage completion, later turns, guarded
-context reduction, later stages, public run operations and worker integration
-remain unfinished. API version remains 0 and CLI consultation commands stay gated.
+No record is persisted or repaired, no cancellation is settled and no provider
+work is dispatched. The whole-roster projection below now distinguishes retained
+initial partials from complete continued answers. Later turns, guarded context
+reduction, later stages, public run operations and worker integration remain
+unfinished. API version remains 0 and CLI consultation commands stay gated.
+
+
+### Internal whole-roster Stage 1 state and results (partial)
+
+`run_inspection.inspect(run_id)["stage1"]` combines the saved initial roster with
+validated initial and first-continuation attempts. It is `None` until initial
+inputs are saved. Each member retains council order and exposes a compact phase,
+request turn, whether that request has saved inputs, and its exact retry token
+only for uncertain work. Counts include every member, including unstarted ones;
+no quorum or sibling substitution counts as completion. No prompts, answer text,
+reasoning, usage or credentials are copied into this section.
+
+An initial `stop`, or initial `length` plus first-continuation `stop`, makes that
+member complete. Initial and continuation evidence remain separately visible
+without mutation. A length-only first continuation reports needed turn 2 with no
+prepared input or retry token; later turns remain unimplemented. Saved input is
+not execution permission, and a reported need does not establish that policy or
+context budgets allow another request. The guarded bind/execute operations still
+perform their own validation.
+
+The combined phase is `ready`, `running_initial`, `running_continuation`,
+`needs_retry`, `needs_continuation`, `partial` or `complete`. Active continuations
+then active initial requests take display precedence, followed by uncertainty,
+continuation needs and all-member completion. Per-member states and counts retain
+other simultaneous needs. The inspector's internal Stage 1 phase now uses this
+combined view, so a completed continuation cannot leave its old initial partial
+incorrectly blocking Stage 1 completion. Cancellation/cancelling still overrides
+the run-level phase while retained evidence stays readable. `stage1_complete` is
+not whole-council or run completion and does not advance execution.
+
+`run_stage1_results.load_complete_results(run_id)` reads one coherent whole-roster
+view under the existing storage lock. It returns a detached tuple of the exact
+member results described above in saved council order, or `None` if any member
+is incomplete. Validation of every saved source occurs before partial-return
+logic, so an incomplete first member cannot hide corrupt sibling evidence.
+Historical reads use no current settings/library/catalog, write nothing, schedule
+nothing and preserve cancellation. Deleted or incompatible runs fail closed.
+Existing single-member reads reuse the same projection logic.
+
+This is read-only integration, not a persisted stage transition, scheduler,
+public API, export update or authorization to call another model. Ephemeral local
+ownership changes polling cursors without rewriting receipts; it is not a
+cross-process ownership guarantee. Full guarded remaining stages, human-input
+boundaries and acceptance remain pending. API version stays 0.

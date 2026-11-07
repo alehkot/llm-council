@@ -1,3 +1,85 @@
+# CLI checkpoint: whole-roster Stage 1 state and results (2026-11-06)
+
+## Baseline and scope
+
+Remote development remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default main remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This local-only slice extends dc91e8cb3d3f8b9d01adec6931ee75e3adac2236,
+preserving all eleven earlier unpublished commits. The separate recovery receipt
+records this slice's final local commit/tree. The prior remote commit-creation
+denial remains unresolved; no retry or alternative publication route was used.
+
+The inspector now projects one compact whole-roster Stage 1 state from validated
+initial and first-continuation evidence. It reports counts, saved council order,
+current/needed turns, prepared-input availability and per-member uncertainty
+tokens without answer text or metadata. Completed first continuations now count
+as complete member work instead of leaving the original partial as an effective
+continuation need. Raw per-attempt evidence remains unchanged and available.
+
+All stopped members are required for Stage 1 completion. Unstarted, uncertain
+and partial siblings remain visible even while another member runs. A second
+length response reports needed turn 2 without prepared input or retry token;
+that turn remains unimplemented. Cancellation/cancelling still takes run-level
+precedence. A Stage 1 result or saved input never authorizes another model request
+or establishes completion of the whole consultation.
+
+The new read-only whole-roster result helper returns a coherent detached tuple
+in saved council order, or None if any member is incomplete. It shares the exact
+single-member projection, preserving content and original per-chunk provenance
+and metadata. All saved evidence is validated before partial-return logic, so
+unfinished work cannot hide corrupt sibling evidence. The existing storage lock
+serializes the whole read with cancellation/deletion. No write, repair, provider
+request, stage transition, scheduler, export or public capability is added.
+See [CONTRACT.md](CONTRACT.md) for state precedence and limits.
+
+## Verification and review
+
+- Baseline 880 and final 899 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Nineteen new tests include 49 mixed-member
+  combinations plus running initial/continuation siblings, isolated retry tokens,
+  late continuation completion, exact ordered results, cursor ownership changes,
+  cancellation, deletion, malformed causal evidence, read privacy/detachment and
+  fresh-process restoration without current settings.
+- Three old continuation tests intentionally expected the prior incomplete
+  polling projection after all members had stopped. Those expectations now assert
+  Stage 1 completion; the initial related-suite run loaded the old assertions and
+  failed only those three. The final full suite uses the corrected expectations.
+- Self-review passed 16 whole-roster-read/cancellation and 16 read/deletion races,
+  confirming mutations wait for the coherent read lock and cannot create mixed
+  results or resurrect deleted data.
+- Independent review found no moderate-or-higher issues. The reviewer
+  independently reran all 19 new tests successfully, including mixed-member
+  phases, cancellation, corrupt evidence, detached results and fresh-process
+  restoration. Final checkpoint review was also clear. A clean review is not a
+  correctness guarantee.
+- All 114 frontend Node tests, repository-wide Ruff format/lint for 125 Python
+  files, frontend formatting/ESLint and whitespace checks passed. Actual loopback
+  Uvicorn startup returned authenticated API0 config and shut down gracefully
+  using temporary empty storage and synthetic unused credentials.
+- Rust/UI and public execution are unchanged. Full builds, browser checks, Rust,
+  native macOS/Keychain and live-provider calls were not run. Tests do not establish
+  whole-consultation completion, remote billing semantics, power-loss durability
+  or cross-process ownership/writer safety.
+
+## CI, recovery and next steps
+
+Exact development/main commit statuses, check-runs and commit comments remain
+empty, with no Woodpecker report or Actions runs. Aggregate pending is missing
+evidence, not an observed running build, pass or failure. The unpublished local
+chain has no remote CI/full-build coverage. No manual dispatch/rerun, private
+runner or user-computer access, PR action, security/settings change or charge
+occurred. A genuine-history recovery bundle and current-slice patch preserve this
+work without rewriting earlier history.
+
+Next: continue guarded stage/worker and human-input boundaries, with explicit
+later-turn/context-reduction semantics before whole-run public acceptance. No
+public consultation command is enabled; API version stays 0. Publishing the
+unpublished chain requires materially new direct authorization, fresh remote
+reconciliation without force/reset, exact published tree/head verification and
+observation of normal CI.
+
+---
+
 # CLI checkpoint: complete member result projection (2026-11-06)
 
 ## Baseline and scope

@@ -68,6 +68,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
   prior text or automatically starting another continuation; an explicitly called
   continuation OpenRouter adapter now sends that exact saved request using the
   shared bounded wire contract, with separate adapter identity and retry consent;
+  whole-roster read-only state now accounts for completed first continuations and
+  returns all complete member results together without scheduling the next stage;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
