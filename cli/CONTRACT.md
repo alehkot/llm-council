@@ -919,7 +919,7 @@ the injected callback. The callback receives the saved endpoint, timeout and a
 detached copy of the exact JSON payload. No current library/catalog lookup,
 implicit input binding or legacy provider fallback is performed.
 
-This is an internal callback seam, **not an installed HTTP adapter**. The caller
+This is an internal callback seam, **not an automatically selected HTTP adapter**. The caller
 must supply a trusted adapter that makes one request, honors the supplied timeout
 and performs no retries, context reduction or continuation calls. The guard
 guarantees one callback invocation per owned attempt, not what arbitrary injected
@@ -939,8 +939,9 @@ retry runs. Completed siblings are retained and never implicitly rerun.
 Normalized responses require nonblank text and a `stop` or `length` finish reason;
 optional reasoning details and usage are finite JSON metadata. Stored normalized
 responses are capped at 2 MiB. Unknown fields, unsupported finishes and malformed
-responses fail without saving success. The future HTTP adapter must separately
-bound wire-response reads and validate its protocol envelope. A `length` result
+responses fail without saving success. HTTP adapters must separately
+bound wire-response reads and validate their protocol envelopes. The explicit
+OpenRouter adapter below supplies these checks. A `length` result
 retains its exact partial text/metadata and reports `needs_continuation`; it is
 never treated as a finished answer or replayed as an uncertain initial request.
 Continuation execution remains unsupported. Metadata and response text are
@@ -978,3 +979,50 @@ signals that callback once and retains ownership until cleanup ends, even when
 the caller is cancelled again during cleanup. Any late result is discarded.
 This does not establish power-loss durability, multi-process ownership,
 exactly-once provider execution or complete consultation orchestration.
+
+### Internal initial Stage 1 OpenRouter adapter (partial)
+
+`run_stage1_provider.execute_openrouter(run_id, model, api_key=...,
+expected_revision=..., retry_token=...)` explicitly invokes the member guard with
+the versioned, non-secret identity `openrouter-stage1-v1`. It uses only the
+guard-supplied saved endpoint, 120-second timeout and exact JSON payload. No model
+catalog lookup, mutable prompt composition, new skill selection, provider
+fallback or implicit input binding occurs. Existing attempts bound to another
+adapter identity cannot be adopted retrospectively.
+
+One guarded attempt makes one HTTP POST with an ephemeral bearer credential.
+The credential is validated before durable mutation and passed only as the
+authorization header, not copied into request settings, receipts, adapter identity
+or error messages. Credential
+rotation is allowed independently of saved request inputs. HTTPX uses no default
+transport retries, environment proxies or redirects. An overall asynchronous
+deadline covers the request and body read in addition to HTTPX's per-operation
+timeouts. Cancellation waits for transport cleanup through the existing guard;
+this is not proof that the remote provider stopped or did not charge.
+
+The adapter requests identity encoding and rejects any nonidentity
+`Content-Encoding` before decoding/reading the body. Compressed responses are
+deliberately unsupported so the response-size check cannot be bypassed by
+decompression expansion. Retained response bytes are bounded at 2 MiB before
+each append; normalized results independently retain their existing 2 MiB cap.
+UTF-8 JSON must have no duplicate keys or nonfinite numbers, including overflowed
+numbers in otherwise ignored fields. It must contain exactly one assistant
+choice, a nonblank text response and `stop` or `length`. Error envelopes, refusal,
+tool/function calls, other finish reasons and malformed reasoning/usage metadata
+fail closed. Optional reasoning details and usage are preserved without
+rewriting text; unrelated valid envelope metadata is ignored.
+
+HTTP errors, redirects, timeouts, invalid/oversized responses and interruption
+leave the attempt uncertain, requiring its exact retry token. No automatic
+replay, context reduction or continuation runs. A `length` response is saved as
+partial work, never a final answer. Repeated calls return already saved results
+without another POST, subject to the guard's normal current-state checks;
+historical reads still use its separate read-only interface.
+
+The optional injected HTTP transport is a trusted offline-test seam; an arbitrary
+transport could ignore cancellation or perform hidden retries, which this
+adapter cannot police. No public route, startup hook, configured worker or CLI
+consultation command selects this adapter. Public API version remains 0. The
+remaining stages, context reduction/continuations, human boundaries, independent
+worker ownership, receipt-to-export integration and whole-consultation acceptance
+remain incomplete.

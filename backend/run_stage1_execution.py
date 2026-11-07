@@ -1,6 +1,6 @@
 """Internal durable guard for one initial Stage 1 member request at a time.
 
-No route, worker, HTTP adapter or automatic loop invokes this module. Injected
+No route, worker or automatic loop invokes this module. Explicitly selected
 providers must make exactly one attempt using the supplied saved request. Local
 ownership is process-wide, not distributed or exactly-once at a remote provider.
 """
@@ -54,7 +54,7 @@ class RetryRequired(RuntimeError):
 class MemberResponse(WireModel):
     """Normalized initial response; a length stop is retained, not a final answer.
 
-    Nested metadata is detached on every return. A future transport adapter must
+    Nested metadata is detached on every return. Any transport adapter must
     normalize its response to this contract without adding credentials or retries.
     """
 
@@ -242,8 +242,9 @@ async def execute(
     The provider must make one attempt with endpoint/timeout_seconds/payload as
     supplied, with no internal retries or context/continuation calls. provider_key
     is a stable non-secret adapter version, never a credential. No HTTP adapter is
-    installed here. Caller cancellation cancels this internal attempt; public
-    client detachment requires a separate worker-owner layer, not this coroutine.
+    selected automatically here. Caller cancellation cancels this internal
+    attempt; public client detachment requires a separate worker-owner layer,
+    not this coroutine.
     """
     if type(expected_revision) is not int or expected_revision < 0:
         raise ValueError("Expected revision must be a nonnegative integer")

@@ -1,3 +1,88 @@
+# CLI checkpoint: bounded initial Stage 1 wire adapter (2026-11-05)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This slice extends reviewed local `8f3744499fcfe9e41351e5f96cff47bf0a8f7644`
+and preserves all six unpublished commits. Publication remains blocked by the
+prior denied remote commit creation; no retry or alternative publication route
+was attempted. The recovery receipt records the final local commit/tree.
+
+New internal `run_stage1_provider.execute_openrouter` explicitly selects one
+versioned adapter over the existing member attempt guard. It sends the exact
+saved endpoint, JSON payload and 120-second timeout with an ephemeral credential.
+There are no default transport retries, redirects, environment proxies, catalog
+lookups, context reduction or continuation calls. Each HTTP attempt is recorded
+before dispatch; uncertain work still requires its exact member retry token.
+Already saved results are returned without another request.
+
+The transport requests identity encoding, rejects compressed responses before
+reading them, and caps retained body bytes at 2 MiB before each append. An overall
+asynchronous deadline covers request and body read alongside HTTPX timeouts.
+UTF-8 JSON rejects duplicate keys, nonfinite literals and overflowed floats,
+including ignored metadata. Exactly one assistant text choice with a `stop` or
+`length` finish is required; error, refusal and tool/function-call responses fail
+closed. Reasoning details and usage retain their existing finite-JSON and
+normalized-size checks. Partial responses stay partial without automatic replay.
+
+Research reused the explicit refinement adapter and the new Stage 1 guard;
+transport/parsing policy is separate from the legacy retrying provider path.
+No worker, startup hook, public route or CLI consultation command selects this
+adapter. API0 stays unchanged. Later stages, continuation/context-reduction
+boundaries, independent worker ownership and receipt-to-export integration remain
+incomplete. Arbitrary injected test transports remain trusted and could violate
+single-request or cancellation behavior; no remote exactly-once/billing guarantee
+is made. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline 727 and final 749 offline Python 3.10.22 tests passed, with unmocked
+  outbound connections forbidden. Twenty-two new tests cover exact saved wire
+  inputs and durable pre-dispatch receipt, default retry settings, credential
+  rotation, saved-result replay, uncertain-work consent, HTTP errors/redirects,
+  malformed/error/refusal/tool envelopes, strict JSON, body limits,
+  compression rejection before reading, total timeout, caller/durable
+  cancellation, deletion, ownership through stream cleanup, persistence failure
+  and lost completion acknowledgments. No live provider connection was made.
+- Self/independent review caught a finite-JSON nuance: overflowed numbers in
+  ignored envelope fields must fail too. A finite float parser closes that gap.
+  Two early tests had the wrong HTTPX mock target and an overly permissive empty
+  function-call expectation; they were corrected without relaxing the adapter.
+- Independent final review found no remaining moderate-or-higher issue. It passed
+  91 focused tests (22 adapter, 50 attempt guard, 19 saved-input), eight additional
+  wire/timeout/cancellation scenarios, 35 malformed parser cases plus a valid
+  control, and whitespace. Final production/test hashes were confirmed. Review
+  is not a correctness guarantee.
+- Repository-wide Ruff format/lint passed for 115 Python files. All 114 Node tests,
+  frontend formatting/ESLint, and actual authenticated loopback Uvicorn API0
+  startup/graceful shutdown passed. Final checks use synthetic credentials and
+  isolated temporary data. Full builds, browser, Rust/native macOS/Keychain and
+  live-provider checks were not run; those surfaces are unchanged.
+
+## Recovery, CI and next steps
+
+The shared filesystem was nearly full, so implementation and test logs used a
+separate temporary local checkout. No other work or caches were deleted. The
+recovery receipt identifies a small incremental Git bundle and patch, anchored to
+the previously verified full-history bundle at `8f374449`, rather than duplicating
+that history. These must be retained together; the receipt records restore checks
+and final exact commit/tree identities.
+
+Exact development/default commits expose no status contexts, check runs or
+commit comments, and there are no Actions runs or open PRs/issues. Empty aggregate
+`pending` is missing normal Woodpecker evidence, not a running build/pass/failure.
+No remote blobs, trees, commits, ref updates, PR actions, CI dispatch, runner/user
+computer access, settings changes, deployment or paid call were attempted.
+
+Next: obtain direct authorization before any publication retry and preserve all
+unpublished ancestry. Implement separately guarded continuation/context-reduction
+work, remaining stages/skills/synthesis and human boundaries, then durable worker
+scheduling and whole-consultation acceptance before enabling API1 or consultation
+commands.
+
+---
+
 # CLI checkpoint: guarded initial Stage 1 attempts (2026-11-05)
 
 ## Baseline and scope

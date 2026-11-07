@@ -57,7 +57,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   pinned from those saved inputs when every model budget already fits, with no
   implicit context reduction; an explicit per-member callback guard now saves
   in-flight attempts and complete/partial responses, requires consent for uncertain
-  retries and protects concurrent-member ownership without a wire adapter or worker;
+  retries and protects concurrent-member ownership; an explicitly called OpenRouter
+  adapter now makes one bounded request from those saved inputs without automatic
+  retries, redirects or continuations. No worker selects it;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
