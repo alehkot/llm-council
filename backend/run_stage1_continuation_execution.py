@@ -1,6 +1,7 @@
 """Internal durable guard for one explicitly named first Stage 1 continuation.
 
-No route, worker or automatic loop invokes this module. Explicitly selected
+An explicit internal manager step can invoke this guard through its adapter;
+no public route or automatic loop does. Explicitly selected
 providers must make exactly one attempt using the supplied saved request. Local
 ownership is process-wide, not distributed or exactly-once at a remote provider.
 """
@@ -259,9 +260,9 @@ async def execute(
     The trusted callback must make one attempt with supplied endpoint, timeout
     and payload, without internal retries or context/continuation calls. A saved
     result is replayed for this turn, never interpreted as permission for another.
-    An explicitly called HTTP adapter can supply this callback; no worker or
-    automatic path selects it. Caller cancellation cancels the internal attempt;
-    public detachment requires independent worker ownership.
+    An explicitly called HTTP adapter supplies this callback, including from the
+    internal manager step; no public route or automatic loop selects it. Direct
+    caller cancellation cancels the attempt; the manager separately owns its step.
     """
     _validate_turn(turn)
     if type(expected_revision) is not int or expected_revision < 0:

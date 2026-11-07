@@ -1072,8 +1072,9 @@ partial text, reasoning or payloads. An initializing record cannot contain one.
 
 The separately invoked first-continuation guard below adds uncertain retry
 consent for one named turn, and an explicitly invoked wire adapter is described
-below. Further turns, aggregation, context reduction, worker ownership, exports
-and public API remain unimplemented.
+below. Explicit first-continuation worker ownership and read-only text projection
+are described later. Further turns, context reduction, exports and public API
+remain unimplemented.
 API version stays 0. Public consultation commands remain gated.
 
 ### Internal guarded first Stage 1 continuation (partial)
@@ -1086,8 +1087,8 @@ turn, binds missing inputs or invokes a legacy provider. The trusted injected
 callback receives the exact saved endpoint, timeout and detached JSON payload,
 and must make one request without hidden retries or further calls. The guard
 owns one callback invocation, not arbitrary network behavior inside it. The
-explicit wire adapter below supplies the bounded request implementation; no
-worker, route or automatic loop selects this helper.
+explicit wire adapter below supplies the bounded request implementation. An
+explicit internal manager step can select it; no public route or automatic loop does.
 
 Attempts live in a separate continuation execution record. Initial operations,
 partial text, reasoning, usage and retry ancestry remain unchanged. Each new
@@ -1175,8 +1176,9 @@ The existing guard owns cancellation and deletion checks, waits for transport
 cleanup and rejects late results. Cleanup may outlast a nominal timeout for an
 uncooperative injected transport; local cancellation does not prove remote work
 or billing stopped. The injected transport is a trusted offline-test seam.
-No public route, worker, startup hook, automatic loop or CLI consultation command
-selects this adapter. No aggregation, further-turn/context-reduction strategy,
+No public route, startup hook, automatic loop or CLI consultation command
+selects this adapter. The explicit internal manager continuation step below can
+select it. No aggregation, further-turn/context-reduction strategy,
 exports, public detachment or whole-consultation completion is implemented here.
 API version remains 0.
 
@@ -1300,3 +1302,33 @@ There is no startup scheduling, public HTTP route, version upgrade, CLI run-comm
 connection or full consultation acceptance. Later turns, context reduction,
 remaining guarded stages and human input, durable scheduling and export integration
 remain pending. Full builds, live-provider, macOS and Rust verification are unrun.
+
+
+### Internal manager-owned first continuation (partial)
+
+`ConsultationManager.schedule_cli_stage1_continuation(run_id, model, turn=1,
+expected_revision=..., api_key=..., retry_token=...)` explicitly schedules the
+already-pinned first continuation through its separate bounded adapter and
+durable attempt guard. Only integer turn 1 is accepted; booleans, missing inputs
+and other turns fail before queueing. It never binds or derives input, selects
+another turn, concatenates saved chunks, or dispatches siblings/later stages.
+A stopped result becomes readable through the existing whole-roster projection;
+a length result remains an unmet continuation need, not permission to execute it.
+
+Initial and first-continuation steps share the same manager ownership key
+(run, member). Active duplicates must match turn, revision and consent; an initial
+step and continuation for the same member conflict until ownership is released.
+Separate members may run concurrently. The initial public method's signature and
+guard semantics are unchanged. Each turn still uses its own provider identity,
+saved attempt and retry token. Repeated saved results do not make another call.
+
+The same shielded-wait, detached-snapshot, legacy-exclusion and process-local queue
+limits above apply. The existing continuation guard rechecks cancellation,
+deletion, revision, saved input ancestry and configuration at worker dispatch.
+Initial validation rejection creates no attempt. Failure after durable attempt
+creation may require explicit current continuation consent even when network
+dispatch is uncertain.
+Credentials are not persisted or exposed in handles, but execution objects and
+tracebacks may retain them in memory. Queueing is not durable and cannot guarantee
+remote cancellation or absence of charges after dispatch. No public route, startup
+scheduling, automatic retries, API upgrade or CLI consultation command is enabled.

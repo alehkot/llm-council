@@ -69,6 +69,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
   prior text or automatically starting another continuation; an explicitly called
   continuation OpenRouter adapter now sends that exact saved request using the
   shared bounded wire contract, with separate adapter identity and retry consent;
+  an explicit manager handoff now owns that named first continuation on the pool,
+  excluding simultaneous initial-member ownership without automatically choosing a turn;
   whole-roster read-only state now accounts for completed first continuations and
   returns all complete member results together without scheduling the next stage;
   full exact-wire/provider/skills provenance,
@@ -605,3 +607,13 @@ implicit retry, continuation, sibling request or later stage. Legacy submission
 is excluded during ownership; queued work rechecks current state/configuration
 before dispatch. This is process-local scheduling, not durable queue admission or
 public detach/recovery support. API0 and consultation-command gates stay unchanged.
+
+### Internal first-continuation worker checkpoint (partial, local)
+
+The manager can explicitly schedule an already-pinned first continuation for one
+named member. Initial and continuation steps share member ownership, with turn,
+revision and consent identifying an active duplicate. Detached waiters leave work
+owned by the pool; queued state/configuration is rechecked by the durable guard.
+No input is prepared and no later turn, sibling or stage runs automatically. This
+is process-local scheduling, not durable admission or public run completion.
+API0 and consultation-command gates remain unchanged.

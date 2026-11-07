@@ -1,6 +1,7 @@
 """Explicit single-request OpenRouter adapter for one saved first continuation.
 
-No worker or public route selects this adapter. It never infers the next turn,
+An explicit internal manager step can select this adapter; no public route or
+automatic loop does. It never infers the next turn,
 aggregates chunks, replaces an initial partial or automatically continues again.
 """
 

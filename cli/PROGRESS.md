@@ -1,3 +1,73 @@
+# CLI checkpoint: manager-owned first Stage 1 continuation (2026-11-07)
+
+## Baseline and completed scope
+
+Remote development remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Upstream main remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This local-only slice extends `49aa26d9e85a5ac07b5b90ad37b07eed0b08943a`,
+preserving thirteen unpublished ancestors. Its containing commit is the source
+checkpoint; the separate recovery receipt records the exact final commit/tree.
+Existing remote commit-creation denial remains unresolved; no retry or alternate
+source publication was attempted.
+
+An explicit manager method now schedules one already-pinned first continuation
+on the existing pool through its separate bounded adapter/guard. Initial and
+continuation requests share one member ownership key; active duplicates must
+match turn, revision and consent. This prevents overlapping manager steps for
+one member while allowing separately requested members to run concurrently.
+The common scheduler retains initial-member behavior and shielded detached waiting.
+
+Only integer turn 1 is supported. No input preparation, next-turn inference,
+automatic retry, sibling request or next stage occurs. Saved completion replays
+without another HTTP request; a length response remains incomplete. Queued
+state/configuration changes fail closed. Cancellation and deletion retain the
+existing guard semantics, including rejection of a late result after deletion;
+local deletion is not a guarantee of transport interruption. API0 and all public
+consultation-command gates remain unchanged. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Thirty focused actual-worker tests passed: fifteen new continuation tests and
+  fifteen initial-worker regressions. They cover duplicate/turn/consent identity,
+  queued and running detachment, two-member concurrency, cancellation/deletion,
+  stale/configuration changes, explicit retry, replay, missing inputs and invalid
+  turns, partial completion and legacy work exclusion.
+- Independent review found no moderate-or-higher source finding. Its stress probe
+  verified 64 duplicate continuation schedules share one request/handle, 64
+  conflicting initial schedules are rejected and 64 result copies are detached.
+  Minor documentation scope/attempt-creation wording was corrected.
+- Whole-change self-review and parent review found no moderate-or-higher issue.
+  A clean review is not a guarantee of correctness.
+- All 929 offline Python tests passed with outbound networking forbidden; all 114
+  Node tests passed. Repository-wide Ruff format/lint passed across 127 Python
+  files, plus frontend formatting/lint and whitespace checks. Authenticated API0
+  startup/graceful shutdown passed using isolated storage and synthetic credentials.
+- One added test initially assumed deletion interrupted transport; its blocked
+  run was stopped and the test corrected to explicitly release the late result,
+  verifying the documented tombstone behavior. Final focused/full checks above
+  use that corrected test. No product behavior was weakened to satisfy it.
+- Full builds, Rust, native macOS/Keychain, browser and live-provider checks are
+  unrun. UI/Rust source is unchanged. No complete consultation, remote billing,
+  power-loss or multi-process guarantee is established by these offline checks.
+
+## Recovery, CI and next priority
+
+The complete genuine-history repository, full-history bundle and binary change
+patch are retained locally. Restore verification checks exact commit/tree/parent,
+Git integrity, reverse-patch applicability and focused tests. No source patch is
+published as an alternate route around the existing commit-creation denial.
+
+Exact remote development/main have no statuses, check runs or Woodpecker commit
+comments. Missing evidence is not a running build or pass. This unpublished
+revision has no remote build evidence. No manual CI action was taken.
+
+Next implement only bounded remaining guarded stage/human boundaries, later-turn
+and context-reduction semantics, then durable scheduling/public acceptance.
+Publication requires applicable new authorization, fresh remote reconciliation
+without force/reset, and exact-commit CI observation afterward.
+
+---
+
 # CLI checkpoint: manager-owned initial Stage 1 member (2026-11-07)
 
 ## Baseline and completed scope

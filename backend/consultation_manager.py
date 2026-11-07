@@ -21,6 +21,7 @@ from . import (
     refinement_provider,
     run_admission,
     run_inspection,
+    run_stage1_continuation_provider,
     run_stage1_execution,
     run_stage1_provider,
     storage,
@@ -142,9 +143,10 @@ class RefinementStepHandle:
 
 @dataclass(frozen=True)
 class Stage1StepHandle(RefinementStepHandle):
-    """Process-local ownership of one explicitly selected initial member."""
+    """Process-local ownership of one explicitly selected member request."""
 
     model: str
+    turn: int = 0
 
 
 def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
@@ -659,6 +661,56 @@ class ConsultationManager:
         guard rechecks current state/configuration when the worker starts. There
         is no roster loop, automatic continuation, retry or next-stage dispatch.
         """
+        return self._schedule_cli_stage1_step(
+            run_id,
+            model,
+            turn=0,
+            expected_revision=expected_revision,
+            api_key=api_key,
+            retry_token=retry_token,
+            _transport=_transport,
+        )
+
+    def schedule_cli_stage1_continuation(
+        self,
+        run_id: str,
+        model: str,
+        *,
+        turn: int,
+        expected_revision: int,
+        api_key: str,
+        retry_token: str | None = None,
+        _transport: Any = None,
+    ) -> Stage1StepHandle:
+        """Own one explicitly named, already-pinned first continuation.
+
+        Only turn 1 is supported. This never prepares inputs, infers another
+        turn or advances siblings/stages. Ownership excludes an initial step
+        for the same member; retry consent belongs to this continuation guard.
+        """
+        if type(turn) is not int or turn != 1:
+            raise ValueError("Only the saved first continuation is supported")
+        return self._schedule_cli_stage1_step(
+            run_id,
+            model,
+            turn=turn,
+            expected_revision=expected_revision,
+            api_key=api_key,
+            retry_token=retry_token,
+            _transport=_transport,
+        )
+
+    def _schedule_cli_stage1_step(
+        self,
+        run_id: str,
+        model: str,
+        *,
+        turn: int,
+        expected_revision: int,
+        api_key: str,
+        retry_token: str | None,
+        _transport: Any,
+    ) -> Stage1StepHandle:
         run_id = str(uuid.UUID(run_id))
         if type(expected_revision) is not int or expected_revision < 0:
             raise ValueError("Expected revision must be a nonnegative integer")
@@ -672,12 +724,13 @@ class ConsultationManager:
         with self._lock:
             owned = self._cli_stage1_steps.get(key)
             if owned is not None and not owned._future.done():
-                if (owned.revision, owned.retry_token) != (
+                if (owned.revision, owned.retry_token, owned.turn) != (
                     expected_revision,
                     retry_token,
+                    turn,
                 ):
                     raise run_stage1_execution.ExecutionConflict(
-                        "Another initial member boundary is already scheduled"
+                        "Another member boundary is already scheduled"
                     )
                 return owned
             snapshot = run_inspection.inspect(run_id)
@@ -693,6 +746,15 @@ class ConsultationManager:
                 raise run_stage1_execution.ExecutionConflict(
                     "Member does not identify saved Stage 1 input"
                 )
+            if turn == 1:
+                prepared = snapshot["stage1_continuation_inputs"]
+                if prepared is None or not any(
+                    r["model"] == model and r["turn"] == turn
+                    for r in prepared["requests"]
+                ):
+                    raise run_stage1_execution.ExecutionConflict(
+                        "Member does not identify saved continuation input"
+                    )
             conversation_id = snapshot["conversation_id"]
             refinement = self._cli_refinement_steps.get(run_id)
             if (
@@ -707,13 +769,14 @@ class ConsultationManager:
                 self._run_cli_stage1_member,
                 run_id,
                 model,
+                turn,
                 expected_revision,
                 api_key,
                 retry_token,
                 _transport,
             )
             handle = Stage1StepHandle(
-                run_id, expected_revision, retry_token, future, model
+                run_id, expected_revision, retry_token, future, model, turn
             )
             self._cli_stage1_steps[key] = handle
         # Completed futures invoke callbacks synchronously; register outside lock.
@@ -726,19 +789,27 @@ class ConsultationManager:
     def _run_cli_stage1_member(
         run_id: str,
         model: str,
+        turn: int,
         revision: int,
         api_key: str,
         retry_token: str | None,
         transport: Any,
     ) -> run_inspection.RunInspectionSnapshot:
+        adapter = (
+            run_stage1_provider.execute_openrouter
+            if turn == 0
+            else run_stage1_continuation_provider.execute_openrouter
+        )
+        arguments = {"turn": turn} if turn else {}
         asyncio.run(
-            run_stage1_provider.execute_openrouter(
+            adapter(
                 run_id,
                 model,
                 api_key=api_key,
                 expected_revision=revision,
                 retry_token=retry_token,
                 _transport=transport,
+                **arguments,
             )
         )
         snapshot = run_inspection.inspect(run_id)
