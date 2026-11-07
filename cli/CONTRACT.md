@@ -1332,3 +1332,31 @@ Credentials are not persisted or exposed in handles, but execution objects and
 tracebacks may retain them in memory. Queueing is not durable and cannot guarantee
 remote cancellation or absence of charges after dispatch. No public route, startup
 scheduling, automatic retries, API upgrade or CLI consultation command is enabled.
+
+### Read-only response-review preparation (partial)
+
+`run_response_review.prepare(run_id)` returns a detached proposed review schema,
+ordered complete Stage 1 answers and label-to-model mapping, or `None` when any
+member is unstarted, uncertain or still partial. It reuses the legacy response
+review fields, option labels, defaults and skip semantics. Exact answer text and
+per-chunk request/attempt/usage/reasoning provenance stay in separate result
+objects, not option labels or compact inspection. No accepted values are invented.
+
+One existing storage-lock boundary covers admission and all-member evidence.
+Cancellation/deletion prevents preparation, and corrupt ancestry fails closed.
+Configuration drift does not rewrite saved evidence. A versioned SHA-256 source
+identity binds run ID and ordered complete results, including text and original
+chunk provenance. It is not a signature, retry token or permission to execute.
+Nested returned values are detached, not deeply immutable; later reads remain
+unaffected by caller mutation. No instance UUID, revision advance, waiting prompt,
+answer receipt or worker is created, and no provider or current library is read.
+
+This is a reusable prerequisite for the next durable human boundary, not completed
+persistent review. `durable_prequery.validate_checkpoint` currently requires that
+pre-query be the final supported interaction boundary; saved downstream input
+provenance also depends on that history. Adding review to that history requires a
+separate carefully tested transition and causality change. Do not feed this
+preview to public answer routes or treat a previously returned copy as permission
+to advance: a future coordinator must revalidate current admission and provenance
+and persist the exact prompt/schema/instance before collecting input. API0 and
+all public consultation gates remain unchanged.

@@ -1,3 +1,69 @@
+# CLI checkpoint: read-only response-review preparation (2026-11-07)
+
+## Baseline and completed scope
+
+Remote development remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Upstream main remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This local-only slice extends `ad6f19f58f0f70e4a10333987bdeb853559814e8`,
+preserving fourteen unpublished commits. Its containing commit holds the source
+checkpoint; the recovery receipt records its exact final SHA/tree. Publication
+remains blocked by the prior remote commit-creation denial; no retry or alternate
+source upload was attempted.
+
+The next legacy human boundary is response review after complete Stage 1. A
+reusable read-only preparation now returns the same schema/options/labels beside
+exact ordered complete answers, retaining original per-chunk request/attempt
+provenance. One storage lock covers admission and source reads. Partial or
+uncertain rosters produce no review quorum; cancelled/deleted/corrupt runs fail
+closed. A versioned source digest binds run/results, not the current prompt
+schema and not execution permission. Returned nested data is detached.
+
+No prompt instance, accepted answer, waiting state, revision advance, worker or
+provider is created. API0 and consultation-command gates remain unchanged. Durable
+insertion is deliberately deferred: `durable_prequery.validate_checkpoint` still
+requires pre-query to be the final supported boundary, and downstream source
+validation depends on that interaction history. A future transition must extend
+these invariants, preserve exact schema/instance and revalidate provenance rather
+than treating this preview as authorization. This slice avoids an unreviewed
+broad rewrite while providing the tested reusable input to that next boundary.
+
+## Verification and review
+
+- 939 offline Python tests passed with unmocked outbound networking forbidden,
+  including 10 new tests: exact legacy-schema parity, complete/partial/uncertain
+  rosters, stopped first continuation, exact Unicode/whitespace and provenance,
+  source identity changes, detached mutation, cancellation/deletion/corruption
+  and configuration drift. An initial schema comparison omitted normalized model
+  defaults; the test now compares both through the same typed schema.
+- Independent whole-change review found no moderate-or-higher issue. Its 128
+  concurrent read/cancel/delete probes returned coherent pre-marker snapshots or
+  explicit blocked errors, and post-marker preparation always blocked. Self and
+  parent reviews likewise found no moderate-or-higher issue.
+- 114 frontend Node tests, two Codex adapter tests, Ruff format/lint across129
+  Python files, frontend lint/format, whitespace and authenticated API0 startup/
+  graceful shutdown passed. An additional Pi adapter test could not load its
+  absent `@agentclientprotocol/sdk` dependency; adapter source was unchanged.
+  This is a local tooling limitation, not a pass or an introduced code failure.
+- Full builds, Rust, native macOS/Keychain, rendered browser and live providers
+  were unrun. No UI/Rust source changed. These checks do not establish full
+  consultation, remote billing, power-loss or multi-process guarantees.
+
+## Recovery, CI and next priorities
+
+Complete genuine history, a verified bundle and current-slice binary patch are
+preserved locally; restore checks match the exact commit/tree/parent and focused
+checks. Exact remote development/main statuses, check runs and Woodpecker comments
+remain absent. Missing evidence is not a running pipeline or pass; unpublished
+work has no remote CI. No manual CI action occurred.
+
+Next safely extend interaction-history validation and downstream causal inputs
+for a durable response-review instance/first-answer transition. Continue remaining
+guarded stages and later-turn/context-reduction work before full public acceptance.
+Publication requires applicable new authorization, fresh remote reconciliation
+without force/reset and normal exact-commit CI observation.
+
+---
+
 # CLI checkpoint: manager-owned first Stage 1 continuation (2026-11-07)
 
 ## Baseline and completed scope

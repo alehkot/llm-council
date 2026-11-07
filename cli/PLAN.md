@@ -617,3 +617,13 @@ owned by the pool; queued state/configuration is rechecked by the durable guard.
 No input is prepared and no later turn, sibling or stage runs automatically. This
 is process-local scheduling, not durable admission or public run completion.
 API0 and consultation-command gates remain unchanged.
+
+### Response-review preparation checkpoint (partial, local)
+
+A read-only internal preparation now pairs the exact complete Stage 1 roster with
+the existing response-review prompt schema and labels, retaining original chunk
+provenance and a source identity. Incomplete work cannot become a review quorum;
+cancelled/deleted or corrupt runs fail closed. It does not persist a prompt, accept
+an answer, advance revisions or schedule work. The later durable review boundary
+must extend the pre-query-final history invariant and downstream provenance
+validation deliberately. API0 and public consultation commands remain gated.
