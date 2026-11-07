@@ -63,6 +63,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   exact first-continuation inputs can now be pinned separately from retained
   initial partial responses when the full continued context already fits the
   saved budget. This preparation neither dispatches nor replaces the partial;
+  a separately invoked first-continuation callback guard now retains one named
+  turn's chunk with isolated uncertain-work retry consent, without aggregating
+  prior text or automatically starting another continuation;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations

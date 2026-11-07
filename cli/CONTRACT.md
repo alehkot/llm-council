@@ -1068,6 +1068,69 @@ adapter identity invalidate saved continuation inputs. Inspection validates the
 checkpoint and exposes only member identities, digests and token bounds, not
 partial text, reasoning or payloads. An initializing record cannot contain one.
 
-The separate continuation-attempt guard, uncertain retry consent, further turns,
-aggregation, context reduction, worker ownership, exports and public API remain
-unimplemented. API version stays 0. Public consultation commands remain gated.
+The separately invoked first-continuation guard below adds uncertain retry
+consent for one named turn. A selected wire adapter, further turns, aggregation,
+context reduction, worker ownership, exports and public API remain unimplemented.
+API version stays 0. Public consultation commands remain gated.
+
+### Internal guarded first Stage 1 continuation (partial)
+
+`run_stage1_continuation_execution.execute(run_id, model, provider, turn=1,
+provider_key=..., expected_revision=..., retry_token=...)` guards exactly one
+explicitly named first-continuation turn using its already saved inputs. The turn
+argument is required; only the integer 1 is supported. It never infers a next
+turn, binds missing inputs or invokes a legacy provider. The trusted injected
+callback receives the exact saved endpoint, timeout and detached JSON payload,
+and must make one request without hidden retries or further calls. The guard
+owns one callback invocation, not arbitrary network behavior inside it. No wire
+adapter, worker, route or automatic loop selects this new helper.
+
+Attempts live in a separate continuation execution record. Initial operations,
+partial text, reasoning, usage and retry ancestry remain unchanged. Each new
+operation binds one member/turn to its exact prepared-request digest and is
+persisted before callback dispatch. The collection of prepared sibling requests
+may grow while an attempt runs; this does not invalidate an unchanged member's
+input. Different members can run concurrently, but process-wide ownership
+prevents duplicate live execution of one member/turn across local event loops.
+
+Only the current uncertain continuation attempt token permits a replacement
+attempt. Initial-attempt and sibling tokens never authorize continuation retry;
+saved continuation attempt/retry identities also cannot reuse initial identities.
+Repeated consent observes the same live or completed turn without starting more
+work. A saved result, including `length`, is returned for that same turn without
+another callback. Configured retry counts or continuation allowance never imply
+automatic repeat or next-turn permission.
+
+Admission and pre-dispatch checks cover revision, current configuration,
+cancellation, exact saved request, adapter identity and full owned operation.
+Completion checks the same saved causal input and owned operation, without
+discarding a valid response merely because live settings changed during the
+call. New sibling input/result writes are merged under the shared storage lock.
+Pre-dispatch persistence failure prevents calls. Completion write failure leaves
+uncertainty unless the write landed; a lost acknowledgment can be recovered by
+reloading the saved result without repeating paid work.
+
+The existing finite-JSON, nonblank-text and 2 MiB normalized-result contract is
+reused. Stop and length chunks are retained separately, never concatenated with
+the initial partial or declared a full consultation result. A length chunk
+reports `needs_continuation`, but no second turn is implemented. Historical
+`load_result(run_id, model, turn=1)` is detached and read-only after cancellation
+or live configuration drift. Deletion erases chunks and prevents resurrection.
+
+Run cancellation signals registered initial and continuation tasks without
+cross-run effects. Shielded caller cancellation sends one signal, retains local
+ownership through repeated cleanup cancellation, discards late responses and
+re-raises cancellation even if the callback suppresses it. Durable cancellation
+or deletion prevents late commits. This cannot prove that remote execution or
+billing stopped; uncooperative callbacks can keep ownership during cleanup.
+
+Inspection exposes a separate compact member/turn summary, including current
+retry tokens but no response text, reasoning or usage. Owned continuation work
+reports `running_stage1_continuation`; uncertain continuation work contributes to
+`needs_retry`. Cancellation takes precedence, and any live initial or continuation
+work remains visible as owned. Completion of this turn does not rewrite initial
+results. Once no work is running or uncertain, the retained initial partial still
+yields `stage1_needs_continuation` until an aggregation/stage completion contract
+is implemented. No aggregate answer, exports, public detach,
+API1 or CLI consultation command is enabled. Power-loss, multi-process and
+remote exactly-once guarantees remain outside this step.

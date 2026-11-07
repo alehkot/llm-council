@@ -1,3 +1,92 @@
+# CLI checkpoint: guarded first continuation (2026-11-06)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This slice extends reviewed local `bc2be091e6440006102d56b59e75122e92afdf30`
+and preserves all eight existing unpublished commits. Publication remains blocked
+by the earlier remote commit-creation denial; no retry or alternative publication
+route was attempted. The separate recovery receipt records final local identities.
+
+New `run_stage1_continuation_execution.execute` guards an explicitly named first
+continuation with a trusted injected callback. `turn=1` is required; no next turn
+is inferred. Attempts are persisted separately before dispatch and tied to the
+exact saved member request. Initial partials, usage, reasoning and retry ancestry
+are not replaced. Complete/length chunks remain separate, without aggregation.
+
+An uncertain continuation requires its own current attempt token. Initial and
+sibling tokens cannot authorize retry, and saved continuation identities cannot
+reuse initial attempt identities. Duplicate invocation or repeated consent does
+not make another call. Per-request identity permits adding prepared sibling inputs
+before/during another member's callback without invalidating that member's work.
+
+The guard rechecks source, adapter identity and full owned operation at dispatch
+and completion. New mutations also check current configuration/revision, while
+historical reads and valid completion retain saved causal inputs. Shielded caller
+cancellation signals once and retains ownership through repeated cleanup;
+late responses cannot commit after cancellation or deletion. The shared registry
+allows durable run cancellation to cover initial and continuation tasks together.
+
+Inspection exposes separate compact member/turn states without response bodies.
+Live continuation ownership and uncertainty participate in status precedence.
+A completed chunk does not complete the consultation or aggregate the initial
+partial. No wire adapter, worker, route, automatic loop, second turn, exports or
+CLI consultation capability selects this helper. API version stays 0. Arbitrary
+callbacks are trusted to make one bounded request; ownership cannot enforce their
+internal network behavior or prove remote execution/billing stopped.
+
+## Verification and review
+
+- Final 841 offline Python 3.10.22 tests passed, including 62 new continuation
+  guard tests. The offline runner forbids unmocked outbound connections. New cases
+  cover exact payload/provenance, explicit turn validation, untouched initial
+  results, independent complete/partial chunks, concurrent/out-of-order members,
+  cross-event-loop ownership, sibling input preparation before/during dispatch,
+  strict retry/token-family isolation, replay/stale consent, callback errors,
+  pre-dispatch and completion-write failure/lost acknowledgment, malformed records,
+  saved-source/adapter/ancestry drift, cancellation/deletion, suppressed/repeated
+  caller cancellation, private polling/errors and fresh-process historical reads.
+- An early full-suite run loaded the test file while it was being adapted and
+  found three stale initial-stage running-phase assertions. They were corrected
+  to the explicit continuation phase; the frozen final suite passes. Production
+  behavior was not relaxed to satisfy those assertions.
+- Independent review found no moderate-or-higher issue. It passed 178 Stage 1
+  tests, then reviewed the final five appended cases and reran all 62 continuation
+  execution tests. Ruff formatting/lint and whitespace passed. Review covered
+  per-request identity, sibling growth, token isolation, durable replay,
+  persistence/lost-ack boundaries, cancellation cleanup and status/history
+  behavior. It did not independently verify the recovery archive.
+- Repository-wide Ruff format/lint passed for 119 Python files. All 114 Node
+  tests, frontend formatting/ESLint and actual authenticated loopback Uvicorn API0
+  startup/graceful shutdown passed. Tests used synthetic callbacks/credentials.
+  Full builds, browser, Rust/native macOS/Keychain and live providers were not run.
+
+## Recovery, CI and next steps
+
+Before implementation, a bounded 256 KiB recovery file was successfully
+preallocated and fsynced despite zero advertised shared free space. Work/tests
+remain in temporary storage; no existing work or caches were deleted. The slot
+is intended for an archive containing a cumulative genuine-history bundle from
+verified base `8f374449`, a current-slice patch, exact SHA/tree receipt and test
+records. Consult its receipt for the eventual archive/restore-verification
+outcome. Keep the existing base bundle and recovery artifacts intact.
+
+Exact development/default status, check-run and commit-comment endpoints remain
+empty; no Actions runs or open PRs/issues exist. Empty aggregate `pending` means
+normal Woodpecker evidence is missing, not that a build ran or passed. No remote
+object/ref/PR changes, CI dispatch, private runner/user-computer access, settings
+changes, deployment or paid calls occurred.
+
+Next: supply an explicit one-request continuation wire adapter, then define
+validated chunk aggregation and any further turns/context reduction separately.
+Remaining stages, human boundaries, durable worker ownership and whole-consultation
+acceptance are still required before enabling public consultation commands.
+Publication needs materially new direct authorization, fresh exact ref checks
+and preserved genuine ancestry without reset/force.
+
+---
+
 # CLI checkpoint: exact first-continuation inputs (2026-11-06)
 
 ## Baseline and scope
