@@ -60,6 +60,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   retries and protects concurrent-member ownership; an explicitly called OpenRouter
   adapter now makes one bounded request from those saved inputs without automatic
   retries, redirects or continuations. No worker selects it;
+  exact first-continuation inputs can now be pinned separately from retained
+  initial partial responses when the full continued context already fits the
+  saved budget. This preparation neither dispatches nor replaces the partial;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations

@@ -1,3 +1,86 @@
+# CLI checkpoint: exact first-continuation inputs (2026-11-06)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This slice extends reviewed local `dd5125bb4525623c8929f88f440d1f3dd207ed9a`
+and preserves all seven existing unpublished commits. The prior remote commit
+creation denial remains unresolved; no publication retry or alternative route
+was attempted. The recovery receipt records the final local commit/tree.
+
+New internal `run_stage1_continuation_inputs.bind` pins one member's exact first
+continuation request separately from its retained initial partial. It requires a
+saved completed `length` response, a policy allowing continuation, matching
+revision/current configuration and an uncancelled, undeleted run. It retains the
+initial input digest, full operation/consent-ancestry digest, attempt ID, response
+digest and initial adapter identity. The original initial result is not replaced.
+
+The payload copies saved initial settings/messages, then appends exact partial
+text and nonempty reasoning details plus the existing continuation instruction.
+Usage stays out of the prompt. All serialized messages must already fit the
+saved input budget, including UTF-8 and reasoning metadata; equality fits.
+Overflow fails without a write, truncation, output-budget reduction or external
+call. No provider, catalog or live skill-library lookup is introduced.
+
+Duplicate binding is idempotent; distinct members are retained in original
+member order. Saved inputs are canonically validated and derived again from
+retained sources. Historical detached reads remain available after cancellation
+or live configuration drift; deletion removes the checkpoint. Compact inspection
+adds only identity/digests/counts and rejects continuation state on initializing
+runs. This is input preparation only: no continuation attempt, retry token,
+worker ownership, further turn, result aggregation, export or public API is added.
+The initial execution helper still returns its original partial without replay.
+
+## Verification and review
+
+- The existing 749-test offline Python suite and final 779-test suite passed on
+  Python 3.10.22 with unmocked outbound connections forbidden. Thirty new tests
+  cover exact legacy continuation-message parity, preserved initial inputs and
+  results, full operation/response/adapter identity, initial retry ancestry,
+  allowance/revision/configuration gates, exact-fit and overflow boundaries,
+  nonempty reasoning metadata, canonical numeric types, malformed/tampered
+  sources/records, duplicate and sibling races, persistence failure and lost
+  acknowledgment, cancellation/deletion serialization and fresh-process reads.
+- Independent read-only review found no moderate-or-higher issue. It independently
+  passed all 121 Stage 1 tests (30 new inputs, 50 initial guard, 22 adapter and
+  19 initial inputs), reran the final 30 tests after the last assertions, and
+  passed Ruff/whitespace checks. Source validation, private compact inspection,
+  exact message parity, preserved partials and persistence/lost-ack boundaries
+  were reviewed.
+- Self-review strengthened provenance with a full initial-operation digest so
+  valid-shape retry-ancestry changes cannot be silently accepted. Canonical JSON
+  comparison also rejects same-value numeric type changes rather than relying on
+  Python equality. Regression tests cover both; no execution behavior was expanded.
+- Repository-wide Ruff formatting/lint passed for 117 Python files. All 114 Node
+  tests, frontend formatting/ESLint and authenticated loopback Uvicorn API0
+  startup/graceful shutdown passed. No full build, browser, Rust/native macOS/
+  Keychain or live-provider verification was run; those surfaces are unchanged.
+
+## Recovery, CI and next steps
+
+The shared filesystem still advertises zero available bytes, but a bounded
+256 KiB recovery file was successfully preallocated and fsynced before this slice
+started. Implementation/tests stayed in temporary storage; no existing files or
+caches were deleted. The reserved slot is intended to hold an archive with a genuine-history
+incremental bundle, patch, exact SHA/tree receipt and verification evidence.
+Consult that receipt for the eventual restore-verification outcome using the
+existing base and prior incremental bundles. Keep the bundles together.
+
+Fresh development/default status, check-run and commit-comment endpoints are
+empty; no Actions runs or open PRs/issues exist. Empty aggregate `pending` is
+missing normal Woodpecker evidence, not a build result. No remote object/ref/PR
+change, CI dispatch, runner/user-computer access, deployment or paid call occurred.
+
+Next: separately guard a specifically identified continuation turn, retaining all
+prior chunks and isolating uncertain retry consent from initial/sibling attempts.
+Then address context reduction, further turns, remaining stages/human boundaries,
+worker scheduling and whole-consultation acceptance. Keep API0 and consultation
+commands gated. Publication still requires materially new direct authorization,
+fresh exact ref checks and preserved genuine ancestry without reset/force.
+
+---
+
 # CLI checkpoint: bounded initial Stage 1 wire adapter (2026-11-05)
 
 ## Baseline and scope

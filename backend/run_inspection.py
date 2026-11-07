@@ -25,6 +25,7 @@ from . import (
     run_skill_plan,
     run_skill_provenance,
     run_skill_snapshot,
+    run_stage1_continuation_inputs,
     run_stage1_execution,
     run_stage1_inputs,
     storage,
@@ -65,6 +66,7 @@ class _SnapshotEvidence(TypedDict):
     skill_plan: dict[str, Any] | None
     stage1_inputs: dict[str, Any] | None
     stage1_execution: dict[str, Any] | None
+    stage1_continuation_inputs: dict[str, Any] | None
     refinement: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -122,6 +124,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "skill_plan": None,
             "stage1_inputs": None,
             "stage1_execution": None,
+            "stage1_continuation_inputs": None,
             "refinement": None,
             "pre_query": None,
             "pre_query_policy": None,
@@ -153,6 +156,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "skill_plan",
                     "stage1_inputs",
                     "stage1_execution",
+                    "stage1_continuation_inputs",
                 )
             ):
                 raise run_admission.AdmissionUnavailable(
@@ -171,6 +175,13 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         if stage1_execution is not None:
             snapshot["stage1_execution"] = run_stage1_execution.summary(
                 record["run_id"], stage1_execution, stage1_inputs
+            )
+        continuations = run_stage1_continuation_inputs.validate_saved(
+            record, interaction
+        )
+        if continuations is not None:
+            snapshot["stage1_continuation_inputs"] = (
+                run_stage1_continuation_inputs.summary(continuations)
             )
         execution = refinement_execution._validate_record(record)
         provider = refinement_provider._validate_record(record, execution)

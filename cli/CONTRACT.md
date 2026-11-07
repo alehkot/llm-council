@@ -1026,3 +1026,48 @@ consultation command selects this adapter. Public API version remains 0. The
 remaining stages, context reduction/continuations, human boundaries, independent
 worker ownership, receipt-to-export integration and whole-consultation acceptance
 remain incomplete.
+
+### Internal first Stage 1 continuation inputs (partial)
+
+`run_stage1_continuation_inputs.bind(run_id, model, expected_revision=...)`
+prepares only the first continuation for a specific member. It requires saved
+initial inputs, a completed initial `length` response and a saved policy allowing
+at least one continuation. A stopped, missing or uncertain initial response is
+not eligible. The original initial operation, retry ancestry, partial text,
+reasoning and usage remain unchanged. Preparing inputs is neither execution
+permission nor a retry of the initial request.
+
+The immutable per-member checkpoint binds the saved source revision, initial
+input digest, full initial operation digest, attempt ID, normalized response
+digest and initial adapter identity. It copies the exact original endpoint,
+120-second timeout, model, output limit and reasoning setting. Its JSON payload
+retains the original messages and appends the exact assistant partial and its
+nonempty reasoning details, then the existing continuation instruction. Usage
+does not enter the prompt. There is no mutable library/model-catalog lookup,
+provider call or implicit initial input binding.
+
+The conservative UTF-8 token bound covers the full continued messages, including
+serialized reasoning metadata. It must be less than or equal to the saved input
+budget; the saved output budget is not reduced. Overflow fails without writing,
+truncating text or calling legacy context reduction. A first-continuation input
+checkpoint does not promise later continuations or that a provider will accept
+the saved fallback/catalog budgets.
+
+Current configuration, revision, cancellation and deletion are checked before
+binding, including duplicate binds. Concurrent duplicate requests write once;
+different members retain separate entries in original member order. A failed
+write leaves no execution, and a lost write acknowledgment can be recovered by
+the same bind. No state transition, retry token or owned provider task is created.
+The existing initial execution helper still returns its original partial result.
+
+Read-only `load(run_id, model)` reconstructs and validates historical inputs from
+the retained sources without current settings and returns detached payloads.
+Cancellation retains these historical inputs; deletion erases them with the
+rest of the receipt. Changed initial sources, result/attempt/retry ancestry or
+adapter identity invalidate saved continuation inputs. Inspection validates the
+checkpoint and exposes only member identities, digests and token bounds, not
+partial text, reasoning or payloads. An initializing record cannot contain one.
+
+The separate continuation-attempt guard, uncertain retry consent, further turns,
+aggregation, context reduction, worker ownership, exports and public API remain
+unimplemented. API version stays 0. Public consultation commands remain gated.
