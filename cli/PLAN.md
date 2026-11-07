@@ -46,8 +46,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   continuation atomically; a revision-bound suggestion guard now persists in-flight
   work, requires explicit retry for uncertain outcomes, and saves the suggestion
   plus waiting prompt atomically. An explicitly selected OpenRouter-only adapter now
-  snapshots its request settings and performs one HTTP request per attempt. Full
-  configured-provider/skills provenance,
+  snapshots its request settings and performs one HTTP request per attempt.
+  Resolved council model limits and initial budgets are now pinned separately;
+  full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
   against stale clients and repeated requests; cancelling one run must leave

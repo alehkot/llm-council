@@ -694,3 +694,42 @@ not make storage tamper-proof. No provider/catalog request, API1 capability,
 public run route or CLI consultation command is enabled. Offline tests establish
 single-process and fresh-process restoration behavior, not power-loss durability
 or concurrent backend-process writers.
+
+### Internal resolved council model budgets (partial)
+
+`await council_model_budgets.bind(run_id, expected_revision=...)` pins each
+selected council model's resolved context length, maximum completion tokens and
+supported parameters, plus the initial input/output budgets and reasoning flag
+used by the legacy OpenRouter budgeting formula. The immutable versioned value
+retains model order, source revision and the exact saved request-policy digest.
+All fields and nested fields are required; invalid or nonpositive budgets fail
+closed. No credentials are captured.
+
+A first bind uses `model_context.model_limits` outside the storage lock. That
+resolver may refresh the public catalog or use checked-in/default fallback values.
+This snapshot records the values actually returned, **not provider-verified
+capacity or the catalog-versus-fallback source**. A future request must use these
+pinned values and handle provider rejection; it must not silently refresh them.
+This internal operation may perform public metadata GETs, but never a completion,
+context reduction or other billed request. Offline tests replace metadata reads.
+
+The binder checks completed pre-query/request-policy prerequisites, current loaded
+selection/settings, and the resolver's loaded endpoint before resolution, then
+rechecks them after awaiting. Stale revisions, cancellation, deletion or changed
+configuration prevent a late write. Partial/failed resolution persists nothing.
+Concurrent resolvers share the first persisted snapshot even if catalog values
+differ; repeated binds never refresh metadata. Failed write acknowledgments are
+recoverable through read/rebind. Current configuration is still checked on a
+repeat bind, while historical inspection uses only retained evidence and makes
+no network calls or writes. Inspection validates source identity, roster and
+budget derivation; cancellation retains it and deletion erases it.
+
+These are initial model budgets, not exact wire messages, context-reduction or
+continuation checkpoints, request timeout policy, synthesis/helper budgets, full
+skill provenance or dispatch permission. The existing legacy execution path is
+unchanged and does not consume this snapshot. The current causal validator only
+supports the completed pre-query boundary. Remaining guarded execution,
+human-input boundaries, scheduling and whole-run acceptance must precede public
+run operations and CLI consultation commands; API version stays 0. No claim of
+exactly-once provider work, power-loss durability or concurrent process writers
+is added.

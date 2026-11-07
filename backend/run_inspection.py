@@ -12,6 +12,7 @@ import json
 from typing import Any, Literal, TypedDict
 
 from . import (
+    council_model_budgets,
     council_request_policy,
     council_selection,
     durable_prequery,
@@ -56,6 +57,7 @@ class _SnapshotEvidence(TypedDict):
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
     council_selection: dict[str, Any] | None
+    council_model_budgets: dict[str, Any] | None
     council_request_policy: dict[str, Any] | None
     current_prompt: dict[str, Any] | None
     retry_token: str | None
@@ -109,6 +111,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "pre_query_policy": None,
             "council_selection": None,
             "council_request_policy": None,
+            "council_model_budgets": None,
             "current_prompt": None,
             "retry_token": None,
             "operation_owned": False,
@@ -123,6 +126,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "pre_query_policy",
                     "council_selection",
                     "council_request_policy",
+                    "council_model_budgets",
                 )
             ):
                 raise run_admission.AdmissionUnavailable(
@@ -161,6 +165,9 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         request_policy = council_request_policy.validate_saved(record, interaction)
         if request_policy is not None:
             snapshot["council_request_policy"] = request_policy.model_dump(mode="json")
+        budgets = council_model_budgets.validate_saved(record, interaction)
+        if budgets is not None:
+            snapshot["council_model_budgets"] = budgets.model_dump(mode="json")
         snapshot["interaction"] = interaction.model_dump(mode="json")
         snapshot["execution"] = execution.model_dump(mode="json")
         if provider is not None:

@@ -1,3 +1,86 @@
+# CLI checkpoint — pinned council model budgets (2026-11-05)
+
+## Baseline and scope
+
+Persistent remote `development` started at [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Upstream `main` is [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d), a retained ancestor.
+This checkpoint accompanies the implementation. Exact local/published commit and
+tree identities, publication verification and final CI observations belong in the
+separate recovery receipt, avoiding a self-referential commit hash here.
+
+An explicit internal async binder now retains each selected council model's
+resolved context/completion limits, supported parameters and derived initial
+input/output budgets and reasoning flag. Values are immutable and tied to the
+saved request policy and pre-query revision. The legacy formula is covered by
+parity tests. This closes one effective-request prerequisite, not the full run.
+
+Metadata resolution uses the existing public-catalog/default/fallback resolver
+outside the storage lock. Guards are checked before and after awaiting it;
+cancellation, deletion, stale revisions and configuration drift prevent a late
+write. Concurrent resolvers share the first persisted values; repeat binds and
+historical reads never refresh metadata. Malformed evidence fails closed without
+repair. A lost write acknowledgment can be recovered by reading or rebinding.
+
+These are the resolved values, not proof of provider capacity or a retained
+catalog-versus-fallback source. No completion, context-reduction or continuation
+request is made. Future guarded execution must consume the pinned budgets rather
+than silently resolving new ones. Exact wire inputs/timeouts, synthesis/helper
+budgets, remaining skill provenance, council-stage guards, human prompts and
+scheduling remain dependencies. The legacy execution path, API0 and Rust
+consultation-command gates are unchanged. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline 586 and final 604 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Eighteen new tests cover exact metadata and
+  source identity, derived budgets, frozen/detached values, no credential capture,
+  repeat-bind/read purity, current-config drift, invalid inputs, concurrent
+  resolution, cancellation/deletion during resolution, failed/lost writes,
+  fresh-process reads, malformed stored evidence and legacy budget parity.
+- An actual resolver integration test uses HTTPX MockTransport: one unauthenticated
+  metadata GET, provider/context minimum, unknown-model fallback and no repeated
+  refresh. No live catalog or provider was called during verification.
+- Self-review passed 32 cancellation and 32 deletion interleavings from separate
+  threads while metadata was awaited, confirming the storage lock is released;
+  83 additional malformed nested-value probes failed closed without rewriting.
+- Independent read-only review found no moderate-or-higher findings. It
+  independently passed all 18 focused tests, five additional adversarial probes,
+  changed-file Ruff lint/format and whitespace checks. Probes covered unlocked
+  cross-thread reads, cross-event-loop concurrent binders with one write, endpoint
+  drift, external task cancellation and malformed saved values. A clean review is
+  not a correctness guarantee.
+- All 114 existing frontend Node tests, frontend formatting/ESLint, repository-wide
+  Ruff 0.16.4 format/lint for 103 files and whitespace checks passed. Actual
+  loopback Uvicorn startup, authenticated API0 config and graceful shutdown passed
+  using temporary storage and synthetic credentials.
+- Initial local harness invocation found a read-only default uv cache; selecting
+  the existing writable cache fixed it. Ruff requested test-import formatting;
+  the final source passes. A self-review probe initially expected the already
+  correct `reasoning=true` value to fail; excluding unchanged values corrected the
+  probe without changing implementation.
+- Rust/UI source is unchanged. Rust tests were not rerun; rendered-browser checks
+  are inapplicable. Full builds, native macOS Keychain/platform and live-provider
+  checks remain unrun. These tests do not establish whole-council execution,
+  power-loss durability, cross-process writers or exactly-once provider work.
+
+## CI and next steps
+
+Exact starting development and default heads expose zero status contexts, check
+runs and commit comments, including no Woodpecker report. No GitHub Actions runs
+exist. Empty aggregate `pending` is missing evidence, not an observed running
+build, pass or failure. Full builds remain unrun under the no-local-full-build
+policy. Normal final-head evidence must be inspected separately. No manual CI
+run/rerun, private-runner/user-computer access, security/settings changes, PR action,
+deployment or paid call occurred.
+
+Next: observe normal exact-head CI. Retain exact first-stage inputs and remaining
+request/skill/synthesis provenance, then implement guarded council stages and
+remaining human-input boundaries, durable scheduling and full public acceptance.
+Do not treat pinned limits as dispatch permission or enable consultation commands
+before the whole agreed recovery contract works.
+
+---
+
 # CLI checkpoint — configured OpenRouter request policy (2026-11-04)
 
 ## Baseline and published work
