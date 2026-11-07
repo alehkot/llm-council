@@ -1,3 +1,66 @@
+# CLI checkpoint: complete member result projection (2026-11-06)
+
+## Baseline and scope
+
+Remote development remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Upstream main remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This local-only slice extends d2867309e43696ac2d99003dc1d2b640825c5eb2,
+preserving all ten unpublished commits. The recovery receipt records final local
+commit/tree identities. No remote publication or alternate route was attempted;
+the prior remote commit-creation denial still requires new direct authorization.
+
+The internal read-only member-result projection validates saved inputs and attempt
+ancestry under the existing storage lock. It returns exact initial stopped text,
+or exact initial partial plus stopped first-continuation text without separators,
+trimming or deduplication. Reasoning, usage and request/provider/attempt provenance
+remain separate per original chunk. Unstarted, uncertain or length-only work
+returns no complete answer; malformed causal evidence fails closed. Historical
+reads survive configuration drift and cancellation but do not resurrect deletion.
+
+This follows the existing OpenRouter concatenation rule, not a new content policy.
+A transport stop does not establish factual quality or absence of repetition.
+Nothing is persisted, dispatched, repaired or promoted to run completion. Existing
+polling can still show the initial partial as needing continuation. Public APIs,
+API 0 negotiation, unavailable CLI consultation commands and workers are unchanged.
+
+## Verification and review
+
+- Baseline 857 and final 880 Python 3.10 offline tests passed; the harness forbids
+  unmocked outbound networking. All 23 new projection tests passed independently.
+- Tests cover exact Unicode/whitespace, pending/uncertain/length-only boundaries,
+  retry provenance, separate metadata, detached nested values, cancellation,
+  deletion, sibling isolation, corrupted digests, no writes/dispatch, and two
+  valid chunks whose combined text exceeds the single-chunk 2 MiB limit.
+- All 114 Node tests passed. Repository Ruff format/lint passed for 123 Python
+  files; frontend formatting/ESLint and whitespace passed. Authenticated loopback
+  Uvicorn startup returned API 0 and shut down gracefully with synthetic unused
+  keys and temporary empty storage. The first startup harness incorrectly
+  required exit 0 despite normal SIGTERM/graceful logs; accepting normal signal
+  termination fixed the harness, and the repeated check passed without repo edits.
+- Independent source/test/CONTRACT/PLAN review found no moderate-or-higher issues
+  and passed 25 mixed-member state probes. Self-review agreed. A clean review is
+  not a guarantee. Reviewer did not independently rerun the full 880-test suite.
+- No local full builds, browser, Rust/native macOS/Keychain or live providers ran.
+  UI/Rust surfaces are unchanged. Whole-consultation completion, power-loss
+  durability and concurrent backend-process safety are not established here.
+
+## CI, recovery and next steps
+
+Fresh exact development/main statuses, check-runs and commit comments are empty.
+The aggregate pending label is missing Woodpecker evidence, not an observed
+running build or a pass. The unpublished result has no remote CI/full-build
+coverage. No manual CI dispatch, runner access, settings change or charge occurred.
+A genuine-history bundle and current-slice patch are preserved with a restoration
+check; prior archives and local commits remain intact.
+
+Next integrate whole-roster state and the remaining guarded stage/human/worker
+boundaries, with explicit later-turn/context-reduction semantics before enabling
+public consultation commands. Do not infer automatic retry or execution permission
+from this historical projection. Publication requires fresh remote reconciliation
+and materially new direct authorization, without force/reset or synthetic history.
+
+---
+
 # CLI checkpoint: explicit continuation wire adapter (2026-11-06)
 
 ## Baseline and scope

@@ -580,3 +580,14 @@ This is not a wire adapter, scheduled worker or public run path. Context reducti
 continuations, later stages/human boundaries, durable scheduling and whole-run
 acceptance remain unfinished. API0 and consultation command gates remain; see
 [CONTRACT.md](CONTRACT.md). Publication remains blocked pending new authorization.
+
+### Complete member text projection checkpoint (partial, local)
+
+An internal read-only helper now validates retained Stage 1 inputs and attempt
+ancestry and returns exact complete member text: an initial stopped response or
+an initial partial plus a stopped first continuation. It preserves metadata and
+identity per original chunk and returns no complete answer for pending, uncertain
+or still-length-limited work. It does not rewrite receipts, change inspection
+status, run another request, finalize the whole roster or expose public APIs.
+Whole-stage/worker integration, later turns and guarded context reduction remain
+unfinished. API0 and consultation gates remain; see [CONTRACT.md](CONTRACT.md).

@@ -1177,3 +1177,39 @@ No public route, worker, startup hook, automatic loop or CLI consultation comman
 selects this adapter. No aggregation, further-turn/context-reduction strategy,
 exports, public detachment or whole-consultation completion is implemented here.
 API version remains 0.
+
+### Internal complete Stage 1 member projection (partial)
+
+`run_stage1_results.load_complete_result(run_id, model)` is an explicitly invoked,
+read-only historical projection. It validates the retained run, initial inputs,
+execution receipts and any continuation ancestry together under the existing
+storage lock. For a saved initial `stop`, it returns that exact content. For an
+initial `length` followed by a validated first-continuation `stop`, it concatenates
+the two content strings in order with no trimming, separator, deduplication or
+rewriting. This matches the legacy content concatenation rule; a `stop` marker
+establishes transport completion, not factual quality or absence of repetition.
+
+Unstarted, uncertain or length-only work returns `None`, including a prepared but
+unexecuted continuation or a first continuation that also ended with `length`.
+No missing chunk is replaced by a sibling's response. Unknown members or absent
+inputs conflict; unknown/deleted/corrupt runs fail closed using the existing
+admission errors. Cancelled runs can still expose retained complete member text
+as historical evidence. This never changes the run's cancellation or completion
+state. Live settings, credentials and provider availability are not consulted.
+
+The detached result preserves ordered original chunks with request digests,
+provider identities, attempt/retry identities, finish reasons, reasoning and
+usage. Reasoning and arbitrary finite-JSON usage remain per chunk: this helper
+does not sum usage, splice reasoning, infer missing metadata or copy the final
+chunk's metadata onto earlier work. Each source response retains its 2 MiB cap;
+two valid chunks can yield more than 2 MiB of aggregate text, bounded by the two
+source caps. Returned nested metadata cannot modify persisted records or future
+reads. Content and chunks are excluded from the result's ordinary representation.
+
+No record is persisted or repaired, no cancellation is settled, no provider work
+is dispatched, and no polling projection or public capability changes. In
+particular, the existing inspector can still report `stage1_needs_continuation`
+from the original partial even when this explicit historical read returns a
+complete member answer. Whole-roster stage completion, later turns, guarded
+context reduction, later stages, public run operations and worker integration
+remain unfinished. API version remains 0 and CLI consultation commands stay gated.
