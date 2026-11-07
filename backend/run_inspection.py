@@ -23,6 +23,7 @@ from . import (
     run_admission,
     run_interaction,
     run_skill_provenance,
+    run_skill_snapshot,
     storage,
 )
 
@@ -53,6 +54,7 @@ class _SnapshotEvidence(TypedDict):
     execution: dict[str, Any] | None
     refinement_provider: dict[str, Any] | None
     explicit_skill_provenance: dict[str, Any] | None
+    explicit_skill_snapshot: dict[str, Any] | None
     refinement: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -106,6 +108,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "execution": None,
             "refinement_provider": None,
             "explicit_skill_provenance": run_skill_provenance.validate_saved(record),
+            "explicit_skill_snapshot": None,
             "refinement": None,
             "pre_query": None,
             "pre_query_policy": None,
@@ -116,6 +119,13 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "retry_token": None,
             "operation_owned": False,
         }
+        saved_skills = run_skill_snapshot.validate_saved(record)
+        if saved_skills is not None:
+            # Expose availability and identities without copying private skill
+            # bodies into every status response/cursor calculation.
+            snapshot["explicit_skill_snapshot"] = run_skill_provenance._identity(
+                saved_skills
+            )
         if record["phase"] == "initializing":
             if any(
                 key in record

@@ -1,3 +1,87 @@
+# CLI checkpoint — durable explicit skill content (2026-11-05)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Upstream `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This work continues local reviewed commit `14abd29558839407ab513d2f98eab16a0cf68148`,
+which retains genuine history and the unpublished model-budget implementation.
+The changes remain local pending publication authorization. Exact final local
+commit/tree and recovery artifacts belong in the separate receipt; this file does
+not claim that an unpublished commit is available on GitHub.
+
+The prior skill identity/capture helpers could detect drift and return checked
+bytes, but a process restart still depended on the current library. The new
+internal `run_skill_snapshot.persist` archives prompt-readable content and routing
+metadata matching a previously bound explicit uploaded-skill identity. It checks
+revision, cancellation, deletion and adjacent evidence before saving. No identity
+is invented, no interaction revision is advanced and no work is scheduled.
+
+Saved copies and historical reads are immutable and independent of later library
+replacement, disabling or deletion. The archive preserves ordered IDs and hashes,
+strictly validates document structure and exact content, and never refreshes or
+repairs corrupt saved work. Concurrent duplicates capture/write once. A lost write
+acknowledgment can be recovered after the original library content disappears.
+Run cancellation retains read-only history; conversation deletion removes the
+content through the existing tombstone. Inspection exposes only availability and
+IDs/digests, rather than bodies in every status response. See [CONTRACT.md](CONTRACT.md).
+
+This is not permission to execute a disabled or old skill. Future consumers must
+explicitly select archived content and use guarded dispatch with current run
+checks. Auto-selection, external sources, reference-routing decisions, rendered
+prompts, complete settings provenance and council execution remain unfinished.
+The archive copies no scripts/assets/evals and adds no credential or filesystem
+location, but skill text itself can contain private information. It is neither
+secret detection nor encrypted storage. API0, legacy behavior and Rust
+consultation-command gates remain unchanged.
+
+## Verification and review
+
+- Baseline 604 and final 623 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Nineteen new tests cover exact contents and
+  ordering, Unicode, non-prompt file exclusion, frozen/detached values, compact
+  inspection/cursors, replacement/disabling/deletion, prior identity requirements,
+  stale revisions, cancellation, fresh-process restore, write failures/lost
+  acknowledgments, 24 concurrent duplicates, supported library/run mutation races,
+  mixed external file changes, malformed evidence and credential exclusion.
+- Self-review passed 110 additional malformed nested snapshot probes through
+  persist/load/inspect without rewriting files, a private-text exception-chain
+  probe and 32 cross-thread save/cancel/delete interleavings. No introduced
+  moderate-or-higher finding was identified; review is not a correctness guarantee.
+- Independent read-only review passed 141 related tests and five additional
+  adversarial probes with no moderate-or-higher findings. Review is not a
+  correctness guarantee.
+- All 114 frontend Node tests, frontend format/ESLint, repository-wide Ruff
+  format/lint for 105 Python files and whitespace checks passed. Actual loopback
+  Uvicorn startup, authenticated API0 config and graceful shutdown passed with
+  empty temporary storage and synthetic credentials.
+- Local harness corrections: an initial Ruff invocation targeted the frontend
+  rather than repository root and was rerun correctly; `npm test` is not defined,
+  so the documented Node test files were run directly. An added test initially
+  placed assertions after its intentional corruption; moving them into their
+  intended test resolved that test-only failure. Final checks passed.
+- Rust/UI source is unchanged; Rust and rendered-browser checks were not rerun.
+  Full builds, macOS Keychain/platform and live-provider checks remain unrun.
+  Public polling/storage performance, power-loss durability, multiple backend
+  writers and end-to-end consultation execution are not established.
+
+## CI, publication and next steps
+
+Exact remote development/main heads expose no statuses, check runs, commit
+comments or GitHub Actions runs. No normal Woodpecker result is observable.
+Missing evidence is neither a passed build, a known failure nor an observed
+running build. There is no published SHA for this change to check. No publication
+retry, CI dispatch, private-runner/user-computer access, PR action or paid call
+occurred in this work.
+
+Next: obtain the outstanding publication decision, reconcile fresh remote heads
+and publish reviewed changes only when authorized. Continue exact stage-input and
+transport preparation, saved reference routing and automatic selection policy,
+guarded council work, remaining human checkpoints and durable scheduling before
+exposing public run operations or enabling Rust consultation commands.
+
+---
+
 # CLI checkpoint — pinned council model budgets (2026-11-05)
 
 ## Baseline and scope

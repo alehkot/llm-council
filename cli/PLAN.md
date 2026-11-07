@@ -48,6 +48,7 @@ API shapes, and module boundaries are engineering proposals for implementation.
   plus waiting prompt atomically. An explicitly selected OpenRouter-only adapter now
   snapshots its request settings and performs one HTTP request per attempt.
   Resolved council model limits and initial budgets are now pinned separately;
+  explicit uploaded-skill content can also be archived for restart-safe reads;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
@@ -410,9 +411,22 @@ An internal capture helper now returns frozen canonical content bytes matching
 already-bound explicit uploaded-skill identities. Consumers can use those exact
 bytes rather than reread mutable library paths after a hash check. This closes
 that check/use gap only for consumers of the returned snapshot; it is not wired
-to a worker. Restart recapture, effective settings and other skill sources,
+to a worker. Without a saved durable copy, restart recapture remains necessary.
+Effective settings and other skill sources,
 cancellation/revision checks at dispatch and all public execution acceptance
 cases remain required. API0 and unavailable consultation commands are unchanged.
+
+### Durable explicit skill copy checkpoint (partial)
+
+An internal opt-in operation now saves immutable prompt-readable content and
+routing metadata matching previously bound uploaded-skill identities. Strict
+revision/cancellation/deletion guards apply to persistence; historical copies
+survive restart and library replacement/deletion without rereading the library.
+Inspection exposes availability/digests rather than skill bodies. Run deletion
+erases the archive. This neither authorizes later execution of a disabled skill
+nor records automatic selection, reference-routing decisions or rendered prompts.
+Consumers still need guarded dispatch and an explicit archived-content policy.
+See [CONTRACT.md](CONTRACT.md) for recovery, privacy and concurrency limits.
 
 ### Configured refinement bridge checkpoint (partial)
 

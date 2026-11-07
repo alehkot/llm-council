@@ -403,7 +403,8 @@ filesystem writer can still change files; mixed or changed captured content must
 match the previously persisted digest or capture fails closed. A successful
 snapshot remains unchanged after later library replacement/deletion. This is an
 in-memory execution input, not a persisted archive: a restart must capture again
-and cannot proceed if the accepted content has disappeared or changed.
+and cannot proceed if the accepted content has disappeared or changed, unless
+the separate durable-copy operation below has already saved that content.
 
 Future execution must consume the returned snapshot instead of opening skill
 paths again, and must separately check current run revision/cancellation at the
@@ -412,6 +413,45 @@ bill; returning content does not guarantee the run stays runnable afterward.
 It does not establish automatic selection, external source support, complete
 pipeline settings, a worker, public run routes, or API1. Existing legacy flows
 remain unchanged.
+
+## Durable explicit skill content (internal)
+
+`run_skill_snapshot.persist(run_id, expected_revision=...)` copies the verified
+prompt-readable content and routing metadata of previously bound, explicitly
+selected uploaded skills into the run receipt. The first write uses the existing
+capture helper, validates canonical document structure and checks each exact
+content digest against the accepted ordered identity. It does not implicitly
+bind identities, capture automatic selections, copy scripts/assets/evals, or
+claim that content was archived before earlier work. The caller must supply the
+current interaction revision. Cancellation, deletion, stale revisions and invalid
+adjacent checkpoints block both first persistence and an idempotent return.
+
+The saved copy is intentionally independent of the current skill library.
+Repeated persistence and `run_skill_snapshot.load(run_id)` never recapture it,
+even after a skill is replaced, disabled or deleted. Historical loading is
+read-only, survives process restart, and returns frozen `CapturedSkill` values
+with detached document copies. Cancelled runs retain readable history; deleting
+the run's conversation erases this content through its existing minimal tombstone.
+No credential or local filesystem location is added by the snapshot operation;
+skill bodies and references remain private run data and may contain whatever text
+the operator put in the skill. The archive is not a secret detector or encrypted
+storage.
+
+Read-only inspection validates the full saved content but exposes only snapshot
+availability and ordered IDs/digests, not private bodies in status responses.
+Malformed structure, changed content, ordering or accepted identity fails closed
+without rewriting, repairing or reading current skills. Lost write acknowledgments
+can be recovered without recapturing content. Supported same-process mutations
+are serialized by the existing storage-then-skills lock order. This is not
+tamper-proof storage, power-loss durability or coordination between backend
+processes; full public polling/storage performance remains unverified.
+
+This is an archive primitive, not permission to use an old or disabled skill in
+new work. Future execution must explicitly consume the archived bytes, apply its
+documented selection policy and recheck cancellation/revision at guarded dispatch.
+Automatic selection, external sources, reference-routing decisions, rendered
+prompt provenance, stage execution and public HTTP/CLI integration remain pending.
+No worker, model call, retry, API1 capability or consultation command is enabled.
 
 ## Configured refinement bridge (internal, partial)
 
