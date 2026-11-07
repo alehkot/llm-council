@@ -49,6 +49,7 @@ from .council import (
     _normalize_synthesis_mode,
     build_label_mapping,
     build_responses_for_synthesis,
+    build_stage2_prompt_modifier,
     calculate_aggregate_gap_scores,
     calculate_aggregate_rankings,
     calculate_pairwise_rankings,
@@ -77,10 +78,6 @@ from .refinement import RefinementState
 from .skills import persisted_skills_plan as _persisted_skills_plan
 from .trace import TraceCollector
 
-_DECISION_SUPPORT_RANKING_GUIDANCE = (
-    "When ranking, prioritize actionability, explicit trade-offs, and clear handling of "
-    "risks or uncertainty."
-)
 _DECISION_SUPPORT_SYNTHESIS_GUIDANCE = (
     "In the final answer, surface decision criteria, trade-offs, risks/uncertainties, and "
     "make the guidance actionable."
@@ -878,13 +875,9 @@ def _stage1_system_prompt(context: FlowContext) -> Optional[str]:
 
 
 def _stage2_prompt_modifier(context: FlowContext) -> Optional[str]:
-    return _combine_parts(
-        [
-            _DECISION_SUPPORT_RANKING_GUIDANCE
-            if _prompt_refinements_active(context)
-            else "",
-            _interactive_modifier(context) or "",
-        ]
+    return build_stage2_prompt_modifier(
+        _interactive_modifier(context),
+        decision_support=_prompt_refinements_active(context),
     )
 
 

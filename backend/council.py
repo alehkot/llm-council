@@ -1422,29 +1422,25 @@ After the JSON you may add brief notes if helpful."""
     return evaluations
 
 
-async def stage2_collect_rankings(
+def build_stage2_prompt_modifier(
+    response_modifier: Optional[str], *, decision_support: bool
+) -> Optional[str]:
+    """Share exact legacy ranking guidance with saved-request preparation."""
+    guidance = (
+        "When ranking, prioritize actionability, explicit trade-offs, and clear handling of "
+        "risks or uncertainty."
+    )
+    parts = [guidance if decision_support else "", response_modifier or ""]
+    return " ".join(part.strip() for part in parts if part and part.strip()) or None
+
+
+def build_stage2_ranking_prompt(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    labels: Optional[List[str]] = None,
-    label_to_model: Optional[Dict[str, str]] = None,
-    trace: Optional[TraceCollector] = None,
+    labels: List[str],
     prompt_modifier: Optional[str] = None,
-    progress: ProgressCallback = None,
-) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-    """
-    Stage 2: Each model ranks the anonymized responses.
-
-    Args:
-        user_query: The original user query
-        stage1_results: Results from Stage 1
-        prompt_modifier: Optional extra guidance appended to the ranking prompt
-
-    Returns:
-        Tuple of (rankings list, label_to_model mapping)
-    """
-    if labels is None or label_to_model is None:
-        labels, label_to_model = build_label_mapping(stage1_results)
-
+) -> str:
+    """Build the legacy ranking text without provider or configuration access."""
     # Build the ranking prompt
     responses_text = "\n\n".join(
         [
@@ -1493,6 +1489,35 @@ FINAL RANKING:
 
     ranking_prompt += "\nNow provide your evaluation and ranking:"
 
+    return ranking_prompt
+
+
+async def stage2_collect_rankings(
+    user_query: str,
+    stage1_results: List[Dict[str, Any]],
+    labels: Optional[List[str]] = None,
+    label_to_model: Optional[Dict[str, str]] = None,
+    trace: Optional[TraceCollector] = None,
+    prompt_modifier: Optional[str] = None,
+    progress: ProgressCallback = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """
+    Stage 2: Each model ranks the anonymized responses.
+
+    Args:
+        user_query: The original user query
+        stage1_results: Results from Stage 1
+        prompt_modifier: Optional extra guidance appended to the ranking prompt
+
+    Returns:
+        Tuple of (rankings list, label_to_model mapping)
+    """
+    if labels is None or label_to_model is None:
+        labels, label_to_model = build_label_mapping(stage1_results)
+
+    ranking_prompt = build_stage2_ranking_prompt(
+        user_query, stage1_results, labels, prompt_modifier
+    )
     messages = [{"role": "user", "content": ranking_prompt}]
 
     async def query_with_progress(model: str) -> Tuple[str, Optional[Dict[str, Any]]]:

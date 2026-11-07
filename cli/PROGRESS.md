@@ -1,3 +1,82 @@
+# CLI checkpoint: exact Stage 2 ranking inputs (2026-11-07)
+
+## Baseline, rationale and completed scope
+
+Started from verified persistent `development` at
+[71a2f5fe4d3c21cbfa8bf97723d5a241fcbeb768](https://github.com/alehkot/llm-council/commit/71a2f5fe4d3c21cbfa8bf97723d5a241fcbeb768),
+which already contains the observed upstream `main` at
+[409c67c9d1c192579231a626053299a66c61fffb](https://github.com/alehkot/llm-council/commit/409c67c9d1c192579231a626053299a66c61fffb).
+The previous review-policy checkpoint identified downstream request preparation
+as the next dependency. There are no active PRs or conflicting development claims.
+Owner ACP/Pi changes and all accumulated CLI work are preserved unchanged.
+The containing source commit records this slice; the recovery publication receipt
+records exact final local/published SHA and tree after publication.
+
+Compared bounded Stage 2 preparation with generated-negative-prompt execution and
+broader scheduling. Chose deterministic ranking inputs because the disabled-negative
+route already has complete saved dependencies; other paths require additional
+external-operation guards. This follows the separation of replay-safe work from
+external side effects described in the [LangGraph Functional API guidance](https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/functional-api.mdx).
+Provider payload shapes follow the existing pinned OpenRouter contract, with
+[chat completion documentation](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request?explorer=true)
+as supporting reference, not authority to change saved request semantics.
+
+`run_stage2_inputs.bind` now pins exact ranking messages, canonical per-reviewer
+requests, saved model budgets, endpoint/timeout, ranking method and full causal
+digests after consumed response review. Original answer bytes and completed first
+continuations are preserved. Answer exclusions relabel survivors but keep the
+entire saved reviewer roster. A shared pure formatter preserves legacy ranking
+text and decision-support guidance, including skipped refinement/pre-query cases.
+
+Negative-enabled runs and oversized contexts fail closed without writes or paid
+work. The operation does not advance interaction state, schedule a worker, dispatch
+a provider, enable a public route or change API0/CLI consultation gates. Reads use
+saved schema/settings, survive restart/configuration drift/cancellation and expose
+only a compact new inspection summary. Stale/cancelled/deleted binding fails before
+an idempotent return. Corrupt input/source evidence is not repaired silently.
+
+## Verification and review
+
+- All 984 offline Python tests passed with unmocked outbound networking forbidden.
+  Fourteen new tests cover exact requests and source identities, real legacy
+  ranking parity, full reviewer roster/exclusions, negative/all-excluded blocking,
+  complete first-continuation text, four refinement/pre-query skip combinations,
+  saved ranking mode, exact budget boundary/overflow, real oversized responses,
+  stale/missing input, concurrent binds, detached values, source/request corruption,
+  config/schema drift, JSON mapping reorder, lost writes, restart and cancellation/deletion.
+- Independent whole-source/test review found no moderate-or-higher issue. It ran
+  42 new/adjacent tests, 25 exact prompt comparisons against the original baseline
+  implementation, 24 bind-versus-cancel/delete races, live configuration/schema
+  drift with skipped review and 16 missing-field corruption probes. Self-review
+  agrees; a clean review is not a guarantee of correctness.
+- Repository-wide Ruff formatting/lint passed for 135 Python files, as did all
+  114 frontend Node tests, frontend formatting/lint, authenticated API0 backend
+  startup/graceful shutdown and whitespace checks. An initial frontend glob found
+  no tests; the actual repository test discovery then ran all 114 successfully.
+- Full builds are unrun by policy, deferred to normal Woodpecker evidence. Rust,
+  native macOS/Keychain, rendered browser and live-provider checks are unrun;
+  frontend/Rust/platform sources did not change. Offline checks do not establish
+  whole consultation, model quality, exactly-once external requests, power-loss
+  durability or multiprocess ownership.
+
+## CI, recovery and next priorities
+
+Starting exact development/main heads contain no GitHub status results, check runs,
+Actions runs or Woodpecker commit-comment reports. A configured normal push pipeline
+is not evidence of an actual running build. Empty aggregate `pending` is missing
+verification, not a pass or observed running pipeline. Final exact-SHA results are
+recorded in the publication receipt. No manual CI, private-runner access or full
+local build was used.
+
+Real history, the complete patch and a verified recovery bundle are preserved.
+Next observe normal exact-head build evidence, then implement guarded Stage 2
+member attempts from these exact requests and the durable negative-mode path.
+Remaining stages, context reduction/later continuations, durable scheduling and
+whole-run public acceptance remain unfinished. No consequential product choice
+was guessed, and no PR/deployment/security/paid-service action was performed.
+
+---
+
 # CLI checkpoint: downstream response-review policy (2026-11-07)
 
 ## Baseline and completed scope

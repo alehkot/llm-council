@@ -640,3 +640,14 @@ regeneration or provider calls. This is not later-stage execution, durable
 scheduling or a public run API. Keep API0 and consultation command gates until the
 remaining stages and whole-run acceptance cases are complete. See
 [CONTRACT.md](CONTRACT.md).
+
+### Exact ranking-input checkpoint (partial)
+
+After consumed response review, an explicit internal binding now retains exact
+Stage 2 messages and requests when negative mode is disabled and every saved model
+budget already fits. Excluded answers remain excluded, while every saved council
+member remains a reviewer. Original text/chunk provenance, legacy ranking guidance
+and saved aggregation choice remain pinned. The operation does not execute, retry,
+advance interaction state or enable public commands. Negative-mode execution and
+guarded ranking attempts are next dependencies, followed by remaining stages,
+context reduction, durable scheduling and whole-run acceptance. API0 remains.

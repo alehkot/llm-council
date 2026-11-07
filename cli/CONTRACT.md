@@ -1402,3 +1402,43 @@ later continuations/context reduction, durable scheduling and public acceptance
 remain required. Offline tests cover synthetic concurrent calls, lost write
 acknowledgments, restart, source tampering and cancellation/deletion; they do not
 establish power-loss durability, multi-process concurrency or live-model behavior.
+
+### Exact Stage 2 ranking inputs (partial)
+
+`run_stage2_inputs.bind(run_id, expected_revision=...)` explicitly retains exact
+ranking messages and per-reviewer OpenRouter JSON requests after consumed response
+review and its saved effective policy. Version 1 accepts only the route with
+negative mode disabled, nonempty active answers, and full messages that already
+fit every saved model's input budget. Enabled negative mode fails closed even if
+a negative prompt is available; negative execution/results are not yet durable.
+Oversized ranking context requires a separate guarded reduction, never truncation.
+
+The original complete Stage 1 text, including completed first continuations, is
+used verbatim. Exclusions remove answers from consideration and relabel survivors;
+they do not remove members from the reviewer roster. The receipt pins all saved
+reviewers, model budgets/reasoning settings, endpoint, timeout, canonical request
+bodies and ranking aggregation choice. It binds the exact accepted review policy,
+response policy and original full Stage 1 provenance, including excluded results.
+The legacy graph and durable preparation share pure prompt formatting. Decision
+support guidance follows the saved refinement flag and non-skipped pre-query
+answer, including when refinement itself was skipped. No current defaults replace
+saved decisions and no model catalog or mutable skill library is reread.
+
+The storage lock serializes binding with cancellation/deletion/answers. Stale
+revisions and cancelled/deleted runs fail before an idempotent return. Lost write
+acknowledgments can be resolved by reading or repeating the same bind; no external
+operation occurs. Corrupt source or request evidence fails closed. Historical
+reads survive restart/configuration drift/cancellation and do not regenerate the
+saved review schema. Returned nested data is detached, not deeply immutable.
+Inspection adds a compact request identity/count summary and changes its cursor,
+without copying the private ranking prompt or advancing the interaction revision.
+
+This receipt is not dispatch consent, a public API, Stage 2 execution or successful
+ranking. A later executor must validate current run liveness/revision, reconcile
+configuration changes and durably guard each external attempt before dispatch.
+API0, unavailable Rust consultation commands and existing Stage 1 closure remain.
+Next implement guarded ranking attempts and the negative-mode path; later stages,
+context reduction/continuations, durable scheduling and whole-run acceptance stay
+unfinished. Offline tests establish the exercised request/recovery semantics,
+not live-provider behavior, model quality, macOS compatibility, exactly-once
+external execution, power-loss durability or multiprocess ownership.
