@@ -857,3 +857,53 @@ human-input boundaries, scheduling and whole-run acceptance must precede public
 run operations and CLI consultation commands; API version stays 0. No claim of
 exactly-once provider work, power-loss durability or concurrent process writers
 is added.
+
+### Internal initial Stage 1 inputs (partial)
+
+`run_stage1_inputs.bind(run_id, expected_revision=...)` pins complete initial
+Stage 1 messages and each council member's OpenRouter JSON body from the saved
+response policy, explicit-skill plan, request policy and resolved model budgets.
+All prerequisites must already exist. Version 1 supports the same archived
+explicit-skill, already-disabled reference-router mode as the saved skill plan;
+it does not bypass automatic selection or an enabled router, change settings, or
+silently omit requested skills.
+
+Skill instructions come first and the saved interactive modifier last, trimmed
+and separated by blank lines just as in the legacy Stage 1 composer. The saved
+finalized user question is preserved verbatim. Empty system instructions omit
+the system message. Member order, endpoint, the initial 120-second timeout,
+output budgets, and the optional high-effort reasoning field are retained.
+Canonical JSON bodies are immutable strings with detached dictionary access;
+authorization headers and provider credentials are not captured. These are exact
+JSON values for the initial request, not serialized HTTP bytes or a guarantee
+that a provider will accept them.
+
+The existing conservative UTF-8/framing token bound must fit **every** saved
+member input budget. Equality fits; a smaller budget rejects the whole bind
+without writing partial requests, truncating text, reducing context or calling a
+model. Metadata is not refreshed. The bound is not a model tokenizer, and saved
+metadata may come from fallback limits rather than the provider. Oversized
+inputs still need a separately guarded context-reduction implementation.
+
+Initial and repeated binds compare current loaded council/request/skill settings
+against the saved sources. Relevant drift, incomplete pre-query work, stale
+revisions, cancellation/deletion or inconsistent evidence fail closed. Binding
+holds the existing storage lock, concurrent duplicates write once, and an
+uncertain write acknowledgment is recoverable by read/rebind. Historical loads
+validate exact version-1 derivation using retained data only, without current
+configuration, library files, metadata reads or writes. Unsupported semantic
+changes require explicit version handling. Inspection adds a compact digest and
+counts rather than copying private payloads. Cancellation retains historical
+inputs; conversation deletion erases them through the existing tombstone. A
+previously returned copy remains historical evidence, not permission to dispatch.
+
+No executor or public API consumes this plan yet. It does not perform any HTTP
+request, schedule a worker, advance an interaction, accept a prompt, or authorize
+retries, continuation or context-reduction calls. A future durable executor must
+use saved inputs and separately recheck revision/cancellation under an owned,
+persisted per-call guard. Configured retry limits do not override explicit retry
+consent for uncertain work. Later-stage inputs, remaining human checkpoints,
+automatic/model-based selection, scheduling and full CLI integration remain
+unfinished; API version stays 0. No exactly-once, power-loss or multiprocess
+writer guarantee is made. As with other receipt digests, identities are not
+tamper-proof storage or authorization tokens.

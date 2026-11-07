@@ -1,3 +1,81 @@
+# CLI checkpoint — pinned initial Stage 1 requests (2026-11-05)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This slice extends reviewed local `500c5f657dbdeb33407d94f50777d8d9c9348b7a`
+and preserves its unpublished model-budget, skill-archive, renderer and skill-plan
+ancestry. Changes stay local pending publication authorization; the separate
+receipt records the final local commit/tree and recovery artifacts.
+
+New internal `run_stage1_inputs.bind` persists the exact complete initial Stage 1
+messages and ordered OpenRouter JSON bodies from existing response/skill/request
+policies and model budgets. Skills precede interactive steering; finalized user
+text is unchanged. It records endpoint, 120-second timeout, reasoning support,
+output limits, source digests and the shared conservative input-token bound.
+Every model must already fit. Unsupported context reduction rejects the entire
+operation without partial state, truncation, metadata refresh or provider calls.
+
+Scope is explicitly limited to the saved archived explicit-skill plan with the
+reference router already disabled. Enabled routing and automatic selection are
+not silently bypassed. Current setting/revision/cancellation/deletion guards apply
+to initial and repeated binding. Saved history is immutable, source-validated,
+independent of current settings/library and readable after cancellation. Deletion
+erases it; inspection exposes only identity/counts. A returned value cannot grant
+dispatch permission. See [CONTRACT.md](CONTRACT.md) for the exact limits.
+
+## Verification and review
+
+- Baseline 658 and final 677 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Nineteen new tests cover exact messages and
+  per-member payloads, actual legacy Stage 1 through mocked HTTP parity, both
+  reasoning-support cases, empty system content, strict budget equality and
+  one-member overflow, missing/stale sources, live-setting drift versus historical
+  reads, archived content after deletion, credential exclusion, immutable copies,
+  24 concurrent duplicates, write failure/lost acknowledgment, cancellation and
+  deletion serialization, nested corruption, unknown runs and fresh-process reads.
+- Self-review passed 258 legacy composer policy/budget combinations including
+  exact Unicode/whitespace, 102 malformed-value probes through bind/load/inspect
+  without writes or private-text exception leakage, and 32 cross-thread
+  preparation/cancel/delete interleavings without resurrection.
+- Independent read-only review found no introduced moderate-or-higher issue.
+  All 677 offline tests, 19 focused tests, repository-wide Ruff/whitespace checks
+  and six frozen file hashes passed independently. Extra probes covered 161
+  actual legacy composer/mocked-HTTP parity cases with response options/omissions,
+  skip, Unicode/whitespace, both reasoning modes and varied output caps; six
+  revision-6 original/refined/user-edited question and skip cases; and 207
+  malformed values through 621 bind/load/inspect calls without writes or private
+  exception content. Review is not a correctness guarantee.
+- All 114 Node tests, frontend format/ESLint, repository-wide Ruff format/lint
+  for 111 Python files and whitespace checks passed. An actual authenticated
+  loopback Uvicorn API0 startup and graceful shutdown passed with temporary storage
+  and synthetic credentials. The first focused run had one test expecting the
+  wrong existing unknown-run exception; the assertion was corrected before final
+  reruns. No production regression was exposed by that initial failure.
+- Rust/UI, legacy graph/provider code and API capability are unchanged. Rust,
+  browser UI, native macOS/Keychain and live-model checks were not run. Full builds
+  were intentionally not run. This is not end-to-end consultation verification,
+  public polling/storage performance testing or multiprocess/power-loss proof.
+
+## CI, publication and next steps
+
+Exact development/default heads have no statuses, check runs or commit comments;
+there are no GitHub Actions runs or open PRs. No normal Woodpecker evidence is
+visible. Empty aggregate `pending` is absent evidence, not an observed running
+build, pass or failure. New local commits have no published SHA to check. No
+publication retry, remote write, CI dispatch, private-runner/other-environment
+access, PR/settings action or paid model test occurred.
+
+Remaining work includes automatic/model-based selection, guarded initial request
+execution and recovery, separately guarded context reduction/continuations,
+later-stage settings/inputs and human boundaries, scheduling and public Rust CLI
+integration. The new plan supplies initial requests only; it neither executes
+nor grants permission to send them. API version remains 0. Keep the genuine local
+history and wait for direct publication authorization before any remote write.
+
+---
+
 # CLI checkpoint — pinned deterministic skill plan (2026-11-05)
 
 ## Baseline and scope

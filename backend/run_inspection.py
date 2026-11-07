@@ -25,6 +25,7 @@ from . import (
     run_skill_plan,
     run_skill_provenance,
     run_skill_snapshot,
+    run_stage1_inputs,
     storage,
 )
 
@@ -57,6 +58,7 @@ class _SnapshotEvidence(TypedDict):
     explicit_skill_provenance: dict[str, Any] | None
     explicit_skill_snapshot: dict[str, Any] | None
     skill_plan: dict[str, Any] | None
+    stage1_inputs: dict[str, Any] | None
     refinement: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -112,6 +114,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "explicit_skill_provenance": run_skill_provenance.validate_saved(record),
             "explicit_skill_snapshot": None,
             "skill_plan": None,
+            "stage1_inputs": None,
             "refinement": None,
             "pre_query": None,
             "pre_query_policy": None,
@@ -141,6 +144,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "council_request_policy",
                     "council_model_budgets",
                     "skill_plan",
+                    "stage1_inputs",
                 )
             ):
                 raise run_admission.AdmissionUnavailable(
@@ -152,6 +156,9 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         skill_plan = run_skill_plan.validate_saved(record, interaction)
         if skill_plan is not None:
             snapshot["skill_plan"] = run_skill_plan.summary(skill_plan)
+        stage1_inputs = run_stage1_inputs.validate_saved(record, interaction)
+        if stage1_inputs is not None:
+            snapshot["stage1_inputs"] = run_stage1_inputs.summary(stage1_inputs)
         execution = refinement_execution._validate_record(record)
         provider = refinement_provider._validate_record(record, execution)
         latest_refinement = None

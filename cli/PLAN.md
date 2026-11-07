@@ -53,6 +53,9 @@ API shapes, and module boundaries are engineering proposals for implementation.
   reference selections, without rereading mutable library files;
   the explicitly disabled-router path can now retain deterministic reference
   choices and exact Stage 1/3 skill blocks and reports;
+  initial Stage 1 messages and per-member OpenRouter JSON bodies can now be
+  pinned from those saved inputs when every model budget already fits, with no
+  implicit context reduction or execution;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
