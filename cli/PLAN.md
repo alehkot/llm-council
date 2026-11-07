@@ -49,6 +49,8 @@ API shapes, and module boundaries are engineering proposals for implementation.
   snapshots its request settings and performs one HTTP request per attempt.
   Resolved council model limits and initial budgets are now pinned separately;
   explicit uploaded-skill content can also be archived for restart-safe reads;
+  a read-only renderer can preview those exact archived bytes with explicit
+  reference selections, without rereading mutable library files;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
@@ -427,6 +429,17 @@ erases the archive. This neither authorizes later execution of a disabled skill
 nor records automatic selection, reference-routing decisions or rendered prompts.
 Consumers still need guarded dispatch and an explicit archived-content policy.
 See [CONTRACT.md](CONTRACT.md) for recovery, privacy and concurrency limits.
+
+### Archived skill rendering checkpoint (partial)
+
+A read-only internal helper now renders candidate prompt text from saved explicit
+skill content, using the same deterministic packer as the legacy library path.
+It validates references/section metadata, preserves known legacy whole-file
+semantics, fails on ambiguous selections and framing that cannot fit, and keeps
+archived source identities in its detached report. It neither persists the
+selection/final prompt nor executes anything. Retained routing decisions,
+automatic selection, complete stage settings and guarded dispatch remain needed.
+API0 and all consultation command gates remain unchanged.
 
 ### Configured refinement bridge checkpoint (partial)
 

@@ -453,6 +453,42 @@ Automatic selection, external sources, reference-routing decisions, rendered
 prompt provenance, stage execution and public HTTP/CLI integration remain pending.
 No worker, model call, retry, API1 capability or consultation command is enabled.
 
+## Read-only archived skill rendering (internal)
+
+`run_skill_rendering.render(run_id, selected_sections, max_chars=..., reasons=...)`
+creates a candidate skill prompt block and detached packing report from the
+already-persisted explicit uploaded-skill archive. It neither captures missing
+content nor reads current skill files, and it writes no receipt, routing decision
+or final prompt. Existing library-based rendering and archived rendering share
+the same deterministic packing core; legacy callers retain their current readers
+and behavior. No global reader monkeypatching is used by the implementation.
+
+Callers must explicitly name selected references/section IDs. Unknown skills,
+references or sections, duplicate/ambiguous selections, malformed reasons and
+incoherent archived reference metadata fail closed rather than silently changing
+the request. Empty section IDs explicitly select the whole file. A version-1
+archive's known synthetic legacy section `1` also retains whole-file semantics;
+other IDs in that synthetic index are rejected. Modern heading/section metadata
+must match the archived text. File and section order are preserved independently
+of caller ordering, and Unicode character counts follow the existing renderer.
+
+The report keeps the existing whole-section dropping, body-truncation markers,
+selected headings and reasons. It adds renderer version `1` and archived source
+IDs/digests. Bundle inventory is explicitly `not_archived`, rather than inventing
+zero counts for scripts/assets/evals. A zero character budget returns no block;
+a positive budget too small for the mandatory framing fails instead of returning
+an over-budget prompt. The legacy renderer's budget behavior is unchanged.
+
+The same archive yields the same candidate under this renderer version after
+library replacement/disabling/deletion or process restart. Cancelled run history
+can be previewed; deleted runs reject new loads. A returned in-memory copy is not
+revoked by a later deletion or cancellation and never proves the run is runnable.
+This is neither permission to execute an old/disabled skill nor a final prompt
+provenance record. Automatic/reference selection decisions, retained stage
+settings and final rendered prompts, guarded dispatch and public integration
+remain pending. No scripts, model calls, worker scheduling, API1 or Rust run
+commands are enabled.
+
 ## Configured refinement bridge (internal, partial)
 
 `refinement_provider.resolve_configured_refinement` reads the loaded backend's

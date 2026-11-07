@@ -33,7 +33,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import yaml
 
@@ -1709,6 +1709,26 @@ def render_skills_context(
     SKILL.md bodies, longest first, with a visible marker; (3) never emit a partial
     section.
     """
+    return _render_skills_context(
+        skills,
+        selected_sections,
+        max_chars,
+        reasons,
+        read_markdown=read_skill_markdown,
+        read_sections=read_reference_sections,
+    )
+
+
+def _render_skills_context(
+    skills: Sequence[Skill],
+    selected_sections: Dict[str, List[SectionSelection]],
+    max_chars: int,
+    reasons: Optional[Dict[str, Dict[str, str]]],
+    *,
+    read_markdown: Callable[[str], Optional[str]],
+    read_sections: Callable[[str, str, Sequence[str]], Optional[List[Tuple[str, str]]]],
+) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Shared deterministic packer; content comes only from supplied readers."""
     report: Dict[str, Any] = {
         "resolved": [],
         "chars": 0,
@@ -1722,7 +1742,7 @@ def render_skills_context(
     reason_map = reasons or {}
     entries: List[_RenderEntry] = []
     for skill in skills:
-        markdown = read_skill_markdown(skill.id)
+        markdown = read_markdown(skill.id)
         if markdown is None:
             continue
         try:
@@ -1749,7 +1769,7 @@ def render_skills_context(
                 requested_ids = spec & available_ids
                 if not requested_ids:
                     continue
-            pairs = read_reference_sections(
+            pairs = read_sections(
                 skill.id,
                 reference.path,
                 () if requested_ids is None else requested_ids,

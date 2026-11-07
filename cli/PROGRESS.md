@@ -1,3 +1,89 @@
+# CLI checkpoint — archived skill rendering (2026-11-05)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This work extends local reviewed commit `ed6a7844586f592110ddc850bc3449f635f69fca`,
+which retains the unpublished model-budget and durable-skill-content ancestors.
+All three changes remain local pending publication authorization. Exact final
+local commit/tree and recovery artifacts belong in the separate receipt.
+
+The archive previously had no renderer that could consume its checked bytes
+without reopening mutable skill-library paths. The internal read-only
+`run_skill_rendering.render` now produces a candidate skill block and detached
+packing report using only saved content, explicit reference/section choices and
+an explicit character budget. It does not route references, persist a selection
+or final prompt, capture missing content, call a provider or schedule work.
+
+The existing renderer and new archive adapter share one deterministic packer.
+Legacy callers keep their original library readers and behavior. The archive
+adapter validates metadata against archived text, rejects unknown or ambiguous
+selections and unsafe reference path forms, and preserves the known synthetic
+legacy whole-file section semantics. Whole sections are dropped before marked
+body truncation, retaining original order and Unicode character-count semantics.
+A positive budget too small for mandatory framing fails instead of returning an
+over-budget candidate. A zero budget returns no block.
+
+Saved source IDs/digests and renderer version accompany the report. Original
+scripts/assets/evals counts were not archived, so the report explicitly says
+`bundle_inventory=not_archived` rather than inventing zero counts. Library
+replacement, disabling or deletion cannot change a preview. Cancelled history
+can be inspected; deleted runs reject new loads. An already returned in-memory
+copy is not revoked by later cancellation/deletion and never establishes runnable
+state. See [CONTRACT.md](CONTRACT.md) for the complete boundaries.
+
+## Verification and review
+
+- Baseline 623 and final 639 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Sixteen new tests cover body/whole-file/section
+  parity, packing and framing floors, source isolation after library mutations,
+  detached reports and byte-pure reads, reasons, strict arguments, skill order,
+  bundle-count disclosure, synthetic legacy sections, missing archives,
+  cancellation/deletion, corrupt archives, incoherent metadata, fresh-process
+  restoration, headingless/empty/capped references and duplicate references.
+- Self-review compared 384 selection/budget combinations against the actual
+  pre-change renderer source and the shared library/archive implementations.
+  It repeated all 312 supported combinations after library deletion without
+  library reads or writes, and passed 64 concurrent previews of different
+  archived runs sharing the same skill ID without mixing their content.
+- Self-review found a path-validation assumption: the normalization helper
+  expects ingestion to have rejected traversal already. The new archive adapter
+  now explicitly rejects nested traversal, backslashes and controls, with added
+  regression cases. There was no filesystem access in the rendering path.
+- Independent read-only review found no moderate-or-higher issue. It passed all
+  639 offline Python tests (including the 16 new tests), 720 additional parity
+  comparisons against the original Git source across randomized modern and
+  synthetic-legacy references, and 12 hostile reference-path probes. It verified
+  all six changed-file hashes and the final checkpoint, inspecting rather than
+  rerunning the supplied frontend/lint/startup/concurrency evidence.
+- All 114 frontend Node tests, frontend format/ESLint, repository-wide Ruff
+  format/lint for 107 Python files and whitespace checks passed. Actual loopback
+  Uvicorn startup, authenticated API0 config and graceful shutdown passed with
+  temporary storage and synthetic credentials. No introduced moderate-or-higher
+  issue was found in self-review; review is not a correctness guarantee.
+- Rust/UI source is unchanged; Rust and rendered-browser checks were not rerun.
+  Full local builds, native macOS Keychain/platform and live-provider checks remain
+  unrun. Full public polling/storage performance, multiprocess/power-loss safety
+  and end-to-end consultation execution are not established.
+
+## CI, publication and next steps
+
+Remote development/default heads expose no status contexts, check runs or commit
+comments; the repository has no GitHub Actions runs and no open PRs. No normal
+Woodpecker result is observable. Empty aggregate `pending` means missing evidence,
+not an observed running build, pass or failure. No new public commit exists for
+these local changes. No publication retry, CI dispatch, private-runner or other
+environment access, PR/settings action or paid model test occurred.
+
+Next: resolve the outstanding publication decision, reconcile fresh remote heads
+and publish reviewed work only when authorized. Complete retained reference
+routing/automatic selection decisions, exact stage settings and final rendered
+prompt provenance, guarded provider work and remaining human checkpoints before
+public run APIs, durable scheduling or Rust consultation commands are enabled.
+
+---
+
 # CLI checkpoint — durable explicit skill content (2026-11-05)
 
 ## Baseline and scope
