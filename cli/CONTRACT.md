@@ -897,7 +897,8 @@ counts rather than copying private payloads. Cancellation retains historical
 inputs; conversation deletion erases them through the existing tombstone. A
 previously returned copy remains historical evidence, not permission to dispatch.
 
-No executor or public API consumes this plan yet. It does not perform any HTTP
+The internal member-attempt guard below can consume this plan explicitly; no
+public API or worker does so. Preparation does not perform any HTTP
 request, schedule a worker, advance an interaction, accept a prompt, or authorize
 retries, continuation or context-reduction calls. A future durable executor must
 use saved inputs and separately recheck revision/cancellation under an owned,
@@ -907,3 +908,73 @@ automatic/model-based selection, scheduling and full CLI integration remain
 unfinished; API version stays 0. No exactly-once, power-loss or multiprocess
 writer guarantee is made. As with other receipt digests, identities are not
 tamper-proof storage or authorization tokens.
+
+### Internal guarded initial Stage 1 attempts (partial)
+
+`run_stage1_execution.execute(run_id, model, provider, provider_key=...,
+expected_revision=..., retry_token=...)` explicitly guards one initial member
+request from the pinned Stage 1 plan. It persists the exact plan identity,
+revision, non-secret adapter version, member and unique attempt before invoking
+the injected callback. The callback receives the saved endpoint, timeout and a
+detached copy of the exact JSON payload. No current library/catalog lookup,
+implicit input binding or legacy provider fallback is performed.
+
+This is an internal callback seam, **not an installed HTTP adapter**. The caller
+must supply a trusted adapter that makes one request, honors the supplied timeout
+and performs no retries, context reduction or continuation calls. The guard
+guarantees one callback invocation per owned attempt, not what arbitrary injected
+code does inside it. No routes, workers, startup hooks or automatic member loops
+invoke it. Configured retry limits do not override explicit uncertain-work consent.
+
+Distinct members can run concurrently. Process-wide ownership prevents a second
+live invocation of the same member, including across local event loops. A lost
+process/callback error/caller cancellation or unsupported response leaves its
+unowned in-flight attempt uncertain. Inspection reports an exact per-member retry
+token; only that token can authorize a replacement attempt. Repeated consent can
+observe its active/result state without creating another call. Stale tokens,
+tokens for another member, changed adapter identities, stale revisions and source
+or current-configuration drift fail closed. No configured backoff or automatic
+retry runs. Completed siblings are retained and never implicitly rerun.
+
+Normalized responses require nonblank text and a `stop` or `length` finish reason;
+optional reasoning details and usage are finite JSON metadata. Stored normalized
+responses are capped at 2 MiB. Unknown fields, unsupported finishes and malformed
+responses fail without saving success. The future HTTP adapter must separately
+bound wire-response reads and validate its protocol envelope. A `length` result
+retains its exact partial text/metadata and reports `needs_continuation`; it is
+never treated as a finished answer or replayed as an uncertain initial request.
+Continuation execution remains unsupported. Metadata and response text are
+excluded from compact polling summaries and error wrappers.
+
+The storage lock protects attempt admission, source checks, response persistence
+and cancellation/deletion decisions. Settings/revision/cancellation are rechecked
+immediately before callback entry. Completion validates the saved causal inputs
+again but does not replace them with settings changed while a request was in
+flight. Failed pre-dispatch persistence never invokes the callback, including a
+lost write acknowledgment. Failed completion persistence leaves uncertainty;
+if the write actually landed, reloading finds its completed result without replay.
+
+Cancellation registers and signals the specific provider tasks, preserving
+previously saved member results. A cancelling callback retains local ownership
+until cleanup finishes; late responses cannot commit after cancellation or
+deletion. Cancellation cannot prove a remote request stopped or avoid charges.
+Deletion erases all receipt results and prevents resurrection. Read-only
+`load_result` returns detached historical values even after cancellation or live
+configuration/library changes, and performs no scheduling, repair or writes.
+
+Inspection distinguishes running members, uncertain members, partial Stage 1,
+needed continuations and completed initial Stage 1. Retry tokens live in the
+member summary, not the refinement-specific top-level retry slot. Stage 1
+completion is not council completion. Results remain in the durable receipt;
+legacy conversation stage fields and exports are not updated by this guard.
+Interaction revision remains at the saved
+pre-query boundary; later prompts need deliberate causal-validation extensions.
+Calling this coroutine directly does not implement client detachment: cancelling
+its caller cancels the internal attempt, so future public clients require a
+separate worker-owner layer. API0 and all public consultation gates remain.
+The internal guard shields its owned callback wait so the callback cannot turn
+caller cancellation into saved success by suppressing `CancelledError`. It
+signals that callback once and retains ownership until cleanup ends, even when
+the caller is cancelled again during cleanup. Any late result is discarded.
+This does not establish power-loss durability, multi-process ownership,
+exactly-once provider execution or complete consultation orchestration.

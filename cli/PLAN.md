@@ -55,14 +55,16 @@ API shapes, and module boundaries are engineering proposals for implementation.
   choices and exact Stage 1/3 skill blocks and reports;
   initial Stage 1 messages and per-member OpenRouter JSON bodies can now be
   pinned from those saved inputs when every model budget already fits, with no
-  implicit context reduction or execution;
+  implicit context reduction; an explicit per-member callback guard now saves
+  in-flight attempts and complete/partial responses, requires consent for uncertain
+  retries and protects concurrent-member ownership without a wire adapter or worker;
   full exact-wire/provider/skills provenance,
   worker release/resumption and other external-work boundaries remain incomplete.
 - [ ] Add run-specific cancel and explicit retry operations. Protect mutations
   against stale clients and repeated requests; cancelling one run must leave
   other queued runs intact. Preserve the behavior of existing web submissions.
-  **Partial:** internal prepared/refinement runs now retain a durable cancellation
-  marker and interrupt only their owned local provider task; late results and
+  **Partial:** internal prepared/refinement and initial Stage 1 runs now retain a durable cancellation
+  marker and interrupt only their owned local provider tasks; late results and
   retries cannot resume cancelled work. Generic council-worker and public HTTP
   cancellation integration remain pending; this item stays open.
 - [ ] Create one Cargo package under `cli/`, with a `council` binary, HTTP client,
@@ -555,3 +557,15 @@ request still needs a durable guard respecting explicit-retry recovery. Complete
 remaining model metadata, exact inputs, synthesis/skills provenance and guarded
 stage execution before public acceptance. API0 and consultation command gates
 remain unchanged. See [CONTRACT.md](CONTRACT.md) for boundaries.
+
+### Guarded initial Stage 1 member checkpoint (partial, local)
+
+An explicit internal guard can now consume the pinned initial request for one
+member through an injected single-attempt callback. It saves the attempt before
+dispatch, owns concurrent members independently, retains complete or partial
+responses and requires per-member consent for uncertain work. Cancellation and
+deletion block late commits; read-only summaries preserve each member's state.
+This is not a wire adapter, scheduled worker or public run path. Context reduction,
+continuations, later stages/human boundaries, durable scheduling and whole-run
+acceptance remain unfinished. API0 and consultation command gates remain; see
+[CONTRACT.md](CONTRACT.md). Publication remains blocked pending new authorization.

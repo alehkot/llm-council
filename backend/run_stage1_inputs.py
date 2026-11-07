@@ -200,23 +200,7 @@ def bind(run_id: str, *, expected_revision: int) -> Stage1Inputs:
             raise run_interaction.PromptConflict("Stage 1 input revision changed")
         if snapshot is None or snapshot["internal_phase"] != "pre_query_complete":
             raise Stage1InputConflict("Completed pre-query input is required")
-        response, skills, _, request = _sources(record, interaction)
-        selection = council_selection.validate_saved(record, interaction)
-        try:
-            if (
-                selection != council_selection._current(response)
-                or request != council_request_policy._current(selection)
-                or skills.settings != run_skill_plan._current()
-            ):
-                raise Stage1InputConflict("Stage 1 input configuration changed")
-        except (
-            council_selection.CouncilSelectionConflict,
-            council_request_policy.RequestPolicyConflict,
-            run_skill_plan.SkillPlanConflict,
-        ) as exc:
-            raise Stage1InputConflict(
-                "Current Stage 1 input configuration is unsupported"
-            ) from exc
+        _check_current(record, interaction)
         saved = validate_saved(record, interaction)
         if saved is not None:
             return saved
@@ -224,6 +208,29 @@ def bind(run_id: str, *, expected_revision: int) -> Stage1Inputs:
         record["stage1_inputs"] = prepared.model_dump(mode="json")
         run_admission._write(record)
         return prepared
+
+
+def _check_current(
+    record: dict[str, Any], interaction: run_interaction.InteractionState
+) -> None:
+    """Check configured choices without binding or consulting the live library."""
+    response, skills, _, request = _sources(record, interaction)
+    selection = council_selection.validate_saved(record, interaction)
+    try:
+        if (
+            selection != council_selection._current(response)
+            or request != council_request_policy._current(selection)
+            or skills.settings != run_skill_plan._current()
+        ):
+            raise Stage1InputConflict("Stage 1 input configuration changed")
+    except (
+        council_selection.CouncilSelectionConflict,
+        council_request_policy.RequestPolicyConflict,
+        run_skill_plan.SkillPlanConflict,
+    ) as exc:
+        raise Stage1InputConflict(
+            "Current Stage 1 input configuration is unsupported"
+        ) from exc
 
 
 def load(run_id: str) -> Stage1Inputs:

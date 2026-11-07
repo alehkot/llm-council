@@ -1,3 +1,90 @@
+# CLI checkpoint: guarded initial Stage 1 attempts (2026-11-05)
+
+## Baseline and scope
+
+Remote `development` remains [aeee4f9f4dfddc959460f200593c4a3658ce331a](https://github.com/alehkot/llm-council/commit/aeee4f9f4dfddc959460f200593c4a3658ce331a).
+Default `main` remains [fe887479cbb09d940f64dfe1d813d166f9aeac9d](https://github.com/alehkot/llm-council/commit/fe887479cbb09d940f64dfe1d813d166f9aeac9d).
+This slice extends reviewed local `ca1bf8c0fc0af0fd89ed4063f5eaa599e596b620`
+and preserves all five unpublished model-budget, skill-archive/render/plan and
+Stage 1 input commits. Publication remains blocked by the earlier denied remote
+commit creation; no retry or alternative publication route was attempted. The
+separate recovery receipt records the final local commit/tree and artifacts.
+
+The internal `run_stage1_execution.execute` now saves and owns one initial member
+attempt before invoking an explicitly injected single-attempt provider callback.
+It supplies exact pinned endpoint/timeout/payload values, supports concurrent
+members and prevents duplicate live calls for one member. An uncertain attempt
+requires its current per-member token; repeated consent does not dispatch another
+attempt. Completed siblings are preserved. The guard rechecks source, adapter
+identity and the full owned attempt before dispatch and result persistence.
+
+Complete responses and length-limited partial text/reasoning/usage are retained
+in the durable receipt, with finite JSON validation and a 2 MiB normalized-result
+limit. Partial responses require a separately implemented continuation, never an
+automatic initial-request replay. Compact inspection exposes per-member states
+and retry tokens without private response bodies. Historical result reads are
+detached and byte-pure. Cancellation/deletion prevent late commits and
+resurrection; caller cancellation is preserved even if a callback suppresses it,
+with ownership retained and one signal through repeated cancellation cleanup.
+
+Research followed the existing refinement attempt/cancellation guard and the
+pinned Stage 1 source contract. No HTTP adapter, legacy provider path, manager
+worker, auto-loop, public API or CLI consultation command invokes this code.
+Injected adapters must honor one request and the saved timeout; callback ownership
+cannot enforce arbitrary code's internal network behavior. Receipt results do
+not update legacy conversation stage fields or exports. Public detachment still
+requires independent worker ownership. See [CONTRACT.md](CONTRACT.md).
+
+## Verification and review
+
+- Baseline 677 and final 727 offline Python 3.10.22 tests passed with unmocked
+  outbound networking forbidden. Fifty new tests cover exact supplied inputs,
+  concurrent/out-of-order members, cross-event-loop duplicate suppression,
+  explicit retry replay/stale and cross-member tokens, retained partial results,
+  errors/cancellation, both sides of attempt/result persistence failures,
+  lost acknowledgments, restart execution/recovery, current-setting drift versus
+  historical reads, causal and adapter-identity drift, cancellation/deletion
+  before and during callbacks, size/metadata validation, private error wrappers,
+  read purity and malformed saved records.
+- Independent review found two pre-commit issues: a callback could swallow caller
+  cancellation, and changed saved adapter identity could mislabel a response.
+  Shielded cleanup plus adapter/full-attempt rechecks fixed both, with regression
+  tests. Final review found no remaining moderate-or-higher issue and independently
+  passed all 50 execution tests, 19 input tests, 18 cancellation tests, 16 inspection
+  tests, eight additional synthetic edge scenarios and whitespace checks. Final
+  production/test hashes were confirmed. Review is not a correctness guarantee.
+- The additional review scenarios cover late success/error during cancellation,
+  repeated caller cancellation, concurrent durable cancellation, caller cancellation
+  before result delivery, deleted execution state and changed consent ancestry. Ownership stays
+  until cleanup, signals occur once, and no late response is saved.
+- All 114 Node tests, frontend formatting/ESLint, repository-wide Ruff format/lint
+  for 113 Python files and whitespace checks passed. Actual authenticated loopback
+  Uvicorn API0 startup and graceful shutdown passed with temporary storage and
+  synthetic credentials.
+- Rust/UI, public capabilities and legacy provider execution are unchanged.
+  Full builds, Rust, browser, native macOS/Keychain and live providers were not
+  run. Tests do not establish actual remote-provider semantics/billing,
+  whole-consultation behavior, power-loss durability or multi-process ownership.
+
+## CI, publication and next steps
+
+Exact development/default commits still expose zero status contexts, check runs
+and commit comments; there are no Actions runs or open PRs/issues in the target
+repository. No normal Woodpecker result is visible. Empty aggregate `pending`
+is missing evidence, not an observed running build, pass or failure. Unpublished
+local commits have no remote SHA to check. No remote blobs, trees, commits or ref
+updates, PR action, CI dispatch, private-runner/user-computer access, settings
+change, deployment or paid call was attempted in this iteration.
+
+Next: obtain direct authorization before publication, preserving the genuine
+unpublished ancestry without reset/force. For implementation, add a bounded
+single-attempt wire adapter using saved inputs and protocol validation, then
+separately guarded context reduction/continuations, remaining stage/skill/synthesis
+settings and human boundaries, durable scheduling and whole-run acceptance.
+API version stays 0 and public consultation commands remain unavailable.
+
+---
+
 # CLI checkpoint — pinned initial Stage 1 requests (2026-11-05)
 
 ## Baseline and scope
