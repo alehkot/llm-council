@@ -16,7 +16,7 @@ node --test frontend/tests/*.test.mjs
 source .ci-output/build-scripts/browser.sh
 
 for suite in frontend/tests/*.browser.mjs; do
-    node "$suite"
+    timeout --kill-after=10s 240s node "$suite"
 done
 
 # Rust CLI foundation. The normal runner needs Rust with rustfmt and Clippy.

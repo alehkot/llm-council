@@ -140,7 +140,10 @@ try {
 				return route.fulfill({ headers, json: body });
 			});
 			try {
-				await page.goto(origin);
+				// Vite's first source transform exceeds the 6s action budget on
+				// the CPU-capped Pi worker. Keep that budget for auth assertions,
+				// but allow bounded cold-start navigation before checking the UI.
+				await page.goto(origin, { timeout: 30000 });
 				await page
 					.getByRole("button", { name: "API key status", exact: true })
 					.waitFor();

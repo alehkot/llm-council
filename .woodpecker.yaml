@@ -1,6 +1,7 @@
 when:
   - event: push
-    branch: [main, development]
+    # Exact trusted repair branch only; do not enable secret-bearing PR builds.
+    branch: [main, development, fix/pi-browser-navigation]
   - event: manual
 
 labels:
