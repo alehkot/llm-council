@@ -90,10 +90,19 @@ async function run() {
 			"plain-enter",
 			"shift-enter",
 		]) {
+			// Normal builds exercise successful Enter submission at both sizes.
+			// The manual full run retains the complete IME and Shift+Enter matrix.
+			if (
+				process.env.BROWSER_TEST_MODE === "smoke" &&
+				scenario !== "plain-enter"
+			)
+				continue;
 			const name = `${viewport.width}px draft ${scenario}`;
 			const context = await browser.newContext({ viewport });
 			const page = await context.newPage();
 			page.setDefaultTimeout(5000);
+			// Cold Vite navigation has a separate budget from UI assertions.
+			page.setDefaultNavigationTimeout(30000);
 			const errors = [];
 			page.on("pageerror", (error) => errors.push(error.message));
 			const sends = [];

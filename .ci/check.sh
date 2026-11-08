@@ -15,9 +15,7 @@ node --test frontend/tests/*.test.mjs
 
 source .ci-output/build-scripts/browser.sh
 
-for suite in frontend/tests/*.browser.mjs; do
-    node "$suite"
-done
+bash .ci/check-browser.sh smoke
 
 # Rust CLI foundation. The normal runner needs Rust with rustfmt and Clippy.
 bash .ci/check-cli.sh
