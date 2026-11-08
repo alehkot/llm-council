@@ -194,9 +194,11 @@ try {
 							null,
 						);
 						await page.locator("#apiKey").fill(key);
+						// The Pi also stalled at this click in the full CI run.
+						// Keep other actions/assertions at 6s and the suite at 240s.
 						await page
 							.getByRole("button", { name: "Save API Key", exact: true })
-							.click();
+							.click({ timeout: 15000 });
 						await page.getByRole("dialog").waitFor({ state: "hidden" });
 						await page.waitForFunction(
 							() => window.testStore.getState().config !== null,
