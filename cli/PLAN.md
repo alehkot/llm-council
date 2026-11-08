@@ -687,3 +687,15 @@ partial response or failure without scheduling another reviewer or stage. This
 is not durable admission, restart scheduling, aggregation or public run execution.
 Continue ranking validation/aggregation and remaining workflow boundaries before
 whole-run acceptance; API0 and consultation-command gates remain unchanged.
+
+### Complete ranking projection checkpoint (partial)
+
+A read-only all-reviewer projection now validates exact saved Stage 2 causal
+receipts and reuses the existing average-rank/pairwise ballot algorithms. Every
+reviewer must have stopped; uncertain, in-flight, unstarted and length-only work
+cannot form a partial quorum. Invalid completed ballots retain their response and
+attempt provenance but do not vote. All-invalid ballots yield no aggregate.
+Historical reads survive cancellation/config drift, not deletion or corruption.
+See `PROGRESS-STAGE2-RANKINGS.md` for verification and limits. This does not mark
+Stage 2/run completion, schedule continuations or advance the workflow. Continue
+remaining continuation/negative-mode and workflow boundaries before public API1.
