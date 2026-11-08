@@ -1,6 +1,7 @@
 """Explicit single-request OpenRouter adapter for one saved Stage 2 reviewer.
 
-No public route, worker scheduler or automatic roster loop selects this adapter.
+No public route or automatic roster loop selects this adapter. An explicit
+manager handoff can own a single reviewer request.
 It retains raw ranking text, not a validated ballot or an aggregate ranking.
 """
 

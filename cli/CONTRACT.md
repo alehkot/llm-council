@@ -1505,8 +1505,8 @@ The adapter retains stopped or length-limited raw review text and bounded metada
 It does not parse/validate ballots, aggregate rankings, continue a length stop,
 call another reviewer, reduce context, enable negative mode or schedule a worker.
 In particular, stopped arbitrary prose is not evidence of a usable ranking.
-Client-detachment semantics still require a separate worker ownership layer;
-cancelling this internal coroutine interrupts its owned request.
+The explicit worker ownership layer below provides process-local detachment;
+cancelling this internal coroutine directly interrupts its owned request.
 
 Offline MockTransport tests cover the exact wire request for all saved reviewers
 despite answer exclusions, durable attempt-before-dispatch, isolated consent,
@@ -1516,3 +1516,32 @@ native macOS/Keychain behavior, exactly-once remote execution or multiprocess
 durability. No public endpoint, API1 capability or Rust consultation command is
 enabled. Ranking validation/aggregation, remaining guarded stages and continuations,
 durable scheduling and complete public acceptance remain unfinished.
+
+
+### Explicit Stage 2 reviewer worker handoff (partial)
+
+`ConsultationManager.schedule_cli_stage2_reviewer` explicitly owns one named
+reviewer's already-pinned request on the existing pool. It never prepares inputs,
+chooses reviewers, aggregates ballots or advances later stages. The returned
+process-local handle shields the executor Future from detached waiters and gives
+each waiter detached snapshot data. Active duplicates share the same ownership
+only when revision and retry consent match; changed credentials cannot replace
+an active worker's key. Credentials are not persisted or exposed in the handle.
+
+Distinct reviewers may execute concurrently. Legacy conversation work and
+initial/continuation Stage 1 owners exclude reviewer admission, and reviewer
+ownership excludes legacy/Stage 1 admission. Nonterminal legacy journals and
+resumable orphan assistant placeholders also exclude reviewer admission before
+legacy recovery. The durable adapter rechecks saved
+revision, cancellation, deletion, source and current configuration after queueing
+and before external work. Completed or partial results, failures and cancellations
+release ownership without automatic retries, continuations or sibling requests.
+Uncertain attempts still require the named reviewer's exact retry token.
+
+This is not durable queue admission, automatic restart scheduling, a full-stage
+or public CLI detachment promise. A restart before dispatch loses the process-local
+queue but does not create a provider attempt; after dispatch, durable attempt
+recovery applies. No public route, API1 or Rust consultation command is enabled.
+Ranking validation/aggregation and remaining workflow boundaries still precede
+whole-run acceptance. Tests use synthetic MockTransport responses on the actual
+pool, not paid/live providers or native macOS/Keychain verification.

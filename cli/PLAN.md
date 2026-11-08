@@ -675,3 +675,15 @@ or continuing calls. No ballot validation, aggregation, scheduler, public endpoi
 or consultation-command capability is enabled. Continue those dependencies and the
 durable negative path before full workflow acceptance; API0 remains unchanged.
 See [CONTRACT.md](CONTRACT.md) and [PROGRESS.md](PROGRESS.md) for tested boundaries.
+
+
+### Explicit reviewer worker checkpoint (partial)
+
+The manager can explicitly own one saved Stage 2 reviewer request on its existing
+pool. Active duplicates share revision/consent-bound ownership, detached waiters
+leave the request running, and queued work rechecks durable state before dispatch.
+It excludes conflicting legacy/Stage 1 work and releases the slot at completion,
+partial response or failure without scheduling another reviewer or stage. This
+is not durable admission, restart scheduling, aggregation or public run execution.
+Continue ranking validation/aggregation and remaining workflow boundaries before
+whole-run acceptance; API0 and consultation-command gates remain unchanged.

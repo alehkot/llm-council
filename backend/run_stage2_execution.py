@@ -1,4 +1,4 @@
-"""Internal single-attempt ranking guard; no scheduler or public route calls it.
+"""Internal single-attempt ranking guard; no public route calls it.
 
 Normalized text is retained, not parsed/aggregated into a valid ballot. Length
 stops need a future explicit continuation. Local ownership is process-wide,

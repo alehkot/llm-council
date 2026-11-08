@@ -24,6 +24,8 @@ from . import (
     run_stage1_continuation_provider,
     run_stage1_execution,
     run_stage1_provider,
+    run_stage2_execution,
+    run_stage2_provider,
     storage,
 )
 from .config import (
@@ -149,6 +151,13 @@ class Stage1StepHandle(RefinementStepHandle):
     turn: int = 0
 
 
+@dataclass(frozen=True)
+class Stage2StepHandle(RefinementStepHandle):
+    """Process-local ownership of one explicitly selected ranking request."""
+
+    model: str
+
+
 def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
     """Stable digest of a snapshot used as a long-poll change cursor."""
 
@@ -190,6 +199,7 @@ class ConsultationManager:
         self._interactive_sessions: Dict[str, ConsultationState] = {}
         self._cli_refinement_steps: Dict[str, RefinementStepHandle] = {}
         self._cli_stage1_steps: Dict[tuple[str, str], Stage1StepHandle] = {}
+        self._cli_stage2_steps: Dict[tuple[str, str], Stage2StepHandle] = {}
         self._restored = False
 
     @staticmethod
@@ -761,6 +771,10 @@ class ConsultationManager:
                 conversation_id in self._futures
                 or self._queues.get(conversation_id)
                 or (refinement is not None and not refinement._future.done())
+                or any(
+                    owner_run == run_id and not handle._future.done()
+                    for (owner_run, _), handle in self._cli_stage2_steps.items()
+                )
             ):
                 raise run_stage1_execution.ExecutionConflict(
                     "Conversation is owned by other consultation work"
@@ -823,6 +837,133 @@ class ConsultationManager:
             if owned is not None and owned._future is future:
                 self._cli_stage1_steps.pop(key)
 
+    def schedule_cli_stage2_reviewer(
+        self,
+        run_id: str,
+        model: str,
+        *,
+        expected_revision: int,
+        api_key: str,
+        retry_token: str | None = None,
+        _transport: Any = None,
+    ) -> Stage2StepHandle:
+        """Schedule one saved reviewer request, never a roster or later stage.
+
+        Ownership is process-local. Detaching waiters leaves work running; the
+        durable adapter rechecks state/configuration on dispatch and retains
+        uncertain work for explicit retry. No inputs are implicitly prepared.
+        """
+        run_id = str(uuid.UUID(run_id))
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("Expected revision must be a nonnegative integer")
+        if not isinstance(model, str) or not model:
+            raise ValueError("A saved member identity is required")
+        retry_token = str(uuid.UUID(retry_token)) if retry_token is not None else None
+        # Validate before queue admission without retaining a callback or key in
+        # the handle. Exact active duplicates keep the original worker credential.
+        run_stage1_provider._provider(api_key, _transport)
+        key = (run_id, model)
+        with self._lock:
+            owned = self._cli_stage2_steps.get(key)
+            if owned is not None and not owned._future.done():
+                if (owned.revision, owned.retry_token) != (
+                    expected_revision,
+                    retry_token,
+                ):
+                    raise run_stage2_execution.ExecutionConflict(
+                        "Another member boundary is already scheduled"
+                    )
+                return owned
+            snapshot = run_inspection.inspect(run_id)
+            if snapshot is None or snapshot["internal_phase"] == "initializing":
+                raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+            interaction = snapshot["interaction"]
+            if interaction is None or interaction["revision"] != expected_revision:
+                raise run_stage2_execution.ExecutionConflict("Stage 2 revision changed")
+            prepared = snapshot["stage2_inputs"]
+            selection = snapshot["council_selection"]
+            if (
+                prepared is None
+                or selection is None
+                or model not in selection["council_models"]
+            ):
+                raise run_stage2_execution.ExecutionConflict(
+                    "Reviewer does not identify saved Stage 2 input"
+                )
+            conversation_id = snapshot["conversation_id"]
+            refinement = self._cli_refinement_steps.get(run_id)
+            if (
+                any(
+                    job.get("conversation_id") == conversation_id
+                    and not self._job_is_already_terminal(job)
+                    for job in consultation_journal.list_jobs()
+                )
+                or any(
+                    candidate["conversation_id"] == conversation_id
+                    for candidate in storage.list_incomplete_assistant_messages()
+                )
+                or conversation_id in self._futures
+                or self._queues.get(conversation_id)
+                or (refinement is not None and not refinement._future.done())
+                or any(
+                    owner_run == run_id and not handle._future.done()
+                    for (owner_run, _), handle in self._cli_stage1_steps.items()
+                )
+            ):
+                raise run_stage2_execution.ExecutionConflict(
+                    "Conversation is owned by other consultation work"
+                )
+            future = self._executor.submit(
+                self._run_cli_stage2_reviewer,
+                run_id,
+                model,
+                expected_revision,
+                api_key,
+                retry_token,
+                _transport,
+            )
+            handle = Stage2StepHandle(
+                run_id, expected_revision, retry_token, future, model
+            )
+            self._cli_stage2_steps[key] = handle
+        # Completed futures invoke callbacks synchronously; register outside lock.
+        future.add_done_callback(
+            lambda finished: self._release_cli_stage2_reviewer(key, finished)
+        )
+        return handle
+
+    @staticmethod
+    def _run_cli_stage2_reviewer(
+        run_id: str,
+        model: str,
+        revision: int,
+        api_key: str,
+        retry_token: str | None,
+        transport: Any,
+    ) -> run_inspection.RunInspectionSnapshot:
+        asyncio.run(
+            run_stage2_provider.execute_openrouter(
+                run_id,
+                model,
+                api_key=api_key,
+                expected_revision=revision,
+                retry_token=retry_token,
+                _transport=transport,
+            )
+        )
+        snapshot = run_inspection.inspect(run_id)
+        if snapshot is None:
+            raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+        return snapshot
+
+    def _release_cli_stage2_reviewer(
+        self, key: tuple[str, str], future: Future
+    ) -> None:
+        with self._lock:
+            owned = self._cli_stage2_steps.get(key)
+            if owned is not None and owned._future is future:
+                self._cli_stage2_steps.pop(key)
+
     def submit(
         self,
         conversation_id: str,
@@ -839,6 +980,13 @@ class ConsultationManager:
         selected_skill_ids = list(skill_ids or [])
 
         with self._lock:
+            if any(
+                conversation_id == f"cli-{run_id}" and not handle._future.done()
+                for (run_id, _), handle in self._cli_stage2_steps.items()
+            ):
+                raise run_stage2_execution.ExecutionConflict(
+                    "Conversation is owned by an internal Stage 2 reviewer"
+                )
             if any(
                 conversation_id == f"cli-{run_id}" and not handle._future.done()
                 for (run_id, _), handle in self._cli_stage1_steps.items()

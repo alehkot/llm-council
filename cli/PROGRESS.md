@@ -1,3 +1,80 @@
+# CLI checkpoint: explicit reviewer worker ownership (2026-11-08)
+
+## Baseline, rationale and completed scope
+
+Working branch is persistent `development`, starting at
+[975f952f6c5fcaf59db1571d870814537ae84c5d](https://github.com/alehkot/llm-council/commit/975f952f6c5fcaf59db1571d870814537ae84c5d).
+Observed upstream `main` is
+[409c67c9d1c192579231a626053299a66c61fffb](https://github.com/alehkot/llm-council/commit/409c67c9d1c192579231a626053299a66c61fffb),
+already an ancestor. Fresh branch, issue, PR and ownership checks found no
+conflicting active work. Existing owner changes and all accumulated development
+history remain preserved. The containing commit records this slice; the durable
+publication receipt and existing recovery issue record final local/published SHA
+and tree identities after publication, avoiding a circular self-hash.
+
+The previous adapter could safely retain one ranking request but had no manager
+owner independent of its caller. This slice adds an explicit one-reviewer handoff
+on the existing pool, reusing the established shielded handle and durable adapter.
+It retains the full reviewer roster even when an author's answer was excluded.
+Active duplicate revision/consent requests share one worker; detached waiters do
+not cancel queued/running work. Each waiter receives detached snapshot data.
+Legacy and Stage 1 work cannot overlap reviewer ownership. Persisted nonterminal
+legacy jobs and orphan resumable placeholders also exclude admission before
+startup recovery. Cancellation, deletion,
+stale state and configuration drift are rechecked when queued work starts.
+
+Completed, partial and uncertain outcomes release ownership without automatic
+retry, continuation, another reviewer or later stage. This is process-local
+scheduling, not durable admission or public CLI detach/recovery support. No public
+route, API1 capability, Rust command gate, negative-mode path or aggregation was
+enabled. Current key material remains ephemeral; no credential is persisted.
+
+Research: Python's [shield semantics](https://docs.python.org/3.10/library/asyncio-task.html#shielding-from-cancellation)
+and [executor lifecycle](https://docs.python.org/3.10/library/concurrent.futures.html)
+support the reused ownership design. Repository tests establish only exercised
+behavior, not remote exactly-once execution.
+
+## Verification and review
+
+- All 1,077 offline Python tests passed with unmocked outbound
+  networking forbidden. Twenty-three new actual-pool/MockTransport tests cover exact
+  saved requests, excluded-answer reviewers, active duplicates, detached waiters,
+  queued/active cancellation, deletion, stale revisions/configuration, per-reviewer
+  retry consent, partial responses, concurrent reviewers, conflicting legacy and
+  Stage 1 owners, persisted/orphan legacy recovery, missing inputs, shutdown and
+  worker release. Journals and conversation data are isolated in temporary fixtures.
+- All 114 frontend Node tests, repository-wide Ruff format/lint (140 Python
+  files), frontend format/lint, authenticated API0 startup/graceful shutdown and
+  whitespace checks passed. `npm test` was initially attempted but no such script
+  exists; the repository's `node --test frontend/tests/*.test.mjs` passed instead.
+- Independent whole-change review found a P2 recovery-order ownership gap. The
+  persisted-journal and orphan-placeholder admission guards fix it, with regression
+  tests. Re-review and self-review found no remaining moderate-or-higher issue;
+  the reviewer independently passed all 23 worker tests. Review is not a guarantee
+  of correctness.
+- Full builds remain unrun by policy. Native macOS/Keychain, rendered-browser and
+  live-provider checks remain unrun; frontend/Rust/platform sources are unchanged.
+  This does not establish full consultation, ranking quality, durable queue
+  admission, power-loss guarantees or multiple backend-process ownership.
+
+## CI, recovery and next priorities
+
+Starting exact development/main heads have zero statuses, check runs and
+Woodpecker commit comments. Empty aggregate `pending` is missing evidence, not an
+observed running build or a pass/failure. Normal Woodpecker is configured for
+main/development pushes; final exact-SHA evidence and actual job/platform coverage
+must be checked after publication. No manual dispatch/rerun, local full build,
+private-runner access or settings/security changes were performed.
+
+Retain the genuine-history repository, full recoverable patch/bundle and exact
+publication receipt. Existing [recovery issue #17](https://github.com/alehkot/issues-tracker/issues/17)
+tracks missing build evidence. Next implement bounded ranking validation and
+aggregation, then durable negative-mode and remaining stage/context/scheduling
+boundaries before whole-run public acceptance. No PR, deployment, release or
+paid-service call occurred.
+
+---
+
 # CLI checkpoint: explicit Stage 2 ranking transport (2026-11-07)
 
 ## Baseline, rationale and completed scope
