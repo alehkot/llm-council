@@ -712,3 +712,16 @@ preparation only: no continuation provider guard, transport, worker, concatenate
 ballot, later turn or public capability is enabled. Continue those boundaries
 before allowing a length-limited reviewer to count toward complete rankings.
 See [continuation checkpoint](PROGRESS-STAGE2-CONTINUATION-INPUTS.md).
+
+### Guarded first-reviewer continuation checkpoint (partial)
+
+An explicit internal callback guard now retains one named Stage 2 reviewer's
+already-pinned first continuation attempt before dispatch. It preserves a separate
+chunk, exact source ancestry and isolated uncertain-work retry consent; duplicate
+live owners, cancellation/deletion, stale revisions and changed sources fail
+closed. Historical reads and inspection retain original partials and per-turn
+states without repeating calls. This is not a concrete wire adapter, manager
+handoff, concatenated ballot, whole-stage completion or public run capability.
+Continue those boundaries and remaining workflow acceptance before API1; all
+consultation command gates remain unchanged. See
+[continuation attempt checkpoint](PROGRESS-STAGE2-CONTINUATION-EXECUTION.md).

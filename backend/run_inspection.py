@@ -32,6 +32,7 @@ from . import (
     run_stage1_execution,
     run_stage1_inputs,
     run_stage1_state,
+    run_stage2_continuation_execution,
     run_stage2_continuation_inputs,
     run_stage2_execution,
     run_stage2_inputs,
@@ -50,6 +51,7 @@ InternalPhase = Literal[
     "running_refinement",
     "running_stage1",
     "running_stage2",
+    "running_stage2_continuation",
     "stage2_partial",
     "stage2_needs_continuation",
     "stage2_attempts_complete",
@@ -85,6 +87,7 @@ class _SnapshotEvidence(TypedDict):
     refinement: dict[str, Any] | None
     response_review: dict[str, Any] | None
     response_review_policy: dict[str, Any] | None
+    stage2_continuation_execution: dict[str, Any] | None
     stage2_continuation_inputs: dict[str, Any] | None
     stage2_execution: dict[str, Any] | None
     stage2_inputs: dict[str, Any] | None
@@ -150,6 +153,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "refinement": None,
             "response_review": None,
             "response_review_policy": None,
+            "stage2_continuation_execution": None,
             "stage2_continuation_inputs": None,
             "stage2_inputs": None,
             "stage2_execution": None,
@@ -178,6 +182,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "refinement_provider",
                     "pre_query_policy",
                     "response_review_policy",
+                    "stage2_continuation_execution",
                     "stage2_continuation_inputs",
                     "stage2_inputs",
                     "stage2_execution",
@@ -284,6 +289,15 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             snapshot["stage2_continuation_inputs"] = (
                 run_stage2_continuation_inputs.summary(stage2_continuations)
             )
+        stage2_continuation_state = run_stage2_continuation_execution.validate_saved(
+            record, stage2_continuations
+        )
+        if stage2_continuation_state is not None:
+            snapshot["stage2_continuation_execution"] = (
+                run_stage2_continuation_execution.summary(
+                    record["run_id"], stage2_continuation_state, stage2_continuations
+                )
+            )
         selection = council_selection.validate_saved(record, interaction)
         if selection is not None:
             snapshot["council_selection"] = selection.model_dump(mode="json")
@@ -317,15 +331,28 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             else []
         )
         stage2_phases = {member["phase"] for member in stage2_members}
+        continuation_phases = {
+            member["phase"]
+            for member in (
+                snapshot["stage2_continuation_execution"]["members"]
+                if snapshot["stage2_continuation_execution"] is not None
+                else []
+            )
+        }
         snapshot["operation_owned"] = bool(
-            owned or stage1_owned or "running" in stage2_phases
+            owned
+            or stage1_owned
+            or "running" in stage2_phases
+            or "running" in continuation_phases
         )
         if record.get("cancellation") is not None:
             snapshot["internal_phase"] = record["cancellation"]["phase"]
         elif stage2_members:
             if "running" in stage2_phases:
                 snapshot["internal_phase"] = "running_stage2"
-            elif "needs_retry" in stage2_phases:
+            elif "running" in continuation_phases:
+                snapshot["internal_phase"] = "running_stage2_continuation"
+            elif "needs_retry" in stage2_phases | continuation_phases:
                 snapshot["internal_phase"] = "needs_retry"
             elif "needs_continuation" in stage2_phases:
                 snapshot["internal_phase"] = "stage2_needs_continuation"

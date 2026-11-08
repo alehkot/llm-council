@@ -1566,10 +1566,43 @@ rather than creating a new attempt. Reads validate historical derivation without
 consulting current settings or the live skill library. Inspection exposes hashes
 and counts, not private partial text or reasoning, and does not advance stages.
 
-This is **not execution permission**. A future continuation attempt needs its
-own durable guard, provider identity, explicit uncertain-work retry consent and
-worker ownership. Current complete-ranking projection still rejects every
+This is **not execution permission**. The separate first-continuation attempt
+guard below requires provider identity and explicit uncertain-work retry consent;
+a concrete wire adapter and worker ownership remain unfinished. Current
+complete-ranking projection still rejects every
 length-only reviewer, including when its continuation input has been prepared.
 No automatic continuation, aggregate text, valid ballot, run completion, public
 route or CLI API 1 support follows from this checkpoint. Negative mode, subsequent
 turns, context reduction and complete workflow recovery remain incomplete.
+
+### Stage 2 first-continuation attempt boundary
+
+`run_stage2_continuation_execution.execute` explicitly guards one named reviewer's
+already-pinned first continuation (`turn=1`) through an injected single-attempt
+callback. Before calling it, the guard durably records a fresh attempt identity
+and the exact request digest in a separate continuation namespace. The callback
+receives a detached saved endpoint, timeout and payload; it must not perform
+internal retries, fitting or further continuation calls. No concrete wire adapter,
+manager handoff or public route invokes this guard yet.
+
+An active duplicate cannot dispatch again. Independent reviewers have independent
+owners and retry consent. Unowned in-flight work requires the exact continuation
+attempt token; initial ranking attempts and sibling tokens never authorize it.
+Saved results replay without writes or callback execution. Initial partials,
+initial attempts and all previous workflow receipts remain unchanged. Source,
+revision, adapter and cancellation/deletion guards are rechecked before dispatch
+and before storing the result; configuration drift before dispatch fails closed,
+while an already-returned result retains the configuration actually used.
+Cancellation interrupts local work and rejects late successes, including callbacks
+that suppress cancellation. Uncertain work is never retried automatically.
+
+Historical reads preserve detached chunks after restart, cancellation and current
+configuration changes. Inspection validates ancestry and exposes per-reviewer
+states without private text or reasoning. Live initial reviewer work takes
+precedence, then live continuation work, then uncertain retry state. A stopped
+continuation chunk is **not** a concatenated or accepted ballot: the existing
+complete-ranking projection remains conservative and rejects initial length-only
+reviewers, even when their first continuation has stopped. Inspection therefore
+retains `stage2_needs_continuation` until a separately validated projection exists.
+No stage/run completion, later turn, automatic request, public capability or API1
+is enabled. Single-process ownership is not remote exactly-once execution.
