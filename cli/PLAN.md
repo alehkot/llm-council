@@ -699,3 +699,16 @@ Historical reads survive cancellation/config drift, not deletion or corruption.
 See `PROGRESS-STAGE2-RANKINGS.md` for verification and limits. This does not mark
 Stage 2/run completion, schedule continuations or advance the workflow. Continue
 remaining continuation/negative-mode and workflow boundaries before public API1.
+
+### Exact first-reviewer continuation preparation checkpoint (partial)
+
+An explicit internal operation now pins one named Stage 2 reviewer's first
+continuation from its retained length-limited response. It saves exact messages,
+reasoning metadata, endpoint/budgets and initial attempt ancestry, rejects
+unsupported context reduction, and preserves the original partial separately.
+Historical reads survive restart/cancellation and settings drift; preparation
+requires a live matching revision and current configuration. This is input
+preparation only: no continuation provider guard, transport, worker, concatenated
+ballot, later turn or public capability is enabled. Continue those boundaries
+before allowing a length-limited reviewer to count toward complete rankings.
+See [continuation checkpoint](PROGRESS-STAGE2-CONTINUATION-INPUTS.md).

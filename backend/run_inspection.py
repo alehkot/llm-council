@@ -32,6 +32,7 @@ from . import (
     run_stage1_execution,
     run_stage1_inputs,
     run_stage1_state,
+    run_stage2_continuation_inputs,
     run_stage2_execution,
     run_stage2_inputs,
     storage,
@@ -84,6 +85,7 @@ class _SnapshotEvidence(TypedDict):
     refinement: dict[str, Any] | None
     response_review: dict[str, Any] | None
     response_review_policy: dict[str, Any] | None
+    stage2_continuation_inputs: dict[str, Any] | None
     stage2_execution: dict[str, Any] | None
     stage2_inputs: dict[str, Any] | None
     pre_query: dict[str, Any] | None
@@ -148,6 +150,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "refinement": None,
             "response_review": None,
             "response_review_policy": None,
+            "stage2_continuation_inputs": None,
             "stage2_inputs": None,
             "stage2_execution": None,
             "pre_query": None,
@@ -175,6 +178,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "refinement_provider",
                     "pre_query_policy",
                     "response_review_policy",
+                    "stage2_continuation_inputs",
                     "stage2_inputs",
                     "stage2_execution",
                     "council_selection",
@@ -272,6 +276,13 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         if stage2_execution is not None:
             snapshot["stage2_execution"] = run_stage2_execution.summary(
                 record["run_id"], stage2_execution, stage2_inputs
+            )
+        stage2_continuations = run_stage2_continuation_inputs.validate_saved(
+            record, interaction
+        )
+        if stage2_continuations is not None:
+            snapshot["stage2_continuation_inputs"] = (
+                run_stage2_continuation_inputs.summary(stage2_continuations)
             )
         selection = council_selection.validate_saved(record, interaction)
         if selection is not None:

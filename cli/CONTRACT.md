@@ -1545,3 +1545,31 @@ recovery applies. No public route, API1 or Rust consultation command is enabled.
 Ranking validation/aggregation and remaining workflow boundaries still precede
 whole-run acceptance. Tests use synthetic MockTransport responses on the actual
 pool, not paid/live providers or native macOS/Keychain verification.
+
+### Stage 2 first-continuation input boundary
+
+`run_stage2_continuation_inputs.bind` is an internal, provider-free preparation
+step for a named reviewer with a saved initial `length` result. It pins that
+result's exact attempt, provider identity and response digests alongside the
+original ranking request digest. The new request appends the original assistant
+text and reasoning metadata, then an explicit continuation instruction; original
+messages, model, reasoning options and output ceiling stay unchanged. The entire
+continued context must fit the saved input budget, and the saved policy must
+allow at least one continuation. No fitting, trimming or automatic retry occurs.
+
+Preparation validates the live interaction revision, cancellation/deletion and
+current saved-configuration compatibility. Duplicate calls return the retained
+value without writing; multiple reviewers retain canonical roster order under
+the existing storage lock. Persistence failure does not overwrite earlier
+requests. After an uncertain acknowledgment, replay discovers a committed value
+rather than creating a new attempt. Reads validate historical derivation without
+consulting current settings or the live skill library. Inspection exposes hashes
+and counts, not private partial text or reasoning, and does not advance stages.
+
+This is **not execution permission**. A future continuation attempt needs its
+own durable guard, provider identity, explicit uncertain-work retry consent and
+worker ownership. Current complete-ranking projection still rejects every
+length-only reviewer, including when its continuation input has been prepared.
+No automatic continuation, aggregate text, valid ballot, run completion, public
+route or CLI API 1 support follows from this checkpoint. Negative mode, subsequent
+turns, context reduction and complete workflow recovery remain incomplete.
