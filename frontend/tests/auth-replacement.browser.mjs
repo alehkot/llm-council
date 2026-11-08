@@ -75,6 +75,13 @@ try {
 			{ phase: "probe", status: 401, sameKey: true },
 			{ phase: "request", status: 401, current: true },
 		]) {
+			// Smoke keeps stale-401 replacement fencing and current-401 rejection
+			// on desktop and mobile. Direct/full runs retain every scenario.
+			if (
+				process.env.BROWSER_TEST_MODE === "smoke" &&
+				!(scenario.phase === "request" && scenario.status === 401)
+			)
+				continue;
 			const context = await browser.newContext({ viewport });
 			const page = await context.newPage();
 			page.setDefaultTimeout(6000);
