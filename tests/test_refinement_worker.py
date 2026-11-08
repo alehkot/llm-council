@@ -18,6 +18,7 @@ os.environ.setdefault("API_AUTH_KEY", "synthetic-api-key")
 
 from backend import (
     config,
+    consultation_journal,
     refinement_driver,
     refinement_execution,
     refinement_provider,
@@ -33,6 +34,13 @@ from backend.consultation_manager import ConsultationManager
 
 class RefinementWorkerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        journals = tempfile.TemporaryDirectory()
+        self.addCleanup(journals.cleanup)
+        journal_patch = patch.object(
+            consultation_journal, "_CONSULTATION_DIR", Path(journals.name)
+        )
+        journal_patch.start()
+        self.addCleanup(journal_patch.stop)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.data_dir = str(Path(self.directory.name) / "conversations")
@@ -141,6 +149,47 @@ class RefinementWorkerTests(unittest.IsolatedAsyncioTestCase):
                 }
             ),
         )
+
+    async def test_persisted_legacy_owner_blocks_before_recovery(self):
+        conversation = f"cli-{self.run_id}"
+        job_id = str(uuid4())
+        consultation_journal.create_job(
+            job_id, conversation, "Pending legacy work", None, status="queued"
+        )
+        before = run_admission._path(self.run_id).read_bytes()
+        with self.assertRaises(refinement_execution.ExecutionConflict):
+            self.schedule()
+        self.assertEqual(self.manager._cli_refinement_steps, {})
+        self.assertEqual(self.calls, [])
+        self.assertEqual(run_admission._path(self.run_id).read_bytes(), before)
+        self.assertIsNotNone(consultation_journal.get_job(job_id))
+
+    async def test_orphan_legacy_placeholder_blocks_before_recovery(self):
+        conversation = f"cli-{self.run_id}"
+        storage.add_user_message(conversation, "Unfinished legacy request")
+        storage.add_assistant_placeholder(conversation, metadata={"status": "stage2"})
+        before = run_admission._path(self.run_id).read_bytes()
+        self.assertEqual(consultation_journal.list_jobs(), [])
+        with self.assertRaises(refinement_execution.ExecutionConflict):
+            self.schedule()
+        self.assertEqual(self.manager._cli_refinement_steps, {})
+        self.assertEqual(self.calls, [])
+        self.assertEqual(run_admission._path(self.run_id).read_bytes(), before)
+        self.assertTrue(storage.list_incomplete_assistant_messages())
+
+    async def test_terminal_and_unrelated_legacy_work_does_not_block(self):
+        consultation_journal.create_job(
+            str(uuid4()), f"cli-{self.run_id}", "Finished", None, status="complete"
+        )
+        other = str(uuid4())
+        storage.create_conversation(other)
+        storage.add_user_message(other, "Unrelated request")
+        storage.add_assistant_placeholder(other, metadata={"status": "stage1"})
+        consultation_journal.create_job(
+            str(uuid4()), other, "Other conversation", None, status="queued"
+        )
+        await self.wait(self.schedule())
+        self.assertEqual(len(self.calls), 1)
 
     async def test_waiting_releases_single_worker_for_unrelated_run(self):
         first = await self.wait(self.schedule())

@@ -546,6 +546,26 @@ class ConsultationManager:
         with self._lock:
             return run_admission.prepare(run_id, request)
 
+    def _has_legacy_owner(self, conversation_id: str) -> bool:
+        """Include durable legacy work before startup recovery fills local queues.
+
+        Called while holding the manager lock. This is an admission check, not
+        recovery or permission to discard pending legacy jobs/placeholders.
+        """
+        return (
+            conversation_id in self._futures
+            or bool(self._queues.get(conversation_id))
+            or any(
+                job.get("conversation_id") == conversation_id
+                and not self._job_is_already_terminal(job)
+                for job in consultation_journal.list_jobs()
+            )
+            or any(
+                candidate["conversation_id"] == conversation_id
+                for candidate in storage.list_incomplete_assistant_messages()
+            )
+        )
+
     def schedule_cli_refinement_step(
         self,
         run_id: str,
@@ -597,7 +617,7 @@ class ConsultationManager:
                     "Run has advanced beyond refinement"
                 )
             conversation_id = snapshot["conversation_id"]
-            if conversation_id in self._futures or self._queues.get(conversation_id):
+            if self._has_legacy_owner(conversation_id):
                 raise refinement_execution.ExecutionConflict(
                     "Conversation is owned by legacy consultation work"
                 )
@@ -768,8 +788,7 @@ class ConsultationManager:
             conversation_id = snapshot["conversation_id"]
             refinement = self._cli_refinement_steps.get(run_id)
             if (
-                conversation_id in self._futures
-                or self._queues.get(conversation_id)
+                self._has_legacy_owner(conversation_id)
                 or (refinement is not None and not refinement._future.done())
                 or any(
                     owner_run == run_id and not handle._future.done()
@@ -893,17 +912,7 @@ class ConsultationManager:
             conversation_id = snapshot["conversation_id"]
             refinement = self._cli_refinement_steps.get(run_id)
             if (
-                any(
-                    job.get("conversation_id") == conversation_id
-                    and not self._job_is_already_terminal(job)
-                    for job in consultation_journal.list_jobs()
-                )
-                or any(
-                    candidate["conversation_id"] == conversation_id
-                    for candidate in storage.list_incomplete_assistant_messages()
-                )
-                or conversation_id in self._futures
-                or self._queues.get(conversation_id)
+                self._has_legacy_owner(conversation_id)
                 or (refinement is not None and not refinement._future.done())
                 or any(
                     owner_run == run_id and not handle._future.done()

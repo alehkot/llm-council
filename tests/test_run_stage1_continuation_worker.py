@@ -2,16 +2,25 @@
 
 import asyncio
 import json
+import tempfile
 import threading
 import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
 import test_run_stage1_continuation_inputs as input_fixtures
 
-from backend import config, run_admission, run_cancellation, run_inspection, storage
+from backend import (
+    config,
+    consultation_journal,
+    run_admission,
+    run_cancellation,
+    run_inspection,
+    storage,
+)
 from backend import run_stage1_continuation_execution as execution
 from backend import run_stage1_execution as initial_execution
 from backend.consultation_manager import ConsultationManager
@@ -19,6 +28,13 @@ from backend.consultation_manager import ConsultationManager
 
 class ContinuationWorkerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        journals = tempfile.TemporaryDirectory()
+        self.addCleanup(journals.cleanup)
+        journal_patch = patch.object(
+            consultation_journal, "_CONSULTATION_DIR", Path(journals.name)
+        )
+        journal_patch.start()
+        self.addCleanup(journal_patch.stop)
         self.fixture = input_fixtures.FirstContinuationInputTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
@@ -82,6 +98,47 @@ class ContinuationWorkerTests(unittest.IsolatedAsyncioTestCase):
 
         self.manager._executor.submit(block)
         return started, release
+
+    async def test_persisted_legacy_owner_blocks_before_recovery(self):
+        conversation = f"cli-{self.run_id}"
+        job_id = str(uuid4())
+        consultation_journal.create_job(
+            job_id, conversation, "Pending legacy work", None, status="queued"
+        )
+        before = run_admission._path(self.run_id).read_bytes()
+        with self.assertRaises(initial_execution.ExecutionConflict):
+            self.schedule()
+        self.assertEqual(self.manager._cli_stage1_steps, {})
+        self.assertEqual(self.calls, [])
+        self.assertEqual(run_admission._path(self.run_id).read_bytes(), before)
+        self.assertIsNotNone(consultation_journal.get_job(job_id))
+
+    async def test_orphan_legacy_placeholder_blocks_before_recovery(self):
+        conversation = f"cli-{self.run_id}"
+        storage.add_user_message(conversation, "Unfinished legacy request")
+        storage.add_assistant_placeholder(conversation, metadata={"status": "stage2"})
+        before = run_admission._path(self.run_id).read_bytes()
+        self.assertEqual(consultation_journal.list_jobs(), [])
+        with self.assertRaises(initial_execution.ExecutionConflict):
+            self.schedule()
+        self.assertEqual(self.manager._cli_stage1_steps, {})
+        self.assertEqual(self.calls, [])
+        self.assertEqual(run_admission._path(self.run_id).read_bytes(), before)
+        self.assertTrue(storage.list_incomplete_assistant_messages())
+
+    async def test_terminal_and_unrelated_legacy_work_does_not_block(self):
+        consultation_journal.create_job(
+            str(uuid4()), f"cli-{self.run_id}", "Finished", None, status="complete"
+        )
+        other = str(uuid4())
+        storage.create_conversation(other)
+        storage.add_user_message(other, "Unrelated request")
+        storage.add_assistant_placeholder(other, metadata={"status": "stage1"})
+        consultation_journal.create_job(
+            str(uuid4()), other, "Other conversation", None, status="queued"
+        )
+        await self.wait(self.schedule())
+        self.assertEqual(len(self.calls), 1)
 
     async def test_complete_replay_preserves_initial_and_releases_slot(self):
         handle = self.schedule()
