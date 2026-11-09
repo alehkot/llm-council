@@ -10,7 +10,7 @@ import httpx
 os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
 os.environ.setdefault("API_AUTH_KEY", "test-api-key")
 
-from backend import council, openrouter  # noqa: E402
+from backend import council, model_client, openrouter  # noqa: E402
 from backend.trace import TraceCollector  # noqa: E402
 
 
@@ -21,6 +21,7 @@ class EmptyContentTests(unittest.IsolatedAsyncioTestCase):
         self.sleep = AsyncMock()
         for patcher in (
             patch.object(council, "SYNTHESIS_BACKEND", "openrouter"),
+            patch.object(model_client, "MODEL_BACKEND", "openrouter"),
             patch.object(
                 openrouter,
                 "model_limits",

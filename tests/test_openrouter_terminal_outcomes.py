@@ -10,7 +10,7 @@ import httpx
 os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
 os.environ.setdefault("API_AUTH_KEY", "test-api-key")
 
-from backend import council, openrouter
+from backend import council, model_client, openrouter
 from backend.trace import TraceCollector
 
 
@@ -21,6 +21,7 @@ class TerminalOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.sleep = AsyncMock()
         for patcher in (
             patch.object(council, "SYNTHESIS_BACKEND", "openrouter"),
+            patch.object(model_client, "MODEL_BACKEND", "openrouter"),
             patch.object(openrouter.httpx, "AsyncClient", return_value=self.client),
             patch.object(openrouter.asyncio, "sleep", self.sleep),
             patch.object(openrouter, "OPENROUTER_MAX_RETRIES", 2),

@@ -450,9 +450,19 @@ with patch.object(socket.socket, "connect", forbidden):
         self.assertEqual(self.receipt_path().read_bytes(), before)
         self.assertEqual(run_admission.list_receipts(), [])
 
+    def _is_case_sensitive(self) -> bool:
+        probe = self.root / ".case_sensitive_probe"
+        probe.touch()
+        try:
+            return not (self.root / ".CASE_SENSITIVE_PROBE").exists()
+        finally:
+            probe.unlink(missing_ok=True)
+
     def test_deleting_distinct_uuid_spelling_does_not_tombstone_canonical_run(
         self,
     ) -> None:
+        if not self._is_case_sensitive():
+            self.skipTest("Requires a case-sensitive filesystem")
         self.prepare()
         alias = f"cli-{RUN_ID.upper()}"
         storage.create_conversation(alias)
