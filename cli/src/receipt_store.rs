@@ -96,21 +96,34 @@ fn name(value: &str) -> Result<CString, StoreError> {
 }
 fn open_relative(dir: &File, component: &str, flags: libc::c_int) -> io::Result<File> {
     let name = CString::new(component).map_err(|_| io::ErrorKind::InvalidInput)?;
-    // SAFETY: name is NUL-terminated and the descriptor remains live. openat
-    // returns a newly owned descriptor or -1 without transferring ownership.
-    let fd = unsafe {
-        libc::openat(
-            dir.as_raw_fd(),
-            name.as_ptr(),
-            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0o600,
-        )
-    };
-    if fd < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        // SAFETY: successful openat returned a new descriptor owned here.
-        Ok(unsafe { File::from_raw_fd(fd) })
+    let mut attempts = 0;
+    loop {
+        // SAFETY: name is NUL-terminated and the descriptor remains live. openat
+        // returns a newly owned descriptor or -1 without transferring ownership.
+        let fd = unsafe {
+            libc::openat(
+                dir.as_raw_fd(),
+                name.as_ptr(),
+                flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                0o600,
+            )
+        };
+        if fd >= 0 {
+            // SAFETY: successful openat returned a new descriptor owned here.
+            return Ok(unsafe { File::from_raw_fd(fd) });
+        }
+        let err = io::Error::last_os_error();
+        // APFS on macOS can transiently return ENOENT when racing on O_CREAT without O_EXCL.
+        if attempts < 5
+            && (flags & libc::O_CREAT) != 0
+            && (flags & libc::O_EXCL) == 0
+            && err.raw_os_error() == Some(libc::ENOENT)
+        {
+            attempts += 1;
+            std::thread::yield_now();
+            continue;
+        }
+        return Err(err);
     }
 }
 fn unlink_relative(dir: &File, component: &str) -> io::Result<()> {
