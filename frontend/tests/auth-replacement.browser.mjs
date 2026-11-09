@@ -153,7 +153,7 @@ try {
 				await page.goto(origin, { timeout: 30000 });
 				await page
 					.getByRole("button", { name: "API key status", exact: true })
-					.waitFor();
+					.waitFor({ timeout: 30000 });
 				await page.evaluate(async () => {
 					window.testApi = (await import("/src/api.js")).api;
 					window.testStore = (

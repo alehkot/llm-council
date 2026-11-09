@@ -188,7 +188,7 @@ async function run() {
 			};
 			try {
 				await page.goto(`${origin}/?conversation=A`);
-				await page.locator("#prompt-input").waitFor();
+				await page.locator("#prompt-input").waitFor({ timeout: 30000 });
 				await fill(original);
 				const target = page.locator(
 					scenario.startsWith("negative")
