@@ -1,3 +1,67 @@
+# CLI checkpoint: explicit first-reviewer continuation transport (2026-11-12)
+
+## Baseline and completed scope
+
+Persistent `development` and observed upstream `main` both start at
+[`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`](https://github.com/alehkot/llm-council/commit/d90cb29427d17b6ffa7dec9629f89e9e4b357c00).
+The reused real-history checkout was clean and fast-forwarded from `6479e60`;
+its prior owner explicitly released the stale claim. No unfinished code was
+replaced. Existing owner changes, branch history and accumulated CLI work remain
+preserved. The containing commit identifies this slice; the existing durable
+status/publication receipt records exact final local/published SHAs and CI after
+commit creation, without a circular self-hash.
+
+The previous continuation guard only accepted an injected callback. The new
+`run_stage2_continuation_provider.execute_openrouter` explicitly sends one saved
+first-reviewer continuation using the existing bounded OpenRouter wire callback.
+It binds `openrouter-stage2-continuation-v1`, isolated from initial ranking and
+Stage 1 identities/consent. It preserves exact saved messages, endpoint, limits,
+initial partials and prior receipts. Stop/length chunks replay without another
+request; uncertain requests require their own retry token. No automatic retry,
+redirect, extra turn, aggregate ballot, worker handoff, public route or API1
+capability is introduced. Consultation commands remain gated.
+
+This follows the established Stage 1 continuation transport design and the
+[HTTPX transport contract](https://www.python-httpx.org/advanced/transports/).
+No external provider, paid service or private runner was accessed.
+
+## Verification and limits
+
+- Sixteen new offline MockTransport integration tests passed in 12.051 seconds
+  with unmocked networking forbidden. Cases cover exact wire inputs and durable
+  attempt-before-I/O ordering, actual initial-to-continuation adapter composition,
+  independent stop/length chunks, replay, credentials, separate adapter identity,
+  per-reviewer consent, write failure, redirects/retryable statuses, malformed
+  responses, body limit, whole-request deadline, cancellation and deletion.
+  A stopped continuation still cannot promote a partial reviewer to a complete
+  ranking. Original Stage 2 attempts remain unchanged.
+- All 1201 offline Python tests passed in 231.603 seconds with unmocked
+  networking forbidden. All 117 Node tests, repository-wide Ruff format/lint,
+  frontend format/lint, whitespace checks and authenticated API0 startup/graceful
+  shutdown passed. The first Node attempt lacked local dependency resolution;
+  reusing the existing identical-lockfile dependency directory resolved it without
+  installation. Independent review and self-review found no introduced
+  moderate-or-higher findings; the reviewer independently passed the 16 new tests.
+  These checks do not establish full workflow completion, remote exactly-once
+  execution or live-provider behavior. Final publication evidence is recorded in
+  the existing run receipt.
+- No local full build ran. Native macOS/Keychain, rendered browser, Rust execution
+  and live-provider tests are unrun; their surfaces were not changed. Initial
+  exact-head Woodpecker #8 reports generic PASS with no check runs, so unreported
+  job/platform coverage is not inferred. Final exact-head evidence must be checked
+  after publication; no manual dispatch/rerun is authorized.
+- Actual writable filesystem preflight: 2,110,332,928 free bytes and 1,269,155
+  free inodes. Below 2 GiB: no new storage-heavy operations, installs or duplicate
+  dependencies/artifacts. Existing compatible lockfile-matched Python 3.10.22
+  environment was reused without synchronization or installation.
+
+Next add explicit manager ownership for one continuation and a validated
+complete-ranking projection before remaining negative-mode, later-turn, context
+reduction, durable scheduling and whole-run recovery acceptance. Do not enable
+public CLI execution before those prerequisites are verified.
+
+---
+
 # CLI checkpoint: explicit reviewer worker ownership (2026-11-08)
 
 ## Baseline, rationale and completed scope

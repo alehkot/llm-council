@@ -1,9 +1,9 @@
 """Internal durable guard for one explicitly named first Stage 2 continuation.
 
-No wire adapter, manager step, public route or automatic loop invokes this guard.
-Explicitly selected
-providers must make exactly one attempt using the supplied saved request. Local
-ownership is process-wide, not distributed or exactly-once at a remote provider.
+The explicit continuation wire adapter can invoke this guard; no manager step,
+public route or automatic loop does. Explicitly selected providers must make
+exactly one attempt using the supplied saved request. Local ownership is
+process-wide, not distributed or exactly-once at a remote provider.
 """
 
 from __future__ import annotations
@@ -265,7 +265,8 @@ async def execute(
     The trusted callback must make one attempt with supplied endpoint, timeout
     and payload, without internal retries or context/continuation calls. A saved
     result is replayed for this turn, never interpreted as permission for another.
-    No HTTP adapter, manager step or public route supplies this callback yet.
+    The explicit continuation adapter supplies this callback; no manager step
+    or public route does.
     Direct caller cancellation cancels the attempt; durable scheduling and
     detached waiter ownership remain separate future integrations.
     """

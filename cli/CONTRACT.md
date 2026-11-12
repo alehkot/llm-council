@@ -1568,7 +1568,8 @@ and counts, not private partial text or reasoning, and does not advance stages.
 
 This is **not execution permission**. The separate first-continuation attempt
 guard below requires provider identity and explicit uncertain-work retry consent;
-a concrete wire adapter and worker ownership remain unfinished. Current
+the concrete wire adapter below remains explicitly invoked, while worker ownership
+is unfinished. Current
 complete-ranking projection still rejects every
 length-only reviewer, including when its continuation input has been prepared.
 No automatic continuation, aggregate text, valid ballot, run completion, public
@@ -1582,8 +1583,8 @@ already-pinned first continuation (`turn=1`) through an injected single-attempt
 callback. Before calling it, the guard durably records a fresh attempt identity
 and the exact request digest in a separate continuation namespace. The callback
 receives a detached saved endpoint, timeout and payload; it must not perform
-internal retries, fitting or further continuation calls. No concrete wire adapter,
-manager handoff or public route invokes this guard yet.
+internal retries, fitting or further continuation calls. The concrete adapter below
+can invoke this guard; no manager handoff or public route does.
 
 An active duplicate cannot dispatch again. Independent reviewers have independent
 owners and retry consent. Unowned in-flight work requires the exact continuation
@@ -1606,3 +1607,24 @@ reviewers, even when their first continuation has stopped. Inspection therefore
 retains `stage2_needs_continuation` until a separately validated projection exists.
 No stage/run completion, later turn, automatic request, public capability or API1
 is enabled. Single-process ownership is not remote exactly-once execution.
+
+
+### Stage 2 first-continuation transport boundary
+
+`run_stage2_continuation_provider.execute_openrouter` is an explicit internal
+single-request adapter for one already-pinned reviewer continuation, with required
+`turn=1`. Its versioned identity `openrouter-stage2-continuation-v1` is distinct
+from initial ranking and Stage 1 attempts. It uses the existing bounded wire
+callback and the continuation guard above: exact saved endpoint, timeout and
+payload; strict text-envelope and response-size checks; whole-request deadline;
+no redirects, environment proxies, automatic retries or additional turns.
+
+Credentials are ephemeral, validated before I/O and absent from receipts. A saved
+stop or length chunk replays without HTTP; uncertain outcomes require this
+reviewer's current continuation retry token, not an initial or sibling token.
+Cancelled/deleted/stale work cannot dispatch or retain a late chunk. Initial
+partial text, prior attempts and all earlier workflow evidence remain unchanged.
+A stopped chunk is not a concatenated ballot and does not make the reviewer a
+complete ranking participant. No manager handoff, automatic scheduling, public
+route, API1 capability or CLI consultation command is enabled. Native platform,
+live-provider and exactly-once remote execution are not established by mock tests.

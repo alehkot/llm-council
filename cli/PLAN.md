@@ -725,3 +725,15 @@ handoff, concatenated ballot, whole-stage completion or public run capability.
 Continue those boundaries and remaining workflow acceptance before API1; all
 consultation command gates remain unchanged. See
 [continuation attempt checkpoint](PROGRESS-STAGE2-CONTINUATION-EXECUTION.md).
+
+
+### Explicit first-reviewer continuation transport checkpoint (partial)
+
+An explicitly invoked OpenRouter adapter now submits one named Stage 2 reviewer's
+already-pinned first continuation through its durable attempt guard. It reuses the
+bounded single-request wire contract with a separate versioned identity and retry
+consent. Stop/length chunks remain separate from original partials; replay does not
+repeat HTTP. This does not aggregate ballots, schedule a worker, infer another
+turn or enable public run operations. Next add explicit manager ownership and
+validated complete-ranking projection, then remaining negative-mode, context and
+whole-workflow acceptance. API0 and all consultation command gates remain.
