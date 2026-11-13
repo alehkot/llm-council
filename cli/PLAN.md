@@ -856,3 +856,14 @@ Compact inspection distinguishes attempts from negative scores or stage
 completion. No real transport, scheduler, score projection, automatic continuation
 or public command is enabled. Continue those bounded dependencies and whole-run
 acceptance before API1; see [PROGRESS.md](PROGRESS.md).
+
+
+### Explicit negative transport checkpoint (2026-11-13)
+
+An explicitly invoked OpenRouter adapter now sends one saved active owner's
+negative request through its durable guard, with a separate versioned identity
+and the existing bounded single-request wire contract. Raw stop/length critiques
+are retained without automatic retry, continuation or scoring. Fifteen mocked
+transport tests and independent review pass. No worker, public route or CLI gate
+is enabled; continue negative ownership/projection and remaining whole-workflow
+acceptance. See [PROGRESS.md](PROGRESS.md).

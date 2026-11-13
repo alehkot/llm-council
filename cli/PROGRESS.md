@@ -1,3 +1,44 @@
+# CLI checkpoint: explicit negative OpenRouter transport (2026-11-13)
+
+Added an explicitly invoked adapter for one saved negative evaluator. It uses
+its own `openrouter-negative-v1` identity and the existing durable negative guard,
+while reusing the bounded shared OpenRouter wire contract. Exact saved endpoint,
+timeout and JSON payload are sent once; credentials remain ephemeral and no
+redirect, environment proxy, automatic retry or continuation is enabled.
+Stopped/length-limited critique text remains raw evidence, not parsed negative
+scores. Excluded response owners cannot dispatch or create an attempt.
+
+This is transport only. No scheduler, automatic roster loop, score projection,
+whole-stage advancement, public API route or CLI command gate changes. Pending
+and failed calls preserve the guard's explicit consent and cancellation/deletion
+semantics; persisted responses replay without another HTTP request.
+
+Primary baseline: [699c6c9cfc3511bff48c39e5f10689188cbb7544](https://github.com/alehkot/llm-council/commit/699c6c9cfc3511bff48c39e5f10689188cbb7544).
+Local starting `339be8624cfb3355fe9bc47ce77fa185260e2c7b` has the identical tree.
+Main remains `d90cb29427d17b6ffa7dec9629f89e9e4b357c00`; exact starting
+Woodpecker statuses and latest comments pass (development16/main8), no check-runs
+or open source PR/issues. Both real histories and publication mappings remain
+preserved; the clean checkout's prior ownership claim was released.
+
+Verification: 15 new mocked transport tests pass, independently rerun under the
+offline network guard in5.381s. They cover exact requests/headers, active-only
+ownership, separate stage identity, no implicit retries/redirects/proxies,
+credential rotation/privacy, stop/length replay, isolated consent, malformed/
+compressed/tool responses, stream size/deadline and cancellation/deletion.
+Independent review found no introduced moderate-or-higher findings. Ruff,
+whitespace and authenticated API0 startup/graceful shutdown pass. The full offline suite passes **1329 tests in262.431s**. Final local/published
+SHA/tree and normal CI evidence are retained in the durable checkpoint.
+
+No local full build, live provider, native macOS, rendered browser or complete
+CLI acceptance is claimed. Rust is unchanged; prior154 passing tests remain
+historical evidence only. Existing locked dependencies reused; preflight
+**61,284,663,296 bytes / 4,151,004 inodes free**. Next add explicit negative worker
+ownership and validated score projection, followed by remaining workflow/public
+command integration. See [plan](PLAN.md), [adapter](../backend/run_negative_provider.py)
+and [guard](../backend/run_negative_execution.py).
+
+---
+
 # CLI checkpoint: guarded negative evaluation attempts (2026-11-13)
 
 Added an explicit internal callback guard for one saved negative-evaluation
