@@ -25,3 +25,20 @@ macOS terminal or native Keychain behavior. macOS verification remains required
 before claiming platform acceptance. Terminal restoration covers normal/error
 returns and typed Ctrl-C; external process termination (for example SIGTERM or SIGKILL) can bypass
 restoration code. There is no universal signal-restoration guarantee.
+
+
+## Consultation prompt adapter
+
+```sh
+cargo test --manifest-path cli/Cargo.toml --locked --offline
+python cli/tests/manual/check_prompt.py --deps-dir cli/target/debug
+```
+
+This separate probe links the test-built library, searching nested dependency
+paths for newer Cargo layouts. Six offline cases exercise four-field Unicode
+answers, explicit leave, EOF, OS Ctrl-C termination, oversized-line rejection and
+absence of a controlling terminal. Piped stdin is ignored and terminal modes
+remain unchanged. Each subprocess is bounded and cleaned up. It does not contact
+a backend or Keychain. The adapter is single-line, capped at240 bytes; longer
+text/editor and signal-aware reconnect handling are not implemented. Linux
+success does not establish native macOS behavior or command integration.

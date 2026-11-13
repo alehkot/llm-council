@@ -801,3 +801,13 @@ Escaped display copies never replace original option/text values. Sixteen new
 checks and134 total offline Rust tests pass. This is not a real terminal/editor
 or HTTP answer adapter; ask/resume and other consultation commands remain gated.
 See [PROGRESS.md](PROGRESS.md).
+
+
+### Real controlling-terminal prompt adapter checkpoint (2026-11-13)
+
+The collector now has a tested Unix `/dev/tty` adapter with explicit field choices,
+no stdin/stdout prompt contamination, no terminal mode changes, and a conservative
+240byte line cap. Six Linux PTY cases and143 offline Rust tests pass. This is a
+single-line adapter, not editor/OS-signal reconnect or HTTP integration. No
+consultation command/API gate is enabled; native macOS acceptance remains open.
+See [PROGRESS.md](PROGRESS.md) and [terminal checks](tests/manual/README.md).

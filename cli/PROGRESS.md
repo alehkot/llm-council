@@ -1,3 +1,50 @@
+# CLI checkpoint: real controlling-terminal prompt adapter (2026-11-13)
+
+The shared prompt collector now has a real Unix `/dev/tty` adapter for future
+`ask`/`resume` integration. It opens lazily, never consumes piped stdin or writes
+prompt output to stdout, and never changes terminal flags. The four field types
+use explicit numbered selections, yes/no, text, default, omission, skip and leave
+choices. Text whitespace/Unicode and original option values are preserved.
+Missing terminal, EOF and output/read failures leave input pending without an
+answer. Noninteractive collection opens no terminal.
+
+This is a deliberately limited plain single-line adapter: a conservative **240
+byte** line cap rejects input before canonical-terminal truncation could silently
+change an answer. Long text and editor integration remain unfinished. Terminal
+Ctrl-C still terminates via the OS; it does not yet print the required reconnect
+hint. It sends no HTTP request and does not enable the six consultation commands
+or API1. Those remain blocked on full durable workflow/transport integration,
+not on this terminal implementation.
+
+Primary published baseline: [d66e4b29497347cccae1f0eb6644d99cded3d6a6](https://github.com/alehkot/llm-council/commit/d66e4b29497347cccae1f0eb6644d99cded3d6a6).
+Starting local `c228d148edf4d90dcf7b1a043d755076c1d9d844` has the identical tree;
+connector publication mapping and both real histories are retained without reset.
+Main remains `d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Exact-head Woodpecker
+reports/statuses pass (development pipeline11, main pipeline8); no check-runs or
+open source PR/issues. Other branches and recent merges were checked. Repo Care
+selected brandik; released Council ownership was verified before mutation.
+
+Verification: **143 offline Rust tests**, including **9 new adapter tests**, pass.
+**6 real Linux PTY cases** verify four-field Unicode answers, leave, EOF, normal
+OS Ctrl-C termination, oversized-line rejection and no controlling terminal.
+They confirm piped stdin is ignored and terminal modes remain unchanged. All1223
+offline backend tests passed in230.112s. Ruff, Cargo format, all-target Clippy
+with `-D warnings`, whitespace, authenticated API0 startup and graceful shutdown
+checks pass. Independent review found no introduced moderate-or-higher findings.
+The PTY harness links the existing test-built library, not a full application
+build. Initial probe invocation used `debug/deps`, which has no rlib under this
+Rust layout; rerunning with `debug` succeeded. No dependency install/download.
+
+No full local build, native macOS/Keychain, live provider, real browser or full
+CLI consultation acceptance is claimed. Current exact commit/tree mapping and
+normal publication CI are recorded in the durable checkpoint after publication.
+Preflight: **61,605,232,640 bytes / 4,164,148 inodes free**. Next add editor and
+signal-aware reconnect integration and remaining backend/command prerequisites.
+References: [confirmed plan](PLAN.md), [prompt implementation](src/prompt.rs),
+[PTY checks](tests/manual/README.md), [POSIX terminal interface](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap11.html).
+
+---
+
 # CLI checkpoint: explicit prompt answer collection (2026-11-13)
 
 Added a single-pass prompt collector for the owner's prioritized `ask`/`resume`

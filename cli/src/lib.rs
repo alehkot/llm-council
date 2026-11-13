@@ -20,3 +20,5 @@ pub mod monitor;
 pub mod run_driver;
 
 pub mod prompt;
+
+pub mod prompt_terminal;
