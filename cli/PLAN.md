@@ -769,3 +769,14 @@ review reran the focused tests successfully. This supersedes the prior compiler
 blocker only: the core remains unwired, commands remain unavailable, native macOS
 checks are unrun, and the preceding backend draft still awaits separate Python
 verification. See [PROGRESS.md](PROGRESS.md).
+
+
+### Single-run read driver checkpoint (2026-11-13)
+
+A tested injected async loop now follows one run with exact cursors, returns
+prompt/consent boundaries without mutation, distinguishes terminal/error/detach
+outcomes and retains the supplied origin/run reconnect hint. Twelve new tests
+pass, with 118 total offline CLI tests passing. There is no real HTTP/terminal
+adapter or command wiring; bounded long polls, matching reader origin and API1
+authentication remain explicit caller contracts. The main implementation and
+acceptance items remain open. See [PROGRESS.md](PROGRESS.md).

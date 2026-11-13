@@ -1,3 +1,51 @@
+# CLI checkpoint: single-run follow driver (2026-11-13)
+
+Continued the owner's command priority with an injected asynchronous read loop
+shared by future `ask`/`resume`. It follows exactly one run with the saved opaque
+cursor, validates snapshots before sending them to progress output, stops at exact
+prompt/retry-consent boundaries, returns saved-result references and terminal
+outcomes, and preserves the configured origin/run in a quoted reconnect hint.
+Read failures stop without retry. Broken output, requested detach and observed
+interrupts stop reads; an observation-count bound cannot cancel backend work.
+There is no mutation interface, so no answer, retry, submission or cancellation
+can be triggered by this driver.
+
+Baseline local development: `1238209ffc2533b6a1f051b4a8f08b9b494cfa72`.
+Observed remote development: `ad64761ab41b4565d04de3de633a751135c1f286`.
+Observed upstream main: `d90cb29427d17b6ffa7dec9629f89e9e4b357c00`.
+The remote heads have matching generic Woodpecker PASS comments/statuses and no
+check runs; neither establishes coverage for local work. No open source PR or
+issue was observed in the preceding fresh inspection. Existing local commits
+and genuine history are preserved.
+
+Verification: all **118 offline Rust tests passed**, including 12 new driver
+tests. All-target Clippy with `-D warnings`, Rust formatting and whitespace checks
+passed. Self-review and independent review found no introduced moderate-or-higher
+finding; reviewer independently reran all 12 driver tests and formatting.
+Existing installed Rust1.100.0/locked dependencies were reused without downloads.
+Preflight: 61,945,360,384 bytes and 4,173,047 inodes free.
+
+This is a tested injected loop, **not connected CLI commands**. Public API1/run
+endpoints, real HTTP reader, terminal display, answering/retry acknowledgments,
+submission, cancellation and result rendering remain unfinished. The injected
+reader must be authenticated/API1-verified, bound to the same origin, and provide
+bounded long polls; this loop does not enforce origin or timeouts. The test for
+an interrupt during a read uses an immediately returning fake, not a real pending
+network request. Real signal wiring, terminal escaping and prompt rendering,
+macOS/Keychain, provider behavior and full application builds remain unrun.
+
+Publication remains held because the accumulated branch includes unverified
+backend draft54ab1e4. Its Python dependency-restoration denial remains outstanding
+and was not retried. Save this tested client-side progress locally; verify the
+backend after separate approval before publishing accumulated work. Next connect
+real command I/O only against completed durable contracts; implement read-only
+result/history rendering where the contract supports it. Main dispatch gates and
+API version are unchanged. Recovery issue29 and local bundle/patch record the
+resulting exact commit. References: [command/acceptance plan](PLAN.md),
+[wire contract](CONTRACT.md), [Rust futures](https://doc.rust-lang.org/std/future/trait.Future.html).
+
+---
+
 # CLI verification checkpoint (2026-11-13)
 
 Following explicit owner approval, installed the official Rust stable toolchain
