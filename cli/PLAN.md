@@ -737,3 +737,16 @@ repeat HTTP. This does not aggregate ballots, schedule a worker, infer another
 turn or enable public run operations. Next add explicit manager ownership and
 validated complete-ranking projection, then remaining negative-mode, context and
 whole-workflow acceptance. API0 and all consultation command gates remain.
+
+
+### Explicit first-reviewer continuation worker checkpoint (partial)
+
+The manager can explicitly own one saved Stage 2 first continuation on its
+existing pool. Active duplicates share turn/revision/consent-bound ownership;
+initial requests for the same reviewer cannot overlap. Detached waiters leave
+owned work running, and the guard rechecks state/configuration at dispatch.
+Completion, partial responses and uncertain failures release the slot without
+another turn, reviewer, ballot aggregation or later stage. This is process-local
+ownership, not durable admission or automatic restart scheduling. Continue the
+validated complete-ranking projection and remaining workflow prerequisites before
+public API1; consultation commands remain gated.

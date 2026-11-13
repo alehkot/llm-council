@@ -1,7 +1,7 @@
 """Explicit OpenRouter adapter for one saved first Stage 2 reviewer continuation.
 
-Only an explicit internal caller selects this adapter; no manager step, public
-route or automatic loop does. It never infers the next turn,
+An explicit internal manager step can select this adapter; no public route
+or automatic loop does. It never infers the next turn,
 aggregates chunks, replaces an initial partial or automatically continues again.
 """
 

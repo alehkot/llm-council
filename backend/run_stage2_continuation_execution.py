@@ -1,7 +1,7 @@
 """Internal durable guard for one explicitly named first Stage 2 continuation.
 
-The explicit continuation wire adapter can invoke this guard; no manager step,
-public route or automatic loop does. Explicitly selected providers must make
+The explicit continuation wire adapter and manager handoff can invoke this guard;
+no public route or automatic loop does. Explicitly selected providers must make
 exactly one attempt using the supplied saved request. Local ownership is
 process-wide, not distributed or exactly-once at a remote provider.
 """
@@ -265,10 +265,10 @@ async def execute(
     The trusted callback must make one attempt with supplied endpoint, timeout
     and payload, without internal retries or context/continuation calls. A saved
     result is replayed for this turn, never interpreted as permission for another.
-    The explicit continuation adapter supplies this callback; no manager step
-    or public route does.
-    Direct caller cancellation cancels the attempt; durable scheduling and
-    detached waiter ownership remain separate future integrations.
+    The explicit continuation adapter supplies this callback, optionally owned
+    by the manager handoff; no public route does. Direct caller cancellation
+    cancels the attempt; manager handles shield detached waiters. Durable queue
+    admission and restart scheduling remain future integrations.
     """
     _validate_turn(turn)
     if type(expected_revision) is not int or expected_revision < 0:

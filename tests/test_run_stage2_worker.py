@@ -113,6 +113,7 @@ class Stage2WorkerTests(unittest.IsolatedAsyncioTestCase):
         started, release = self.block_pool()
         await self.event(started)
         handle = self.schedule()
+        self.assertEqual(handle.turn, 0)
         self.assertIs(
             handle, self.schedule(run_id=self.run_id.upper(), api_key="rotated-key")
         )

@@ -1568,8 +1568,7 @@ and counts, not private partial text or reasoning, and does not advance stages.
 
 This is **not execution permission**. The separate first-continuation attempt
 guard below requires provider identity and explicit uncertain-work retry consent;
-the concrete wire adapter below remains explicitly invoked, while worker ownership
-is unfinished. Current
+the concrete wire adapter and worker handoff below remain explicitly invoked. Current
 complete-ranking projection still rejects every
 length-only reviewer, including when its continuation input has been prepared.
 No automatic continuation, aggregate text, valid ballot, run completion, public
@@ -1584,7 +1583,7 @@ callback. Before calling it, the guard durably records a fresh attempt identity
 and the exact request digest in a separate continuation namespace. The callback
 receives a detached saved endpoint, timeout and payload; it must not perform
 internal retries, fitting or further continuation calls. The concrete adapter below
-can invoke this guard; no manager handoff or public route does.
+and manager handoff can invoke this guard; no public route does.
 
 An active duplicate cannot dispatch again. Independent reviewers have independent
 owners and retry consent. Unowned in-flight work requires the exact continuation
@@ -1625,6 +1624,32 @@ reviewer's current continuation retry token, not an initial or sibling token.
 Cancelled/deleted/stale work cannot dispatch or retain a late chunk. Initial
 partial text, prior attempts and all earlier workflow evidence remain unchanged.
 A stopped chunk is not a concatenated ballot and does not make the reviewer a
-complete ranking participant. No manager handoff, automatic scheduling, public
-route, API1 capability or CLI consultation command is enabled. Native platform,
+complete ranking participant. The explicit manager handoff below can own this
+request; no automatic scheduling, public route, API1 capability or CLI
+consultation command is enabled. Native platform,
 live-provider and exactly-once remote execution are not established by mock tests.
+
+
+### Explicit Stage 2 first-continuation worker handoff (partial)
+
+`ConsultationManager.schedule_cli_stage2_continuation` explicitly owns one named
+reviewer's already-pinned first continuation (`turn=1`) on the existing pool.
+It never prepares inputs, chooses a turn, concatenates a ballot, dispatches a
+sibling or advances stages. Initial and continuation steps share one reviewer
+ownership entry, with turn, revision and retry consent identifying an active
+duplicate. A conflicting initial or continuation request cannot take ownership;
+distinct reviewers may run concurrently. The original worker retains its key.
+
+The returned process-local handle shields the executor Future from detached
+waiters and gives each waiter detached snapshots. Stage 1/refinement and legacy
+conversation work, including nonterminal journals and orphan resumable messages,
+exclude admission. Continuation ownership excludes initial reviewer, Stage 1 and
+legacy admission. The continuation guard rechecks cancellation, deletion, saved
+revision/ancestry and current configuration when queued work starts. Completion,
+partial response, error or cancellation releases the worker without an automatic
+retry. Uncertain work still requires that reviewer's continuation attempt token.
+
+This is not durable queue admission, automatic restart scheduling or full public
+CLI detach/recovery support. A stopped continuation remains a separate chunk, not
+a complete ballot; the existing ranking projection still excludes its initial
+length-limited reviewer. API0 and consultation-command gates remain unchanged.

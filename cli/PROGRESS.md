@@ -1,3 +1,56 @@
+# CLI checkpoint: first-reviewer continuation ownership draft (2026-11-12)
+
+## Baseline and local-only scope
+
+Working `development` baseline:
+[`ad64761ab41b4565d04de3de633a751135c1f286`](https://github.com/alehkot/llm-council/commit/ad64761ab41b4565d04de3de633a751135c1f286).
+Observed upstream `main`:
+[`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`](https://github.com/alehkot/llm-council/commit/d90cb29427d17b6ffa7dec9629f89e9e4b357c00).
+The prior workspace and dependencies were replaced. A new persistent checkout
+was restored from real published Git history, not reconstructed or synthetic
+history; the previously published transport commit and all owner changes remain.
+
+This **local-only, runtime-untested draft** adds an explicit manager handoff for
+one already-pinned Stage 2 first-reviewer continuation. Initial and continuation
+steps share reviewer ownership, with turn/revision/retry-consent distinguishing
+active duplicates. It reuses the existing shielded handle, pool and durable
+adapter, leaving no automatic retry, sibling request, next turn, ballot promotion
+or public CLI capability. API0 and consultation-command gates remain unchanged.
+Twenty-two actual-pool regression tests are prepared, plus an initial-reviewer
+turn-zero compatibility assertion. The intended checks cover exact saved wire
+inputs, duplicate/exclusive ownership, detached waiters, cancellation/deletion,
+configuration/revision drift, uncertain-work consent and ownership release.
+
+## Verification blocker and next steps
+
+- Python AST syntax parsing and Git whitespace checks passed. Static self-review
+  and independent static review found no introduced moderate-or-higher issue.
+  These are not runtime test results.
+- Runtime tests, Ruff, backend startup and all full builds are **unrun** for this
+  draft. Missing `langgraph`, `agent-client-protocol` and Ruff prevent the normal
+  check environment after workspace replacement. Dependency restoration was
+  denied. One evidence-backed retry was stopped before environment restoration;
+  no further attempt or workaround will occur without applicable approval.
+- No new revision was published, and this draft has no corresponding remote CI
+  evidence. The exact starting development/main revisions have generic Woodpecker
+  PASS reports; no unreported platform or job coverage is inferred for them.
+- Native macOS/Keychain, Rust, browser and live-provider verification are unrun.
+  No paid provider request, full local build, private runner or user computer was
+  used. No PR, deployment or CI rerun was created.
+- Writable-filesystem preflight: 64,085,487,616 bytes and 4,191,210 inodes free.
+  No duplicate source checkout or dependency copy existed in the replaced
+  workspace. Restoration remains blocked on permission, not disk space.
+
+After applicable dependency-restoration approval, run the new actual-pool tests,
+existing Stage 1/2 worker suites, offline backend regressions, Ruff and startup;
+fix findings, obtain independent runtime review, then recheck both remote heads
+before any non-force publication. Preserve the local draft and recoverable patch.
+Do not claim the manager handoff verified or enable public consultation commands
+until those checks pass. Subsequent implementation remains complete-ranking
+projection, remaining stages and whole-workflow durable acceptance.
+
+---
+
 # CLI checkpoint: explicit first-reviewer continuation transport (2026-11-12)
 
 ## Baseline and completed scope
