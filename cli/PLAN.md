@@ -791,3 +791,13 @@ moderate-or-higher issue. Publication to development is authorized, with exact
 remote commit/tree/CI evidence retained after push. Public run/command gates stay
 unchanged; full workflow and native macOS acceptance remain open. See
 [PROGRESS.md](PROGRESS.md).
+
+
+### Explicit prompt collector checkpoint (2026-11-13)
+
+A tested injected prompt collector now handles all four saved field types,
+explicit defaults/skip/omit, noninteractive no-I/O and exact run/instance answers.
+Escaped display copies never replace original option/text values. Sixteen new
+checks and134 total offline Rust tests pass. This is not a real terminal/editor
+or HTTP answer adapter; ask/resume and other consultation commands remain gated.
+See [PROGRESS.md](PROGRESS.md).

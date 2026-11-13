@@ -1,3 +1,51 @@
+# CLI checkpoint: explicit prompt answer collection (2026-11-13)
+
+Added a single-pass prompt collector for the owner's prioritized `ask`/`resume`
+commands. It supports the existing select, multi-select, text and checkbox fields
+through an injected terminal boundary. It returns exact run/prompt-instance-bound
+answers, maps selection indices back to original option bytes, preserves selection
+order and explicit false checkboxes, and requires explicit default/omit/skip/leave
+choices. Noninteractive callers perform no terminal I/O. Leaving/interruption
+returns no partial answer. Schema/value validation mirrors the backend's saved
+prompt rules; caller-supplied field/option/text caps bound the collection attempt.
+
+All display views escape terminal controls and bidi overrides without changing
+accepted values. Invalid schemas fail before terminal I/O. There are no implicit
+answer defaults, automatic retry loops, network requests or storage operations.
+The collector remains unwired: real controlling-terminal/editor integration,
+HTTP answer receipts, command dispatch and full durable consultation APIs remain
+unfinished, and no command/API gate is changed.
+
+Primary published baseline:
+[`66997ad448cc3b5b558178c114f8552acf845e28`](https://github.com/alehkot/llm-council/commit/66997ad448cc3b5b558178c114f8552acf845e28).
+Starting local `2fbd3ade85ca1f942bc2efc30caf7c9350c38b9d` has the identical tree;
+prior connector publication mapping/history is preserved without reset.
+Observed main remains `d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Both remote
+heads retain matching generic Woodpecker PASS; no source PR/issues were open.
+Repo Care selected a different repository; existing released ownership was
+verified before this run claimed the checkout.
+
+Verification: all **134 offline Rust tests passed**, including **16 new prompt
+tests**. Cargo formatting, all-target Clippy with `-D warnings`, Ruff formatting/
+lint and Git whitespace checks pass. Self-review and independent review found
+no introduced moderate-or-higher issue. Review improvements require Text choices
+to belong to text fields and assert escaping on actual display strings, not Debug
+output. Independent reviewer reran all16 final prompt tests successfully. All1223
+offline backend regressions also passed in 220.172 seconds with unmocked external
+networking forbidden.
+
+No local full build, live provider, native macOS/Keychain or real terminal/browser
+verification is claimed. Existing compatible Python/Rust dependencies were reused
+without installation. Writable preflight: 61,677,150,208 bytes / 4,164,454 inodes
+free. Exact final local/published commits, tree mapping, backend regression result
+and normal CI evidence are recorded in the durable checkpoint after publication.
+Next connect prompt collection to verified terminal and acknowledgment adapters,
+then continue the remaining command/backend acceptance work. References:
+[confirmed plan](PLAN.md), [backend schema validation](../backend/run_interaction.py),
+[Rust strings](https://doc.rust-lang.org/std/string/struct.String.html).
+
+---
+
 # Publication checkpoint: accumulated CLI work verified (2026-11-13)
 
 The owner explicitly approved restoring locked Python test dependencies and

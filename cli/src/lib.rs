@@ -18,3 +18,5 @@ pub mod receipt_store;
 pub mod monitor;
 
 pub mod run_driver;
+
+pub mod prompt;
