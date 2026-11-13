@@ -386,7 +386,8 @@ class ContinuationWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(before, after)
         self.assertEqual(result["internal_phase"], "stage2_needs_continuation")
         self.assertEqual(
-            result["stage2_continuation_execution"]["members"][1]["phase"], "not_started"
+            result["stage2_continuation_execution"]["members"][1]["phase"],
+            "not_started",
         )
         self.assertIsNone(run_stage2_results.load_complete_results(self.run_id))
         self.assertNotIn("synthetic-worker-key", repr(handle))
@@ -446,5 +447,7 @@ class ContinuationWorkerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             self.schedule()
         self.assertEqual(self.manager._cli_stage2_steps, {})
-        self.assertNotIn("stage2_continuation_execution", run_admission.get(self.run_id))
+        self.assertNotIn(
+            "stage2_continuation_execution", run_admission.get(self.run_id)
+        )
         self.assertEqual(self.calls, [])

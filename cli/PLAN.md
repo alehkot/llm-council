@@ -780,3 +780,14 @@ pass, with 118 total offline CLI tests passing. There is no real HTTP/terminal
 adapter or command wiring; bounded long polls, matching reader origin and API1
 authentication remain explicit caller contracts. The main implementation and
 acceptance items remain open. See [PROGRESS.md](PROGRESS.md).
+
+
+### Accumulated verification/publication checkpoint (2026-11-13)
+
+Owner approval resolved the locked Python restoration blocker. All1223 offline
+backend tests and118 Rust tests now pass; Ruff, Rust formatting, Clippy and
+startup/shutdown checks pass. Independent accumulated review found no introduced
+moderate-or-higher issue. Publication to development is authorized, with exact
+remote commit/tree/CI evidence retained after push. Public run/command gates stay
+unchanged; full workflow and native macOS acceptance remain open. See
+[PROGRESS.md](PROGRESS.md).

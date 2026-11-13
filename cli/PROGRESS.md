@@ -1,3 +1,54 @@
+# Publication checkpoint: accumulated CLI work verified (2026-11-13)
+
+The owner explicitly approved restoring locked Python test dependencies and
+pushing the accumulated changes to `development`. Restoration succeeded using
+Python3.10.22 and the existing lockfile (45 packages). The earlier restoration
+approval blocker is resolved; historical entries below are retained as history.
+The existing Rust1.100.0 toolchain/cache was reused. No settings, credentials,
+main branch, PR, deployment or private runner were changed.
+
+Starting local head: `7e2b99d528f3834c0336b8a131d40227bb43ff91`.
+Starting published development:
+[`ad64761ab41b4565d04de3de633a751135c1f286`](https://github.com/alehkot/llm-council/commit/ad64761ab41b4565d04de3de633a751135c1f286).
+Upstream main:
+[`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`](https://github.com/alehkot/llm-council/commit/d90cb29427d17b6ffa7dec9629f89e9e4b357c00).
+Accumulated scope: Stage2 first-reviewer continuation ownership, shared Rust
+observation core and injected single-run follow loop. This checkpoint's commit
+contains only test formatting and documentation after verification. The exact
+published commit/tree and normal CI outcome are recorded in the recovery issue29
+and durable publication receipt after the push, without circular self-hashes.
+
+## Final local verification
+
+- **1223 offline backend tests passed** in 224.978 seconds, with unmocked external
+  networking forbidden by `scripts/test_offline.py`.
+- **118 Rust CLI tests passed**; cargo formatting and all-target Clippy with
+  `-D warnings` passed. Ruff formatting/lint and Git whitespace checks passed.
+- Independent full accumulated review found no introduced moderate-or-higher
+  findings; reviewer independently passed 45 initial/continuation backend worker
+  tests and 25 Rust observation/driver tests.
+- Authenticated local `/api/config` startup returned API0. Graceful application
+  shutdown confirmed. Initial harness incorrectly required exit0 after SIGTERM;
+  corrected harness accepts Uvicorn's expected -15 signal exit and confirms
+  application shutdown completion. Corrected startup/shutdown check passed.
+- No local full build. Frontend dependencies were not restored solely for this
+  backend/CLI change; frontend format/lint/tests and rendered browser verification
+  are unrun locally and must not be inferred from these results. Normal remote
+  Woodpecker evidence will be checked for the exact publication revision.
+- Native macOS/Keychain, real CLI terminal/network adapter integration and live
+  providers remain unverified. No paid request was made.
+
+Pre-install storage: 61,874,077,696 free bytes / 4,172,910 free inodes;
+after restoration/testing: 61,679,529,984 bytes / 4,164,488 inodes free.
+
+The CLI still cannot execute a full consultation: public run API1, real command
+I/O and remaining durable workflow integration are unfinished. All consultation
+command gates remain intact. Next continue the owner's command priority against
+completed backend contracts; these passing tests do not establish end-to-end CLI
+completion. Preserve the development branch and all accumulated commits.
+
+---
+
 # CLI checkpoint: single-run follow driver (2026-11-13)
 
 Continued the owner's command priority with an injected asynchronous read loop
