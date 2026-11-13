@@ -833,3 +833,14 @@ with54 ordered focused regression tests independently passing after correcting
 a fixture cleanup leak. No stage/run advancement, automatic
 calls or public command gates change. Continue remaining durable workflow and
 HTTP orchestration prerequisites; see [PROGRESS.md](PROGRESS.md).
+
+
+### Exact negative-stage request preparation checkpoint (2026-11-13)
+
+An explicit internal binding now pins self-and-peer critique requests for active
+answer owners from saved reviewed answers and explicit request/review concerns.
+Historical source/policy/budget identities remain exact; generated prompts and
+context reduction are rejected rather than silently dispatched. Fourteen new
+regressions and independent legacy parity checks pass. No execution, negative
+score aggregation, scheduling or public API/CLI capability is enabled. Continue
+guarded negative execution and remaining workflow boundaries; see[PROGRESS.md](PROGRESS.md).

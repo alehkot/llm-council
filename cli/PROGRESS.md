@@ -1,3 +1,57 @@
+# CLI checkpoint: exact negative-stage request preparation (2026-11-13)
+
+Added a durable backend prerequisite for complete CLI consultations:
+`run_negative_inputs.bind` pins exact self-and-peer critique requests after
+consumed response review when negative mode is enabled and an explicit saved
+request/review prompt exists. It uses the active response owners only, preserves
+source order, relabels surviving answers and carries exact reviewed Stage1 text,
+policy/source digests, endpoint, budgets and reasoning settings into each request.
+
+The legacy inline negative prompt is now a shared pure builder. Its text and
+legacy provider arguments/results are unchanged, including Unicode/whitespace
+and self/peer labels. Each per-model prompt must fit its already-pinned budget;
+context reduction, missing-prompt generation and execution are not attempted.
+Disabled mode, all-excluded answers or generation-required input fail without a
+write. Concurrent/repeated binding returns one identical saved preparation;
+failed-write/lost-acknowledgment recovery never dispatches work.
+
+Inspection validates canonical retained data and exposes only a compact identity/
+count summary. Source tampering, deletion and initializing-receipt misuse fail
+closed. Cancellation preserves historical inspection but prohibits rebinding.
+Current settings do not replace historical choices; a future execution guard must
+reconcile them before dispatch. No public endpoint, provider call, automatic
+negative stage, score aggregation, worker scheduling or CLI API gate is enabled.
+
+Primary baseline: [7c793afbe4c590430d644311ceb474fa21d88d63](https://github.com/alehkot/llm-council/commit/7c793afbe4c590430d644311ceb474fa21d88d63).
+Local starting `8c883bb9b4f91253f1266e06a602dd0198588660` has the identical tree;
+both histories and connector mapping remain preserved. Main remains
+`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Exact current development/main
+statuses and latest Woodpecker reports pass (pipeline14/8); no check-runs or open
+source PR/issues. The clean persistent checkout had a released ownership claim.
+
+Verification: **14 new offline tests** pass, covering exact wire inputs/source
+provenance, active-only ownership, exclusions, precedence/whitespace, blocked
+paths, pre-extraction golden text, legacy parity, historical reads, tampering,
+cancellation/deletion, concurrency, write/ack failures and budget boundaries.
+Independent review reran all14 and compared original/new legacy function outputs
+for0–3 active owners; no introduced moderate-or-higher findings. Ruff formatting,
+lint, whitespace and authenticated API0 startup/graceful shutdown pass. The
+guarded full suite passed **1256 tests in248.328s** on unchanged final production
+code. Two final tests were added after discovery; all14 final focused cases
+passed independently afterward, including fresh-process restoration with no
+regeneration and unconsumed-review rejection. No1258-test full-run claim is made.
+Exact final local/published SHA/tree/CI are retained in the durable checkpoint.
+
+No local full build, native macOS, live provider, rendered browser or complete CLI
+acceptance is claimed. Unchanged Rust code retains its prior154 passing tests,
+not a new test result for this revision. Existing locked dependencies reused;
+preflight **61,527,633,920 bytes / 4,163,953 inodes free**. Next add guarded durable
+negative execution/recovery and continue later workflow/public command integration.
+References: [plan](PLAN.md), [historical request pattern](../backend/run_stage2_inputs.py),
+[negative preparation](../backend/run_negative_inputs.py).
+
+---
+
 # CLI checkpoint: complete continued reviewer ballots (2026-11-13)
 
 Completed a durable backend prerequisite for the requested consultation commands:

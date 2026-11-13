@@ -24,6 +24,7 @@ from . import (
     response_review_policy,
     run_admission,
     run_interaction,
+    run_negative_inputs,
     run_skill_plan,
     run_skill_provenance,
     run_skill_snapshot,
@@ -90,6 +91,7 @@ class _SnapshotEvidence(TypedDict):
     stage2_continuation_execution: dict[str, Any] | None
     stage2_continuation_inputs: dict[str, Any] | None
     stage2_execution: dict[str, Any] | None
+    negative_inputs: dict[str, Any] | None
     stage2_inputs: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -155,6 +157,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "response_review_policy": None,
             "stage2_continuation_execution": None,
             "stage2_continuation_inputs": None,
+            "negative_inputs": None,
             "stage2_inputs": None,
             "stage2_execution": None,
             "pre_query": None,
@@ -184,6 +187,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "response_review_policy",
                     "stage2_continuation_execution",
                     "stage2_continuation_inputs",
+                    "negative_inputs",
                     "stage2_inputs",
                     "stage2_execution",
                     "council_selection",
@@ -274,6 +278,9 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         review_policy = response_review_policy.validate_saved(record, interaction)
         if review_policy is not None:
             snapshot["response_review_policy"] = review_policy.model_dump(mode="json")
+        negative_inputs = run_negative_inputs.validate_saved(record, interaction)
+        if negative_inputs is not None:
+            snapshot["negative_inputs"] = run_negative_inputs.summary(negative_inputs)
         stage2_inputs = run_stage2_inputs.validate_saved(record, interaction)
         if stage2_inputs is not None:
             snapshot["stage2_inputs"] = run_stage2_inputs.summary(stage2_inputs)

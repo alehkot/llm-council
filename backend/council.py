@@ -1307,6 +1307,64 @@ def parse_negative_scores(
     return {"scores": scores, "summaries": summaries}
 
 
+def build_negative_evaluation_prompt(
+    user_query: str,
+    negative_prompt: str,
+    stage1_results: List[Dict[str, Any]],
+    labels: List[str],
+    index: int,
+) -> str:
+    """Build the exact self-and-peer critique text without provider calls."""
+    result = stage1_results[index]
+    self_label = labels[index]
+    # Build peer responses section
+    peer_labels = []
+    peer_responses_text = []
+    for i, (label, peer_result) in enumerate(zip(labels, stage1_results)):
+        if i != index:
+            peer_labels.append(label)
+            peer_responses_text.append(f"- {label}:\n{peer_result['response']}")
+
+    peers_section = "\n\n".join(peer_responses_text)
+
+    # Build JSON example with actual peer labels
+    peer_scores_example = ", ".join([f'"{lbl}": <0-10>' for lbl in peer_labels])
+    peer_summaries_example = ", ".join(
+        [f'"{lbl}": "gaps summary"' for lbl in peer_labels]
+    )
+
+    return f"""You will act as a rigorous reviewer using the NEGATIVE PROMPT below.
+
+Original user request: {user_query}
+
+NEGATIVE PROMPT (use this to judge the responses):
+{negative_prompt}
+
+YOUR RESPONSE (you are {self_label} / {result["model"]}):
+{result["response"]}
+
+PEER RESPONSES TO EVALUATE:
+{peers_section}
+
+Tasks:
+1) For EACH response (yours and all peers), identify the biggest gaps, risks, or likely omissions based on the negative prompt.
+2) Assign a score from 0 to 10 for each response where 10 = addresses concerns thoroughly and 0 = fails badly.
+3) Return a compact JSON block with scores and one-sentence summaries for all responses.
+
+IMPORTANT: You must score ALL responses listed above.
+
+Format:
+```json
+{{
+  "self_score": <0-10 number>,
+  "self_summary": "one sentence about main weaknesses in your response",
+  "peer_scores": {{{peer_scores_example}}},
+  "peer_summaries": {{{peer_summaries_example}}}
+}}
+```
+After the JSON you may add brief notes if helpful."""
+
+
 async def stage_negative_evaluations(
     user_query: str,
     negative_prompt: str,
@@ -1342,52 +1400,14 @@ async def stage_negative_evaluations(
         if progress:
             await progress(result["model"], "running", {"label": self_label})
 
-        # Build peer responses section
-        peer_labels = []
-        peer_responses_text = []
-        for i, (label, peer_result) in enumerate(zip(labels, stage1_results)):
-            if i != index:
-                peer_labels.append(label)
-                peer_responses_text.append(f"- {label}:\n{peer_result['response']}")
-
-        peers_section = "\n\n".join(peer_responses_text)
-
-        # Build JSON example with actual peer labels
-        peer_scores_example = ", ".join([f'"{lbl}": <0-10>' for lbl in peer_labels])
-        peer_summaries_example = ", ".join(
-            [f'"{lbl}": "gaps summary"' for lbl in peer_labels]
+        peer_labels = [
+            label
+            for i, (label, _) in enumerate(zip(labels, stage1_results))
+            if i != index
+        ]
+        prompt = build_negative_evaluation_prompt(
+            user_query, negative_prompt, stage1_results, labels, index
         )
-
-        prompt = f"""You will act as a rigorous reviewer using the NEGATIVE PROMPT below.
-
-Original user request: {user_query}
-
-NEGATIVE PROMPT (use this to judge the responses):
-{negative_prompt}
-
-YOUR RESPONSE (you are {self_label} / {result["model"]}):
-{result["response"]}
-
-PEER RESPONSES TO EVALUATE:
-{peers_section}
-
-Tasks:
-1) For EACH response (yours and all peers), identify the biggest gaps, risks, or likely omissions based on the negative prompt.
-2) Assign a score from 0 to 10 for each response where 10 = addresses concerns thoroughly and 0 = fails badly.
-3) Return a compact JSON block with scores and one-sentence summaries for all responses.
-
-IMPORTANT: You must score ALL responses listed above.
-
-Format:
-```json
-{{
-  "self_score": <0-10 number>,
-  "self_summary": "one sentence about main weaknesses in your response",
-  "peer_scores": {{{peer_scores_example}}},
-  "peer_summaries": {{{peer_summaries_example}}}
-}}
-```
-After the JSON you may add brief notes if helpful."""
 
         messages = [{"role": "user", "content": prompt}]
         response = await query_model(
