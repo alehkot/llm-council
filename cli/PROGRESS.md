@@ -1,3 +1,50 @@
+# CLI checkpoint: argument/file/pipe question preparation (2026-11-13)
+
+Added the real input preparation adapter for the prioritized `ask` command. It
+combines parsed arguments and authenticated backend configuration with bounded
+UTF-8 question reads, preserving whitespace and Unicode scalar limits. An exact
+`-` selects stdin; explicit file input opens a regular file without consuming
+stdin. Unix nonblocking open permits rejecting a named pipe without waiting for
+a writer. Argument-only input performs no source I/O.
+
+API compatibility, nonzero/representable limits, source conflicts and structural
+skill-ID/dedup/count checks precede source reads. Prepared requests explicitly use
+persistent interaction and explicit retry, preserving `--refine`. Errors expose
+neither paths nor question text. Installed-skill existence remains a later
+catalog/backend check. No editor, credentials, receipt write, HTTP submission or
+run-ID generation occurs. No-source input reports missing input/nonimplemented
+editor explicitly. Stdin waits for EOF; this module does not add a signal handler
+or time limit. The six command gates and backend API0 remain unchanged.
+
+Primary baseline: [ebb63cb7fad79a2b24724222003bc3a831f91522](https://github.com/alehkot/llm-council/commit/ebb63cb7fad79a2b24724222003bc3a831f91522).
+Local starting `20e69fcf0bbf180b3d44a4e2271d8ae24544e918` has the identical tree;
+both histories and publication mapping are preserved. Main remains
+`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Exact current development/main
+Woodpecker statuses and latest comments pass (pipeline12/8); no check-runs or
+open source PR/issues. Repo Care performed read-only checks and released before
+this iteration claimed the clean checkout. No unfinished source change existed.
+
+Verification: **154 offline Rust tests**, including **11 new input tests**, pass.
+The new tests cover real temporary files and an OS pipe/FIFO, exact Unicode,
+invalid/oversized input, conflicting sources/skills, and validation before reads.
+The real process-stdin wrapper is thin; pipe tests inject an actual OS pipe into
+the same reader path rather than launching a connected command. Cargo formatting,
+all-target Clippy `-D warnings`, Ruff and Git whitespace checks pass. Independent
+review independently passed all11 new tests and found no introduced moderate-or-
+higher findings. Exact final local/published commit/tree/CI are retained in the
+durable publication checkpoint. Previous1223 backend tests and six Linux PTY
+checks remain evidence for the unchanged backend/prompt adapter, not fresh tests
+of this new revision. No duplicate full backend suite or captures were needed.
+
+No full local build, native macOS, live provider, browser or full consultation
+acceptance is claimed. Existing locked toolchains/dependencies were reused.
+Preflight: **61,593,595,904 bytes / 4,164,097 inodes free**. Next integrate editor,
+submission receipts, signal-aware reconnect and public durable workflow/command
+transport before enabling consultation dispatch. References: [plan](PLAN.md),
+[input bounds](src/input.rs), [typed request](src/wire.rs).
+
+---
+
 # CLI checkpoint: real controlling-terminal prompt adapter (2026-11-13)
 
 The shared prompt collector now has a real Unix `/dev/tty` adapter for future

@@ -811,3 +811,13 @@ no stdin/stdout prompt contamination, no terminal mode changes, and a conservati
 single-line adapter, not editor/OS-signal reconnect or HTTP integration. No
 consultation command/API gate is enabled; native macOS acceptance remains open.
 See [PROGRESS.md](PROGRESS.md) and [terminal checks](tests/manual/README.md).
+
+
+### Real question-source preparation checkpoint (2026-11-13)
+
+The ask adapter now combines parsed argument/file/stdin sources with supported
+configuration and typed persistent/explicit-retry requests. It validates before
+reading, preserves exact UTF-8 text and bounds reads, with real file/pipe/FIFO
+regressions. All154 offline Rust tests pass. Editor, receipts and command transport
+remain unfinished, and all consultation/API gates stay unchanged. See
+[PROGRESS.md](PROGRESS.md).
