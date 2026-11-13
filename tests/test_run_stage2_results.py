@@ -9,25 +9,25 @@ from unittest.mock import patch
 import test_run_stage1_inputs as initial_fixtures
 import test_run_stage2_inputs as fixtures
 
-from backend import config, council, run_admission, run_cancellation
+from backend import config, council, run_admission, run_cancellation, storage
 from backend import run_stage2_execution as execution
 from backend import run_stage2_results as results
 
 
-class Stage2ResultTests(unittest.IsolatedAsyncioTestCase):
+class Stage2ResultFixtureMixin:
     pairwise = False
 
     def setUp(self) -> None:
-        original = initial_fixtures.Stage1InputTests.complete
+        original = initial_fixtures.Stage1InputTests.setUp
 
-        def complete_with_method(fixture: Any, *args: Any, **kwargs: Any) -> Any:
+        def setup_with_method(fixture: Any) -> None:
+            original(fixture)
             setting = patch.object(config, "PAIRWISE_RANKING_ENABLED", self.pairwise)
             setting.start()
             fixture.addCleanup(setting.stop)
-            return original(fixture, *args, **kwargs)
 
         patched = patch.object(
-            initial_fixtures.Stage1InputTests, "complete", complete_with_method
+            initial_fixtures.Stage1InputTests, "setUp", setup_with_method
         )
         patched.start()
         self.addCleanup(patched.stop)
@@ -69,6 +69,12 @@ class Stage2ResultTests(unittest.IsolatedAsyncioTestCase):
         ):
             await self.execute(model, content)
 
+
+class Stage2ResultFixture(Stage2ResultFixtureMixin, unittest.TestCase):
+    """Synchronous setup/cleanup owner for tests composing async helpers."""
+
+
+class Stage2ResultTests(Stage2ResultFixtureMixin, unittest.IsolatedAsyncioTestCase):
     async def test_complete_aggregation_matches_saved_algorithm_and_provenance(
         self,
     ) -> None:
@@ -78,6 +84,9 @@ class Stage2ResultTests(unittest.IsolatedAsyncioTestCase):
             result = results.load_complete_results(self.run)
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(result.ranking_method, self.inputs.ranking_method)
+        self.assertEqual(
+            result.ranking_method, "pairwise" if self.pairwise else "average_rank"
+        )
         self.assertEqual(result.label_to_model, self.inputs.label_to_model)
         self.assertEqual([r.model for r in result.reviewers], self.models)
         saved = json.loads(before)["stage2_execution"]
@@ -230,3 +239,23 @@ class ExcludedCandidateTests(unittest.TestCase):
         self.assertEqual(len(result.aggregate), 1)
         self.assertEqual(result.aggregate[0].model, "provider/second")
         self.assertEqual(result.aggregate[0].rankings_count, 2)
+
+
+class RankingFixtureIsolationTests(unittest.TestCase):
+    def test_pairwise_fixture_restores_original_setting(self) -> None:
+        for original in (False, True):
+            with (
+                self.subTest(original=original),
+                patch.object(config, "PAIRWISE_RANKING_ENABLED", original),
+            ):
+                original_data_dir = storage.DATA_DIR
+                fixture = Stage2ResultFixture()
+                fixture.pairwise = True
+                try:
+                    fixture.setUp()
+                    self.assertEqual(fixture.inputs.ranking_method, "pairwise")
+                finally:
+                    self.assertTrue(fixture.doCleanups())
+                self.assertEqual(config.PAIRWISE_RANKING_ENABLED, original)
+                self.assertEqual(storage.DATA_DIR, original_data_dir)
+                self.assertFalse(fixture.path.exists())

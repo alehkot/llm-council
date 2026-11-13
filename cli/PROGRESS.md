@@ -1,3 +1,57 @@
+# CLI checkpoint: complete continued reviewer ballots (2026-11-13)
+
+Completed a durable backend prerequisite for the requested consultation commands:
+`run_stage2_results.load_complete_results` now recognizes a saved initial
+length-limited reviewer response followed by a validated stopped first
+continuation. It concatenates exact text only for ballot parsing and retains
+separate original chunks, attempt/retry ancestry, provider identity, request
+digests, usage and reasoning metadata. Existing initial response/attempt fields
+retain their original meaning. Usage and reasoning are not synthesized or summed.
+
+All continuation inputs and execution receipts are validated under the same
+storage lock as the full reviewer roster. Unstarted, in-flight, uncertain or
+still-length-limited work cannot form a partial quorum. Invalid completed ballots
+remain evidence but do not vote; all-invalid results have no winner. Historical
+reads survive configuration drift/cancellation, while deletion/corrupt ancestry
+fail closed. Reads neither rewrite sources nor advance a stage/run, dispatch a
+provider, schedule another turn, or enable CLI API1/consultation commands.
+
+Primary baseline: [01923267c013aa50da478066013fe9b8ac6501cc](https://github.com/alehkot/llm-council/commit/01923267c013aa50da478066013fe9b8ac6501cc).
+Local starting `45c0e27f4bd574c851115090df5dbc79ea84e9e8` has the identical tree;
+both genuine histories and connector mapping remain preserved. Main remains
+`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Current exact-head statuses/latest
+Woodpecker comments pass (development13/main8); no check-runs or open source
+PR/issues. Repo Care selected CapybaraDesktopPet and confirmed no Council claim.
+
+Verification: **40 projection/isolation tests** pass, including **20 new
+continuation cases** across average-rank and pairwise algorithms and one fixture
+isolation regression. Independent final review ran54 tests in continuation →
+inputs → results order, confirmed zero per-test configuration leaks and found
+no outstanding moderate-or-higher findings. During testing, the prior
+pairwise fixture was found to patch an unused helper and actually retain the
+average-rank setting. It now patches the effective setup and explicitly asserts
+the selected method; both algorithms genuinely run. One obsolete assertion for
+all-stopped continuations now checks read-only invalid-ballot projection instead
+of None while retaining its no-stage-advancement assertions. Partial-quorum tests
+remain intact. Initial full-suite execution found two failures from a newly
+composed async test fixture whose cleanup lacked its unittest async runner. The
+fixture now uses a synchronous setup/cleanup owner, with an isolation regression;
+no production workaround was applied. Final **1244 offline backend tests pass
+in242.618s** with unmocked outbound networking forbidden. Repository Ruff
+format/lint, whitespace and authenticated API0 startup/graceful shutdown pass; exact final local/published SHA/tree/CI live in the durable
+publication checkpoint.
+
+No local full build, native macOS, live provider, rendered browser or full CLI
+consultation acceptance is claimed. The unchanged Rust CLI retains its prior154
+passing tests; this change does not alter its command dispatch. Existing locked
+Python dependencies/toolchain were reused. Preflight: **61,527,941,120 bytes /
+4,163,979 inodes free**. Next continue durable negative-mode, later workflow/
+synthesis and public run orchestration before enabling the six commands.
+References: [plan](PLAN.md), [Stage1 result precedent](../backend/run_stage1_results.py),
+[ranking projection](../backend/run_stage2_results.py).
+
+---
+
 # CLI checkpoint: argument/file/pipe question preparation (2026-11-13)
 
 Added the real input preparation adapter for the prioritized `ask` command. It

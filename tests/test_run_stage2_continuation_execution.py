@@ -1296,8 +1296,13 @@ class FirstContinuationExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.snapshot()["operation_owned"])
         self.assertEqual(self.saved()["stage2_execution"], self.initial_state)
         self.assertEqual(len(self.calls), 2)
-        # Retaining stopped chunks is not permission to assemble a ballot.
-        self.assertIsNone(run_stage2_results.load_complete_results(self.run_id))
+        # Read-only ballot projection does not mark the run or stage complete.
+        projected = run_stage2_results.load_complete_results(self.run_id)
+        self.assertEqual(len(projected.reviewers), len(self.models))
+        self.assertEqual(projected.aggregate, ())
+        self.assertEqual(len(projected.invalid_rankings), len(self.models))
+        self.assertTrue(all(len(r.chunks) == 2 for r in projected.reviewers))
+        self.assertEqual(self.snapshot()["internal_phase"], "stage2_needs_continuation")
 
     async def test_initial_attempt_tokens_never_authorize_continuation_retry(
         self,

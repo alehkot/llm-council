@@ -821,3 +821,15 @@ reading, preserves exact UTF-8 text and bounds reads, with real file/pipe/FIFO
 regressions. All154 offline Rust tests pass. Editor, receipts and command transport
 remain unfinished, and all consultation/API gates stay unchanged. See
 [PROGRESS.md](PROGRESS.md).
+
+
+### Complete continued-reviewer projection checkpoint (2026-11-13)
+
+Read-only Stage2 aggregation now accepts validated initial-length plus first-
+continuation-stop reviewers, preserving separate chunk/attempt/request provenance
+and exact combined ballot text. All reviewers must be complete; invalid ballots
+remain nonvoting evidence. Twenty new cases exercise both genuine ranking modes,
+with54 ordered focused regression tests independently passing after correcting
+a fixture cleanup leak. No stage/run advancement, automatic
+calls or public command gates change. Continue remaining durable workflow and
+HTTP orchestration prerequisites; see [PROGRESS.md](PROGRESS.md).

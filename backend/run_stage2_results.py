@@ -16,6 +16,8 @@ from . import (
     run_admission,
     run_interaction,
     run_stage1_inputs,
+    run_stage2_continuation_execution,
+    run_stage2_continuation_inputs,
     run_stage2_execution,
     run_stage2_inputs,
     storage,
@@ -23,8 +25,26 @@ from . import (
 from .consultation_contract import WireModel
 
 
+class ResultChunk(WireModel):
+    """One unchanged reviewer chunk and its exact request/attempt provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    turn: Literal[0, 1]
+    provider_key: StrictStr
+    inputs_sha256: run_stage1_inputs.Digest
+    attempt: UUID
+    retry_of: UUID | None
+    response: run_stage2_execution.MemberResponse = Field(repr=False)
+
+
 class ReviewerResult(WireModel):
-    """Original reviewer response, parsed ballot and exact attempt provenance."""
+    """Complete text/ballot with unchanged initial response and per-turn evidence.
+
+    The legacy attempt/provider/response fields always identify the initial
+    request. Read content for the exact complete text and chunks for all turns;
+    neither response metadata nor provider usage is synthesized or summed.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
@@ -33,6 +53,8 @@ class ReviewerResult(WireModel):
     retry_of: UUID | None
     provider_key: StrictStr
     response: run_stage2_execution.MemberResponse = Field(repr=False)
+    content: StrictStr = Field(repr=False)
+    chunks: tuple[ResultChunk, ...] = Field(repr=False)
     parsed_ranking: tuple[StrictStr, ...]
 
 
@@ -70,9 +92,10 @@ class RankingResults(WireModel):
 def load_complete_results(run_id: str) -> RankingResults | None:
     """Project all stop-terminated reviewers, or None for any incomplete work.
 
-    Length-only, uncertain, in-flight and unstarted reviewers never establish a
-    partial quorum. Complete malformed ballots are reported and excluded using
-    the existing ranking algorithms. All-invalid ballots yield no winner.
+    An initial stop or initial length plus a validated first-continuation stop
+    supplies exact complete text. Length-only, uncertain, in-flight and
+    unstarted work never establishes a partial quorum. Complete malformed ballots
+    are reported and excluded using the existing ranking algorithms. All-invalid ballots yield no winner.
     Cancellation/configuration drift permit historical reads; deletion or
     corrupt causal receipts fail closed. Sources are validated under one lock.
     """
@@ -89,18 +112,54 @@ def load_complete_results(run_id: str) -> RankingResults | None:
                 "Saved Stage 2 input is required"
             )
         state = run_stage2_execution.validate_saved(record, inputs)
+        continuation_inputs = run_stage2_continuation_inputs.validate_saved(
+            record, interaction
+        )
+        continuation = run_stage2_continuation_execution.validate_saved(
+            record, continuation_inputs
+        )
         if state is None:
             return None
+        following = (
+            {operation.model: operation for operation in continuation.operations}
+            if continuation
+            else {}
+        )
         operations = {operation.model: operation for operation in state.operations}
         reviewers = []
         for request in inputs.requests:
             operation = operations.get(request.model)
-            if (
-                operation is None
-                or operation.result is None
-                or operation.result.finish_reason != "stop"
-            ):
+            if operation is None or operation.result is None:
                 return None
+            chunks = [
+                ResultChunk(
+                    turn=0,
+                    provider_key=state.provider_key,
+                    inputs_sha256=state.inputs_sha256,
+                    attempt=operation.attempt,
+                    retry_of=operation.retry_of,
+                    response=operation.result.model_copy(deep=True),
+                )
+            ]
+            if operation.result.finish_reason == "length":
+                next_op = following.get(request.model)
+                if (
+                    next_op is None
+                    or next_op.result is None
+                    or next_op.result.finish_reason != "stop"
+                ):
+                    return None
+                chunks.append(
+                    ResultChunk(
+                        turn=1,
+                        provider_key=continuation.provider_key,
+                        inputs_sha256=next_op.inputs_sha256,
+                        attempt=next_op.attempt,
+                        retry_of=next_op.retry_of,
+                        response=next_op.result.model_copy(deep=True),
+                    )
+                )
+            content = "".join(chunk.response.content for chunk in chunks)
             reviewers.append(
                 ReviewerResult(
                     model=request.model,
@@ -108,9 +167,11 @@ def load_complete_results(run_id: str) -> RankingResults | None:
                     retry_of=operation.retry_of,
                     provider_key=state.provider_key,
                     response=operation.result.model_copy(deep=True),
+                    content=content,
+                    chunks=tuple(chunks),
                     parsed_ranking=tuple(
                         council.parse_ranking_from_text(
-                            operation.result.content,
+                            content,
                             expected_labels=list(inputs.label_to_model),
                         )
                     ),
