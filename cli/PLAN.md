@@ -844,3 +844,15 @@ context reduction are rejected rather than silently dispatched. Fourteen new
 regressions and independent legacy parity checks pass. No execution, negative
 score aggregation, scheduling or public API/CLI capability is enabled. Continue
 guarded negative execution and remaining workflow boundaries; see[PROGRESS.md](PROGRESS.md).
+
+
+### Guarded negative evaluation checkpoint (2026-11-13)
+
+An explicit internal callback guard now persists one active answer owner's
+negative attempt before dispatch and retains raw stop/length responses with exact
+source and retry ancestry. Separate ownership, explicit uncertain-work consent,
+configuration checks and cancellation/deletion guards prevent silent replay.
+Compact inspection distinguishes attempts from negative scores or stage
+completion. No real transport, scheduler, score projection, automatic continuation
+or public command is enabled. Continue those bounded dependencies and whole-run
+acceptance before API1; see [PROGRESS.md](PROGRESS.md).

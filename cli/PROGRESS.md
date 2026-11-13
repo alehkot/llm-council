@@ -1,3 +1,49 @@
+# CLI checkpoint: guarded negative evaluation attempts (2026-11-13)
+
+Added an explicit internal callback guard for one saved negative-evaluation
+request. It records in-flight work before dispatch, retains exact stopped or
+length-limited raw critiques, isolates per-owner attempt/retry identities and
+requires explicit consent before replacing an uncertain attempt. Active owners
+cannot be duplicated, including across event loops; excluded answer owners cannot
+execute. Saved requests, source revision, adapter and current configuration are
+checked before dispatch; late responses cannot overwrite cancelled, deleted,
+changed or superseded work.
+
+Inspection now exposes compact negative-member states and distinguishes raw
+attempt completion from parsed scores or stage completion. Historical results
+remain readable after configuration drift/cancellation, without provider calls or
+rewrites. Cancellation targets this run's registered tasks and preserves prior
+results. No HTTP provider adapter, worker handoff, score aggregation, continuation,
+automatic stage progression or public API/consultation command is enabled.
+
+Primary baseline: [d061e7babc52b990ef226a33ecfe6e397314979f](https://github.com/alehkot/llm-council/commit/d061e7babc52b990ef226a33ecfe6e397314979f).
+Local starting `c956b43368eb4d4b69372820dbaf27a8c05401e3` has the identical tree;
+both genuine histories and publication mappings are preserved. Main remains
+`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Exact starting development/main
+Woodpecker statuses and latest comments pass (pipeline15/8); no check-runs or open
+source PR/issues. Ownership was released before this iteration.
+
+Verification: 56 new offline regressions cover exact requests, durable-before-call
+ordering, replay, active-only ownership, parallel/out-of-order requests, isolated
+retry consent, cancellation suppression and races, deletion, configuration/source
+drift, corrupt receipts, failed writes/lost acknowledgments and real subprocess
+restart with no provider repetition. Ruff format/lint, whitespace and authenticated
+API0 startup/graceful shutdown pass. The full offline suite passed 1314 tests. Independent review reran all56 new
+tests under the offline network guard (22.168s) and found no introduced moderate-
+or-higher findings. Exact final local/published SHA/tree and normal CI evidence
+are retained in the durable branch checkpoint.
+
+No local full build, native macOS, live provider, browser or whole-consultation
+acceptance is claimed. Rust is unchanged; prior154 passing tests are historical,
+not a new result for this revision. Existing locked dependencies were reused;
+preflight **61,527,351,296 bytes / 4,163,929 inodes free**. Next add the bounded
+negative provider adapter/worker and validated score projection, then remaining
+workflow/public command integration. See [plan](PLAN.md),
+[negative inputs](../backend/run_negative_inputs.py) and
+[attempt guard](../backend/run_negative_execution.py).
+
+---
+
 # CLI checkpoint: exact negative-stage request preparation (2026-11-13)
 
 Added a durable backend prerequisite for complete CLI consultations:

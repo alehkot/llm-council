@@ -24,6 +24,7 @@ from . import (
     response_review_policy,
     run_admission,
     run_interaction,
+    run_negative_execution,
     run_negative_inputs,
     run_skill_plan,
     run_skill_provenance,
@@ -52,6 +53,10 @@ InternalPhase = Literal[
     "running_refinement",
     "running_stage1",
     "running_stage2",
+    "running_negative",
+    "negative_partial",
+    "negative_needs_continuation",
+    "negative_attempts_complete",
     "running_stage2_continuation",
     "stage2_partial",
     "stage2_needs_continuation",
@@ -92,6 +97,7 @@ class _SnapshotEvidence(TypedDict):
     stage2_continuation_inputs: dict[str, Any] | None
     stage2_execution: dict[str, Any] | None
     negative_inputs: dict[str, Any] | None
+    negative_execution: dict[str, Any] | None
     stage2_inputs: dict[str, Any] | None
     pre_query: dict[str, Any] | None
     pre_query_policy: dict[str, Any] | None
@@ -158,6 +164,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             "stage2_continuation_execution": None,
             "stage2_continuation_inputs": None,
             "negative_inputs": None,
+            "negative_execution": None,
             "stage2_inputs": None,
             "stage2_execution": None,
             "pre_query": None,
@@ -188,6 +195,7 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
                     "stage2_continuation_execution",
                     "stage2_continuation_inputs",
                     "negative_inputs",
+                    "negative_execution",
                     "stage2_inputs",
                     "stage2_execution",
                     "council_selection",
@@ -281,6 +289,13 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         negative_inputs = run_negative_inputs.validate_saved(record, interaction)
         if negative_inputs is not None:
             snapshot["negative_inputs"] = run_negative_inputs.summary(negative_inputs)
+        negative_execution = run_negative_execution.validate_saved(
+            record, negative_inputs
+        )
+        if negative_execution is not None:
+            snapshot["negative_execution"] = run_negative_execution.summary(
+                record["run_id"], negative_execution, negative_inputs
+            )
         stage2_inputs = run_stage2_inputs.validate_saved(record, interaction)
         if stage2_inputs is not None:
             snapshot["stage2_inputs"] = run_stage2_inputs.summary(stage2_inputs)
@@ -332,6 +347,12 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
             snapshot["stage1"] is not None
             and snapshot["stage1"]["counts"]["running"] > 0
         )
+        negative_members = (
+            snapshot["negative_execution"]["members"]
+            if snapshot["negative_execution"] is not None
+            else []
+        )
+        negative_phases = {member["phase"] for member in negative_members}
         stage2_members = (
             snapshot["stage2_execution"]["members"]
             if snapshot["stage2_execution"] is not None
@@ -349,11 +370,23 @@ def inspect(run_id: str) -> RunInspectionSnapshot | None:
         snapshot["operation_owned"] = bool(
             owned
             or stage1_owned
+            or "running" in negative_phases
             or "running" in stage2_phases
             or "running" in continuation_phases
         )
         if record.get("cancellation") is not None:
             snapshot["internal_phase"] = record["cancellation"]["phase"]
+        elif negative_members:
+            if "running" in negative_phases:
+                snapshot["internal_phase"] = "running_negative"
+            elif "needs_retry" in negative_phases:
+                snapshot["internal_phase"] = "needs_retry"
+            elif "needs_continuation" in negative_phases:
+                snapshot["internal_phase"] = "negative_needs_continuation"
+            elif negative_phases == {"complete"}:
+                snapshot["internal_phase"] = "negative_attempts_complete"
+            else:
+                snapshot["internal_phase"] = "negative_partial"
         elif stage2_members:
             if "running" in stage2_phases:
                 snapshot["internal_phase"] = "running_stage2"
