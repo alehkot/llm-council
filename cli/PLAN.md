@@ -750,3 +750,12 @@ another turn, reviewer, ballot aggregation or later stage. This is process-local
 ownership, not durable admission or automatic restart scheduling. Continue the
 validated complete-ranking projection and remaining workflow prerequisites before
 public API1; consultation commands remain gated.
+
+
+### Shared ask/resume decision core (local uncompiled draft)
+
+A pure observation core now maps typed run snapshots to safe polling, exact
+prompt/retry-consent, saved-result and terminal decisions, with 13 authored tests.
+It has no transport or side effects and remains unwired; it neither enables
+commands nor satisfies the monitor/resume acceptance cases. Compile/test/format
+verification is blocked by the absent Rust toolchain. See [PROGRESS.md](PROGRESS.md).

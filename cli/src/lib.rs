@@ -14,3 +14,5 @@ pub mod terminal;
 
 #[cfg(unix)]
 pub mod receipt_store;
+
+pub mod monitor;

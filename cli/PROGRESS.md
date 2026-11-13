@@ -1,3 +1,48 @@
+# CLI checkpoint: ask/resume decision core draft (2026-11-13)
+
+The owner prioritized implementing `ask`, `resume`, `show`, `history`, `export`
+and `cancel`. This bounded client-side step adds a shared pure observation core
+for `ask`/`resume`, rather than another provider-stage slice. It covers all eight
+run lifecycle states, verifies expected run identity and snapshot coherence,
+preserves exact prompts and opaque polling cursors, requires explicit retry
+consent, and distinguishes complete saved-result references from answer text.
+Noninteractive/no-terminal callers get needs-input decisions without accepting
+defaults or skipping. Thirteen focused Rust tests are authored.
+
+This is an **uncompiled, local-only draft**, not working commands. The core does
+no I/O and is not connected to dispatch. Transport, prompt rendering, private
+submission receipts, Ctrl-C/reconnect behavior and public durable run endpoints
+remain dependencies. All six consultation commands remain gated. The existing
+backend continuation draft is preserved unchanged.
+
+Starting local development commit: `54ab1e419440e40621597c61563af04fff1664d2`.
+Published development remains
+[`ad64761ab41b4565d04de3de633a751135c1f286`](https://github.com/alehkot/llm-council/commit/ad64761ab41b4565d04de3de633a751135c1f286);
+upstream main remains
+[`d90cb29427d17b6ffa7dec9629f89e9e4b357c00`](https://github.com/alehkot/llm-council/commit/d90cb29427d17b6ffa7dec9629f89e9e4b357c00).
+Both published heads retain matching generic Woodpecker PASS reports; neither
+establishes verification of this draft or unreported platforms. No source push,
+CI rerun, full build, provider request or credential action was performed.
+
+Self-review and independent static review found no introduced moderate-or-higher
+finding. Git whitespace checks passed. Cargo, rustc and rustfmt are absent from
+the current machine; compilation, all 13 tests, Clippy and Rust formatting are
+**unrun**. No toolchain/dependency installation was attempted. The separate
+previously denied Python dependency restoration remains awaiting approval;
+backend startup/regression checks remain unrun. Native macOS/Keychain and live
+provider verification remain unrun. Preflight storage: 63,993,159,680 bytes and
+4,187,339 inodes free. Recovery issue #29 retains the prior draft; its update and
+local recovery artifacts record the resulting commit for this draft.
+
+Next: obtain a permitted verification toolchain/environment, compile and test
+this core, resolve findings, then implement the shared transport/terminal driver
+and read-only result commands against verified backend contracts. Do not expose
+submission/retry/cancel until their durable acceptance cases pass. References:
+[confirmed command/acceptance plan](PLAN.md), [wire contract](CONTRACT.md),
+[Tokio guidance](https://docs.rs/tokio/latest/tokio/).
+
+---
+
 # CLI checkpoint: first-reviewer continuation ownership draft (2026-11-12)
 
 ## Baseline and local-only scope
