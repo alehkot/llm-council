@@ -1,3 +1,37 @@
+# CLI verification checkpoint (2026-11-13)
+
+Following explicit owner approval, installed the official Rust stable toolchain
+(1.100.0, minimal profile with rustfmt and Clippy), without shell-profile changes.
+Fetched the existing locked Cargo dependencies for focused CLI tests. The separate
+Python dependency restoration remains unapproved and was not attempted.
+
+On the command-core source from local `a2a09902a6ed2f0a598c84b98a484076d1226c00`,
+corrected rustfmt-only layout in the new monitor module/tests. Verification:
+
+- All **106 CLI tests passed**, including all 13 new observation tests.
+- `cargo fmt --check` and all-target Clippy with `-D warnings` passed.
+- Independent review reran the 13 monitor tests offline and targeted formatting;
+  all passed, with no introduced moderate-or-higher findings.
+- No full application/release build, live model request, native macOS/Keychain
+  test or backend test was run. These results verify the pure observation core
+  and existing Linux CLI tests, not working consultation commands.
+
+The commands remain gated pending public durable backend and transport/terminal
+integration. Publication is held because this branch also contains the preceding
+unverified backend draft `54ab1e4`; do not claim Rust tests verify Python changes.
+Published development remains `ad64761`; main remains `d90cb294`. The resulting
+local commit and recovery evidence are recorded in the durable recovery receipt.
+The previous uncompiled-draft entries below are historical and superseded only
+for Rust checks, not their backend/native-platform limitations.
+
+Storage before install: 63,990,906,880 bytes / 4,187,316 inodes free; after locked
+CLI test compilation: 61,947,588,608 bytes / 4,173,066 inodes free. Reuse this
+installed toolchain, Cargo cache and compatible test outputs in subsequent runs.
+Next verify the backend draft after its separate approval, then integrate command
+drivers/endpoints under the unchanged durable acceptance requirements.
+
+---
+
 # CLI checkpoint: ask/resume decision core draft (2026-11-13)
 
 The owner prioritized implementing `ask`, `resume`, `show`, `history`, `export`

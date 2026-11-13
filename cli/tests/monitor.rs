@@ -35,14 +35,20 @@ fn complete() -> RunSnapshot {
 
 #[test]
 fn active_states_poll_without_interpreting_or_changing_the_cursor() {
-    for lifecycle in [RunLifecycle::Queued, RunLifecycle::Running, RunLifecycle::Cancelling] {
+    for lifecycle in [
+        RunLifecycle::Queued,
+        RunLifecycle::Running,
+        RunLifecycle::Cancelling,
+    ] {
         let mut snapshot = state(lifecycle);
         snapshot.cursor = "opaque: /?not-a-url\n".into();
         let before = snapshot.clone();
         for can_prompt in [false, true] {
             assert_eq!(
                 observe(snapshot.run_id, &snapshot, can_prompt),
-                Ok(MonitorAction::Poll { cursor: &snapshot.cursor })
+                Ok(MonitorAction::Poll {
+                    cursor: &snapshot.cursor
+                })
             );
         }
         assert_eq!(snapshot, before);
@@ -107,7 +113,9 @@ fn failed_and_cancelled_are_terminal_not_poll_or_retry() {
     snapshot.error = Some("provider error\u{1b}[2J".into());
     assert_eq!(
         observe(snapshot.run_id, &snapshot, true),
-        Ok(MonitorAction::Failed { error: snapshot.error.as_deref() })
+        Ok(MonitorAction::Failed {
+            error: snapshot.error.as_deref()
+        })
     );
     snapshot.error = None;
     assert_eq!(
@@ -124,34 +132,52 @@ fn failed_and_cancelled_are_terminal_not_poll_or_retry() {
 #[test]
 fn wrong_run_is_rejected_before_any_action() {
     let snapshot = waiting();
-    assert_eq!(observe(Uuid::nil(), &snapshot, true), Err(MonitorError::WrongRun));
+    assert_eq!(
+        observe(Uuid::nil(), &snapshot, true),
+        Err(MonitorError::WrongRun)
+    );
 }
 
 #[test]
 fn directly_constructed_cross_run_prompt_is_rejected() {
     let mut snapshot = waiting();
     snapshot.pending_prompt.as_mut().unwrap().run_id = Uuid::nil();
-    assert_eq!(observe(snapshot.run_id, &snapshot, true), Err(MonitorError::InvalidSnapshot));
+    assert_eq!(
+        observe(snapshot.run_id, &snapshot, true),
+        Err(MonitorError::InvalidSnapshot)
+    );
 }
 
 #[test]
 fn missing_or_unexpected_prompt_is_rejected() {
     let mut snapshot = waiting();
     snapshot.lifecycle = RunLifecycle::Running;
-    assert_eq!(observe(snapshot.run_id, &snapshot, true), Err(MonitorError::InvalidSnapshot));
+    assert_eq!(
+        observe(snapshot.run_id, &snapshot, true),
+        Err(MonitorError::InvalidSnapshot)
+    );
     snapshot.pending_prompt = None;
     snapshot.lifecycle = RunLifecycle::WaitingInput;
-    assert_eq!(observe(snapshot.run_id, &snapshot, false), Err(MonitorError::InvalidSnapshot));
+    assert_eq!(
+        observe(snapshot.run_id, &snapshot, false),
+        Err(MonitorError::InvalidSnapshot)
+    );
 }
 
 #[test]
 fn missing_or_unexpected_retry_notice_is_rejected() {
     let mut snapshot = retry();
     snapshot.lifecycle = RunLifecycle::Running;
-    assert_eq!(observe(snapshot.run_id, &snapshot, true), Err(MonitorError::InvalidSnapshot));
+    assert_eq!(
+        observe(snapshot.run_id, &snapshot, true),
+        Err(MonitorError::InvalidSnapshot)
+    );
     snapshot.retry = None;
     snapshot.lifecycle = RunLifecycle::NeedsRetry;
-    assert_eq!(observe(snapshot.run_id, &snapshot, false), Err(MonitorError::InvalidSnapshot));
+    assert_eq!(
+        observe(snapshot.run_id, &snapshot, false),
+        Err(MonitorError::InvalidSnapshot)
+    );
 }
 
 #[test]
@@ -164,14 +190,20 @@ fn directly_constructed_empty_retry_fields_are_rejected() {
             1 => notice.operation.clear(),
             _ => notice.explanation.clear(),
         }
-        assert_eq!(observe(snapshot.run_id, &snapshot, true), Err(MonitorError::InvalidSnapshot));
+        assert_eq!(
+            observe(snapshot.run_id, &snapshot, true),
+            Err(MonitorError::InvalidSnapshot)
+        );
     }
 }
 
 #[test]
 fn complete_requires_a_result_reference() {
     let snapshot = state(RunLifecycle::Complete);
-    assert_eq!(observe(snapshot.run_id, &snapshot, true), Err(MonitorError::InvalidSnapshot));
+    assert_eq!(
+        observe(snapshot.run_id, &snapshot, true),
+        Err(MonitorError::InvalidSnapshot)
+    );
 }
 
 #[test]
@@ -185,6 +217,9 @@ fn result_reference_must_match_run_conversation_and_message() {
             2 => result.conversation_id = Identifier::new("other".into()).unwrap(),
             _ => result.assistant_index += 1,
         }
-        assert_eq!(observe(snapshot.run_id, &snapshot, true), Err(MonitorError::InvalidSnapshot));
+        assert_eq!(
+            observe(snapshot.run_id, &snapshot, true),
+            Err(MonitorError::InvalidSnapshot)
+        );
     }
 }

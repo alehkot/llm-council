@@ -759,3 +759,13 @@ prompt/retry-consent, saved-result and terminal decisions, with 13 authored test
 It has no transport or side effects and remains unwired; it neither enables
 commands nor satisfies the monitor/resume acceptance cases. Compile/test/format
 verification is blocked by the absent Rust toolchain. See [PROGRESS.md](PROGRESS.md).
+
+
+### Command-core verification update (2026-11-13)
+
+Official Rust installation was approved. All 106 Linux CLI tests, including the
+13 new monitor tests, now pass; formatting and all-target Clippy pass. Independent
+review reran the focused tests successfully. This supersedes the prior compiler
+blocker only: the core remains unwired, commands remain unavailable, native macOS
+checks are unrun, and the preceding backend draft still awaits separate Python
+verification. See [PROGRESS.md](PROGRESS.md).

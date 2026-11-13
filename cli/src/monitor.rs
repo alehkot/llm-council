@@ -29,7 +29,9 @@ pub enum NeedsInput<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum MonitorAction<'a> {
     /// Issue a safe read for this same run using the opaque cursor unchanged.
-    Poll { cursor: &'a str },
+    Poll {
+        cursor: &'a str,
+    },
     /// Present this exact instance; do not accept defaults without user input.
     Prompt(&'a PromptInstance),
     /// Ask explicit consent for this exact revision before sending any retry.
@@ -38,7 +40,9 @@ pub enum MonitorAction<'a> {
     NeedsInput(NeedsInput<'a>),
     /// Fetch/render the referenced saved result. This is not its answer text.
     Complete(&'a ResultReference),
-    Failed { error: Option<&'a str> },
+    Failed {
+        error: Option<&'a str>,
+    },
     Cancelled,
 }
 
