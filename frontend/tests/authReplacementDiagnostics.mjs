@@ -72,9 +72,11 @@ export function heldRequestDiagnostic({
 }
 
 export async function requireHeldRequest({ getPending, wait, diagnostic }) {
-	// Preserve the original 60 x 50ms held-request requirement. Diagnostic
-	// collection happens only on failure and cannot extend the capture window.
-	for (let i = 0; i < 60 && !getPending(); i++) await wait(50);
+	// The request normally arrives within one 50ms poll, but stalls on the
+	// shared, CPU-capped Pi outlasted the original 3s window. Allow 15s, the
+	// budget the Pi's Save click stall needed; replacement still starts only
+	// after capture. Diagnostics run only on failure and never extend the window.
+	for (let i = 0; i < 300 && !getPending(); i++) await wait(50);
 	const pending = getPending();
 	if (!pending) {
 		throw new Error(

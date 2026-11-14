@@ -36,7 +36,7 @@ test("capture preserves route identity without collecting diagnostics", async ()
 });
 
 for (const outcome of ["pending", "fulfilled", "AbortError"]) {
-	test(`missing capture fails closed with ${outcome} evidence at unchanged 3s`, async () => {
+	test(`missing capture fails closed with ${outcome} evidence after 15s`, async () => {
 		let elapsed = 0;
 		await assert.rejects(
 			requireHeldRequest({
@@ -45,7 +45,7 @@ for (const outcome of ["pending", "fulfilled", "AbortError"]) {
 					elapsed += milliseconds;
 				},
 				diagnostic: () => {
-					assert.equal(elapsed, 3000);
+					assert.equal(elapsed, 15000);
 					return diagnostic(outcome);
 				},
 			}),

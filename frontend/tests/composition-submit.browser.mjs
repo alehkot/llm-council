@@ -102,7 +102,7 @@ async function run() {
 			const page = await context.newPage();
 			page.setDefaultTimeout(5000);
 			// Cold Vite navigation has a separate budget from UI assertions.
-			page.setDefaultNavigationTimeout(30000);
+			page.setDefaultNavigationTimeout(60000);
 			const errors = [];
 			page.on("pageerror", (error) => errors.push(error.message));
 			const sends = [];
@@ -177,7 +177,8 @@ async function run() {
 				await page.locator("#negative-prompt-input").fill(draft.negativePrompt);
 			};
 			const nextSend = async (index) => {
-				for (let i = 0; i < 100 && !held[index]; i++) await delay(20);
+				// Up to 15s, like the auth harness: the shared Pi can stall for seconds.
+				for (let i = 0; i < 750 && !held[index]; i++) await delay(20);
 				assert.ok(held[index], "Explicit submission reached the synthetic API");
 				assert.equal(sends[index].path, "/api/conversations/A/message");
 				assert.deepEqual(sends[index].body, {

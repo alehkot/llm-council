@@ -15,9 +15,10 @@ production frontend build, and Rust formatting/Clippy/tests. Browser checks use
 
 This is an intentional reduction of routine E2E scope, **not** proof that every
 full-suite scenario passes. No application behavior or unit coverage is removed.
-Navigation in the two rendered smoke harnesses has a separate 30-second budget
+Navigation in the two rendered smoke harnesses has a separate 60-second budget
 for cold Vite transforms on the CPU-limited Pi. Other action/assertion timeouts
-are unchanged except the observed Save API Key click (15 seconds). Chromium
+are unchanged except the observed Save API Key click and the waits for a request
+to reach the synthetic API (15 seconds each). Chromium
 sandboxing remains enabled. Each process has a 240-second outer deadline with
 10-second forced cleanup; existing shorter internal suite deadlines remain.
 Failures propagate; there are no automatic retries or ignored failures.

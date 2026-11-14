@@ -1,3 +1,26 @@
+# CLI CI-first checkpoint: rendered smoke stall budgets (2026-11-14)
+
+Woodpecker 17 (2c2bc4b) and 18 (0de1365) failed the rendered auth smoke at two
+different waits: the 3s held-request capture, then the first, cold navigation's
+30s budget. Neither commit touched the tested frontend, and pipelines 8–16 passed
+the same harness. Locally the suite passes in about 8s and the request is held
+within one 50ms poll; passing Pi runs take 44–64s. Each failure therefore needed
+a stall several times longer than usual on the shared Pi, whose CI agent is
+capped at two cores.
+
+Injected stalls reproduce both failures with the old harness: 5s before the held
+request reaches the route gives "old request must be held before replacement",
+and 35s on the first load's entry module gives "page.goto: Timeout 30000ms
+exceeded". Both pass now. The held-request capture and composition-submit's
+held-send wait allow 15s, the budget the Save click stall already needed, and
+navigation in both rendered smoke harnesses allows 60s. No assertion changed:
+replacement still starts only after the old request is held, and diagnostics
+still run only on failure. All 125 offline frontend Node tests, Biome and ESLint
+pass, and the three smoke harnesses pass locally (Playwright 1.62.1, Chromium
+151). The commit's Woodpecker status is the Pi result.
+
+---
+
 # CLI CI-first checkpoint: auth smoke capture diagnostics (2026-11-14)
 
 Working baseline: development at
