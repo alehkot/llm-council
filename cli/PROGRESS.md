@@ -1,3 +1,51 @@
+# CLI CI-first checkpoint: auth smoke capture diagnostics (2026-11-14)
+
+Working baseline: development at
+[2c2bc4bcd20e34383353ae86d2285cdd9845b017](https://github.com/alehkot/llm-council/commit/2c2bc4bcd20e34383353ae86d2285cdd9845b017).
+Upstream main remains
+[d90cb29427d17b6ffa7dec9629f89e9e4b357c00](https://github.com/alehkot/llm-council/commit/d90cb29427d17b6ffa7dec9629f89e9e4b357c00),
+an ancestor with the identical starting auth harness. Development's exact-head
+Woodpecker17 status and commit report fail at the held-request assertion; main's
+latest matching report is generic PASS8. Both have zero GitHub check runs.
+No active PR or conflicting branch owner was found; prior unfinished diagnostics
+were preserved and resumed, not replaced. Other branch work remains untouched.
+
+The failure did not identify the scenario, whether the API promise had already
+settled, or what routes/errors were seen. The harness also accepted fallback
+configuration as readiness. It now requires its exact synthetic configuration
+sentinel and emits bounded, credential-free failure evidence: phase/status,
+viewport, arm state, allowed route locations/error names and promise disposition.
+The original 60 x 50ms capture window and every authentication assertion remain.
+Diagnostics run only after failed capture; browser evaluation is bounded to1s.
+This is stricter fixture readiness and diagnosis, **not a proven fix for the
+original CI failure**. No application/provider/CLI execution behavior changes.
+
+Verification on the final source: all125 offline frontend Node tests pass,
+including8 new tests for capture timing/identity, redaction, bounded evidence and
+hung diagnostic reads. ESLint, Biome and whitespace checks pass. Independent
+full-harness/helper/test and App/API/config-path review found no introduced
+moderate-or-higher findings and reran all8 new tests successfully. Self-review
+also compared the unchanged upstream harness. No claim of bug-free code follows.
+
+Local rendered verification remains unrun: the prior browser restoration denial
+and sandboxed system Chromium socket failure remain unresolved. Neither was
+retried or bypassed. Full local builds are unrun by policy; normal Woodpecker
+must establish coverage for the exact published revision. Backend/Rust are
+unchanged; their earlier results are historical, not rerun here. macOS Keychain,
+live providers and full command acceptance are unrun. No paid requests occurred.
+Existing lockfile-compatible frontend dependencies were reused; preflight storage
+was63,666,200,576 free bytes and4,163,643 free inodes. No installation or cleanup.
+
+Exact implementation/published commits, tree and final CI observation are saved
+in the publication receipt and existing
+[recovery issue29](https://github.com/alehkot/issues-tracker/issues/29), avoiding
+a self-referential commit hash. Next inspect normal CI capture evidence, diagnose
+any remaining failure without weakening assertions, and only then resume the
+negative-worker/projection and whole-workflow prerequisites. All public
+consultation command gates remain unchanged.
+
+---
+
 # CLI checkpoint: explicit negative OpenRouter transport (2026-11-13)
 
 Added an explicitly invoked adapter for one saved negative evaluator. It uses

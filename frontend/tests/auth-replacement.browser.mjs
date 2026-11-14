@@ -10,6 +10,16 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+	heldRequestDiagnostic,
+	requireHeldRequest,
+	readOldResult,
+	safeErrorName,
+	safeRequestLocation,
+} from "./authReplacementDiagnostics.mjs";
+
+const configSentinel = "auth-replacement-synthetic-config-v1";
+
 const { CHROMIUM_EXECUTABLE, PLAYWRIGHT_MODULE, SCREENSHOT_DIR } = process.env;
 assert.ok(CHROMIUM_EXECUTABLE && PLAYWRIGHT_MODULE);
 const { chromium } = await import(pathToFileURL(PLAYWRIGHT_MODULE).href);
@@ -91,7 +101,11 @@ try {
 			let currentRejected = false;
 			const unexpected = [];
 			const pageErrors = [];
-			page.on("pageerror", (error) => pageErrors.push(error.message));
+			const requests = [];
+			page.on("pageerror", (error) => {
+				pageErrors.push(safeErrorName(error.name));
+				if (pageErrors.length > 8) pageErrors.shift();
+			});
 			await context.addInitScript(
 				(key) => localStorage.setItem("llm_council_api_key", key),
 				oldKey,
@@ -103,7 +117,7 @@ try {
 				if (url.hostname === "fonts.googleapis.com")
 					return route.fulfill({ contentType: "text/css", body: "" });
 				if (url.origin !== "http://localhost:8001") {
-					unexpected.push(url.href);
+					unexpected.push(safeRequestLocation(url.href));
 					return route.abort();
 				}
 				if (request.method() === "OPTIONS")
@@ -116,6 +130,8 @@ try {
 						},
 					});
 				if (request.method() === "POST") posts++;
+				requests.push(`${url.origin}${url.pathname}`);
+				if (requests.length > 12) requests.shift();
 				if (
 					armed &&
 					!pending &&
@@ -130,6 +146,7 @@ try {
 				let body;
 				if (url.pathname === "/api/config")
 					body = {
+						auth_replacement_fixture: configSentinel,
 						council_models: [],
 						chairman_model: "test",
 						title_model: "test",
@@ -141,7 +158,7 @@ try {
 					if (url.searchParams.has("cursor")) return;
 					body = { active: [], cursor: "idle" };
 				} else {
-					unexpected.push(`${request.method()} ${url.pathname}`);
+					unexpected.push(safeRequestLocation(url.href));
 					return route.abort();
 				}
 				return route.fulfill({ headers, json: body });
@@ -165,22 +182,50 @@ try {
 					);
 				});
 				await page.waitForFunction(
-					() => window.testStore.getState().config !== null,
+					(sentinel) =>
+						window.testStore.getState().config?.auth_replacement_fixture ===
+						sentinel,
+					configSentinel,
 				);
 				armed = true;
 				await page.evaluate((phase) => {
 					if (phase === "probe") window.testApi.resetAuthState();
+					window.oldResultState = "pending";
 					window.oldResult = (
 						phase === "probe"
 							? window.testApi.createConversation()
 							: window.testApi.listConversations()
 					).then(
-						() => "fulfilled",
-						(error) => error.name,
+						() => {
+							window.oldResultState = "fulfilled";
+							return "fulfilled";
+						},
+						(error) => {
+							window.oldResultState = error.name;
+							return error.name;
+						},
 					);
 				}, scenario.phase);
-				for (let i = 0; i < 60 && !pending; i++) await delay(50);
-				assert.ok(pending, "old request must be held before replacement");
+				await requireHeldRequest({
+					getPending: () => pending,
+					wait: delay,
+					diagnostic: async () => {
+						// Diagnostic reads have their own bound; page.evaluate
+						// alone has no timeout. Never log raw browser errors.
+						const oldResult = await readOldResult(() =>
+							page.evaluate(() => window.oldResultState),
+						);
+						return heldRequestDiagnostic({
+							scenario,
+							viewport,
+							requests,
+							pageErrors,
+							oldResult,
+							unexpected,
+							armed,
+						});
+					},
+				});
 				if (!scenario.current) {
 					// Exercise the real clear/save handlers twice, not just the API seam.
 					for (const key of [
@@ -208,7 +253,10 @@ try {
 							.click({ timeout: 15000 });
 						await page.getByRole("dialog").waitFor({ state: "hidden" });
 						await page.waitForFunction(
-							() => window.testStore.getState().config !== null,
+							(sentinel) =>
+								window.testStore.getState().config?.auth_replacement_fixture ===
+								sentinel,
+							configSentinel,
 						);
 					}
 				}
