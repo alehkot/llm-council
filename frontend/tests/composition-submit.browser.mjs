@@ -100,7 +100,9 @@ async function run() {
 			const name = `${viewport.width}px draft ${scenario}`;
 			const context = await browser.newContext({ viewport });
 			const page = await context.newPage();
-			page.setDefaultTimeout(5000);
+			// The shared Pi stalls single actions for seconds, as in the auth
+			// harness. The internal deadline still bounds a hang.
+			page.setDefaultTimeout(15000);
 			// Cold Vite navigation has a separate budget from UI assertions.
 			page.setDefaultNavigationTimeout(60000);
 			const errors = [];

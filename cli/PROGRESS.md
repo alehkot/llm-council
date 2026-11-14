@@ -19,6 +19,15 @@ still run only on failure. All 125 offline frontend Node tests, Biome and ESLint
 pass, and the three smoke harnesses pass locally (Playwright 1.62.1, Chromium
 151). The commit's Woodpecker status is the Pi result.
 
+Woodpecker 19 (d115e3f) then failed at a third step, 38s into the suite on an
+otherwise on-pace run: the Clear API Key click hit the 6s action budget. Each
+failure has stalled a different step, so both rendered harnesses now give every
+action and assertion 15s (they had 6s and 5s), and the Save click no longer
+needs its own override. An 8s page stall injected before the Clear click
+reproduces "locator.click: Timeout 6000ms exceeded" with the previous harness
+and passes with this one. Passing runs are unaffected; a failure only takes
+longer to report, still within each suite's deadline.
+
 ---
 
 # CLI CI-first checkpoint: auth smoke capture diagnostics (2026-11-14)

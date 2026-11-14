@@ -94,7 +94,10 @@ try {
 				continue;
 			const context = await browser.newContext({ viewport });
 			const page = await context.newPage();
-			page.setDefaultTimeout(6000);
+			// The shared, CPU-capped Pi has stalled single actions past 6s
+			// (the Save, then the Clear API Key click). The 240s suite deadline
+			// still bounds a hang.
+			page.setDefaultTimeout(15000);
 			let pending;
 			let armed = false;
 			let posts = 0;
@@ -164,10 +167,8 @@ try {
 				return route.fulfill({ headers, json: body });
 			});
 			try {
-				// Vite's first source transform exceeds the 6s action budget on
-				// the CPU-capped Pi worker, and a contended cold load has outlasted
-				// 30s. Keep the 6s budget for auth assertions, but allow bounded
-				// cold-start navigation before checking the UI.
+				// A contended cold load, with Vite's first source transform, has
+				// outlasted 30s on the Pi, so navigation has its own bound.
 				await page.goto(origin, { timeout: 60000 });
 				await page
 					.getByRole("button", { name: "API key status", exact: true })
@@ -247,11 +248,9 @@ try {
 							null,
 						);
 						await page.locator("#apiKey").fill(key);
-						// The Pi also stalled at this click in the full CI run.
-						// Keep other actions/assertions at 6s and the suite at 240s.
 						await page
 							.getByRole("button", { name: "Save API Key", exact: true })
-							.click({ timeout: 15000 });
+							.click();
 						await page.getByRole("dialog").waitFor({ state: "hidden" });
 						await page.waitForFunction(
 							(sentinel) =>
