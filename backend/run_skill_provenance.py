@@ -112,7 +112,11 @@ def validate_saved(record: dict[str, Any]) -> dict[str, Any] | None:
             raise ValueError("invalid version")
         entries = saved["skills"]
         ids = record["request"]["skill_ids"]
-        if not ids or not isinstance(entries, list) or len(entries) != len(ids):
+        if (
+            (not ids and "basic_run" not in record)
+            or not isinstance(entries, list)
+            or len(entries) != len(ids)
+        ):
             raise ValueError("invalid selection")
         for entry, skill_id in zip(entries, ids):
             if (
@@ -141,7 +145,7 @@ def bind_explicit_skills(run_id: str) -> dict[str, Any]:
     with storage._storage_lock:
         record = run_admission.get_prepared(run_id)
         ids = record["request"]["skill_ids"]
-        if not ids:
+        if not ids and "basic_run" not in record:
             raise SkillProvenanceConflict(
                 "Automatic or empty skill selection is unsupported"
             )

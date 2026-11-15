@@ -303,3 +303,19 @@ fn lock_prevents_a_separate_process_from_writing() {
     );
     assert!(!t.0.join(format!("{}.json", id())).exists());
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_acl_cannot_override_private_mode_bits() {
+    let temp = Temp::new();
+    assert!(std::process::Command::new("chmod")
+        .args(["+a", "everyone allow read"])
+        .arg(&temp.0)
+        .status()
+        .unwrap()
+        .success());
+    assert!(matches!(
+        ReceiptStore::open(&temp.0),
+        Err(StoreError::UnsafeFile)
+    ));
+}

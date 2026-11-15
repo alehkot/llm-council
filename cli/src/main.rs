@@ -69,11 +69,36 @@ async fn main() -> ExitCode {
             ),
         }
     } else {
+        #[cfg(unix)]
+        {
+            use council_cli::{credentials::CredentialStore, http::ConfigClient};
+            let key = match SystemCredentialStore.read(&origin) {
+                Ok(Some(key)) => key,
+                Ok(None) => {
+                    return failure(
+                        cli.json,
+                        2,
+                        "missing_credential",
+                        "Run council setup first.",
+                    )
+                }
+                Err(e) => return failure(cli.json, 1, "credential", &e.to_string()),
+            };
+            let mut client = match ConfigClient::new(origin.clone(), &key) {
+                Ok(client) => client,
+                Err(e) => return failure(cli.json, 1, "transport", &e.to_string()),
+            };
+            match council_cli::commands::execute(&cli, &origin, &mut client).await {
+                Ok(code) => ExitCode::from(code),
+                Err(message) => failure(cli.json, 1, "consultation", &message),
+            }
+        }
+        #[cfg(not(unix))]
         failure(
             cli.json,
             2,
-            "not_implemented",
-            "Consultation commands are not connected yet. No request was sent or file changed. Setup can configure macOS Keychain authentication, but durable consultation execution remains unavailable. See cli/README.md.",
+            "unsupported_platform",
+            "Consultation commands require macOS.",
         )
     }
 }

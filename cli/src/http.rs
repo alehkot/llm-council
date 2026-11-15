@@ -52,7 +52,7 @@ impl fmt::Display for ProbeError {
 impl std::error::Error for ProbeError {}
 
 /// One validated origin and in-memory key per client. A fresh client is required
-/// after authentication rejection. Only fixed config and skill-list GET requests are exposed.
+/// after authentication rejection. Command requests use fixed basic-run routes.
 /// Debug output deliberately excludes the client/header containing the key.
 pub struct ConfigClient {
     client: Client,
@@ -153,19 +153,61 @@ impl ConfigClient {
     }
 
     async fn fetch_body(&mut self, path: &str) -> Result<Vec<u8>, ProbeError> {
+        self.request(reqwest::Method::GET, path, &[], None, MAX_CONFIG_BYTES)
+            .await
+    }
+
+    pub async fn basic_config(&mut self) -> Result<BackendConfig, ProbeError> {
+        let config = self.probe_for_read_only().await?;
+        if config.cli_basic_api_version != 1 {
+            return Err(ProbeError::UnsupportedVersion);
+        }
+        Ok(config)
+    }
+
+    pub(crate) async fn basic_request(
+        &mut self,
+        method: reqwest::Method,
+        run: Option<uuid::Uuid>,
+        suffix: &str,
+        query: &[(&str, &str)],
+        body: Option<serde_json::Value>,
+    ) -> Result<Vec<u8>, ProbeError> {
+        let path = match run {
+            Some(id) => format!("/api/basic-runs/{id}{suffix}"),
+            None => "/api/basic-runs".to_owned(),
+        };
+        self.request(method, &path, query, body, 32 * 1024 * 1024)
+            .await
+    }
+
+    async fn request(
+        &mut self,
+        method: reqwest::Method,
+        path: &str,
+        query: &[(&str, &str)],
+        body: Option<serde_json::Value>,
+        limit: usize,
+    ) -> Result<Vec<u8>, ProbeError> {
         if self.authentication_stopped {
             return Err(ProbeError::AuthenticationStopped);
         }
         let mut url = self.origin.as_url().clone();
         url.set_path(path);
-        let mut response = self
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query.iter().copied());
+        }
+        let mut request = self
             .client
-            .get(url)
+            .request(method, url)
             .header("X-API-Key", self.key.clone())
-            .header("Accept", "application/json")
-            .send()
-            .await
-            .map_err(classify_transport)?;
+            .header("Accept", "application/json");
+        if let Some(body) = body {
+            request = request
+                .header("Content-Type", "application/json")
+                .body(body.to_string());
+        }
+        let mut response = request.send().await.map_err(classify_transport)?;
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
             self.authentication_stopped = true;
@@ -183,13 +225,13 @@ impl ConfigClient {
         }
         if response
             .content_length()
-            .is_some_and(|size| size > MAX_CONFIG_BYTES as u64)
+            .is_some_and(|size| size > limit as u64)
         {
             return Err(ProbeError::ResponseTooLarge);
         }
         let mut body = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(classify_transport)? {
-            if chunk.len() > MAX_CONFIG_BYTES - body.len() {
+            if chunk.len() > limit - body.len() {
                 return Err(ProbeError::ResponseTooLarge);
             }
             body.extend_from_slice(&chunk);

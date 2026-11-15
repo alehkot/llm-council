@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::config::BackendOrigin;
 
-/// Local LLM Council client. Setup and skill listing are available; consultation commands are not connected yet.
+/// Local LLM Council client with durable basic consultations.
 #[derive(Debug, Parser)]
 #[command(name = "council", version, color = ColorChoice::Never)]
 pub struct Cli {
@@ -26,33 +26,39 @@ pub struct Cli {
 pub enum Command {
     /// Verify backend authentication and store its key in macOS Keychain.
     Setup,
-    /// Start a consultation (disabled until durable backend integration).
+    /// Start a basic three-stage consultation.
     Ask(Ask),
-    /// Resume a particular consultation (not connected yet).
+    /// Resume a particular consultation.
     Resume { run: Uuid },
-    /// Inspect saved results (not connected yet).
+    /// Inspect saved results.
     Show {
         run: Uuid,
         #[arg(long, value_enum)]
         stage: Option<Stage>,
     },
-    /// List saved consultations (not connected yet).
+    /// List saved consultations.
     History,
-    /// Export a saved consultation (not connected yet).
+    /// Export a saved consultation.
     Export {
         run: Uuid,
         #[arg(long)]
         output: PathBuf,
     },
-    /// Cancel only the named consultation (not connected yet).
+    /// Cancel only the named consultation.
     Cancel { run: Uuid },
+    /// Explicitly retry one uncertain provider operation (may incur another charge).
+    Retry {
+        run: Uuid,
+        #[arg(long)]
+        revision: String,
+    },
     /// List installed skills using the saved backend credential (read-only).
     Skills,
 }
 
 #[derive(Debug, Args)]
 pub struct Ask {
-    /// Question text, or '-' for UTF-8 stdin. Omit to use an editor in a future client.
+    /// Question text, or '-' for UTF-8 stdin. Use --file for an existing file.
     #[arg(conflicts_with = "file")]
     pub question: Option<String>,
     /// UTF-8 question file; cannot be combined with a positional question.

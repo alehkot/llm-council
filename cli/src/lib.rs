@@ -1,5 +1,4 @@
-//! Local CLI setup and bounded configuration transport.
-//! Consultation execution remains disabled pending durable backend integration.
+//! Local CLI setup, bounded transport, and durable basic consultations.
 pub mod args;
 pub mod config;
 pub mod http;
@@ -24,3 +23,6 @@ pub mod prompt;
 pub mod prompt_terminal;
 
 pub mod ask_input;
+
+#[cfg(unix)]
+pub mod commands;

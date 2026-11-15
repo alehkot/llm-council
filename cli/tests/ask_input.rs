@@ -35,6 +35,8 @@ fn ask(question: Option<&str>) -> Ask {
 fn config() -> BackendConfig {
     BackendConfig {
         cli_api_version: 1,
+        cli_basic_api_version: 0,
+        cli_basic_requirements: vec![],
         council_models: vec![],
         chairman_model: String::new(),
         prompt_max_chars: 100,

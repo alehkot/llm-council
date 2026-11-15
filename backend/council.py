@@ -1731,7 +1731,7 @@ Provide your REVISED response to the original question. If you believe your orig
     return revised_results
 
 
-async def stage3_synthesize_final(
+def build_stage3_messages(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
@@ -1740,90 +1740,13 @@ async def stage3_synthesize_final(
     aggregate_gap_scores: Optional[List[Dict[str, Any]]] = None,
     aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
     labels: Optional[List[str]] = None,
-    trace: Optional[TraceCollector] = None,
     prompt_modifier: Optional[str] = None,
     synthesis_mode: str = "best_of_breed",
     using_deliberation_revisions: bool = False,
-    progress: ProgressCallback = None,
     skills_context: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Stage 3: Chairman synthesizes final response.
-
-    Args:
-        user_query: The original user query
-        stage1_results: Individual model responses from Stage 1
-        stage2_results: Rankings from Stage 2
-        label_to_model: Mapping from Response labels to model identifiers
-        negative_context: Optional negative evaluation data
-        aggregate_gap_scores: Optional aggregated gap-finding scores per response
-        aggregate_rankings: Optional aggregated peer-ranking summary
-        labels: Label list aligned with stage1_results
-        prompt_modifier: Optional extra guidance appended to the synthesis prompt
-        synthesis_mode: How to pack and guide synthesis context
-        using_deliberation_revisions: Whether responses are revised answers
-            from the deliberation round
-        skills_context: Optional pre-rendered ``<skills>`` block from the selected
-            Agent Skills. Injected verbatim after the question and before the
-            response labels - deliberately not routed through prompt_modifier,
-            which is contractually a short "Additional guidance" sentence.
-
-    Returns:
-        Dict with 'model' and 'response' keys
-
-    Raises:
-        RuntimeError: If the chairman model fails or returns an empty synthesis
-    """
-    # Rebuild the labels used in Stage 2 so the chairman can align feedback
-    if not stage1_results:
-        raise RuntimeError("No successful responses are available for final synthesis.")
-
+) -> List[Dict[str, str]]:
+    """Build the shared synthesis prompt without dispatching provider work."""
     labels = labels or [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
-
-    if SYNTHESIS_BACKEND != "openrouter":
-        from .agent_synthesis import synthesize
-
-        model = SYNTHESIS_MODEL
-        if progress:
-            await progress(model, "running", None)
-        try:
-            result = await synthesize(
-                SYNTHESIS_BACKEND,
-                {
-                    "question": user_query,
-                    "skills": skills_context,
-                    "guidance": {
-                        "strategy": _normalize_synthesis_mode(synthesis_mode),
-                        "additional_guidance": prompt_modifier,
-                        "using_deliberation_revisions": using_deliberation_revisions,
-                    },
-                    "evidence": {
-                        "responses": stage1_results,
-                        "peer_reviews": stage2_results,
-                        "labels": labels,
-                        "label_to_model": label_to_model,
-                        "negative_evaluations": negative_context,
-                        "gap_scores": aggregate_gap_scores,
-                        "rankings": aggregate_rankings,
-                    },
-                },
-                trace=trace,
-            )
-        except BaseException:
-            if progress:
-                await progress(model, "failed", None)
-            raise
-        if trace:
-            trace.add_event(
-                "agent_synthesis",
-                stage="stage3",
-                workspace=result["workspace"],
-                model=result["model"],
-            )
-        if progress:
-            await progress(model, "complete", None)
-        return result
-
     # Map labels to models, falling back to stage1 ordering if mapping is missing
     label_mapping = [
         f"{label}: {label_to_model.get(label, result['model'])}"
@@ -2006,6 +1929,117 @@ make the synthesis thorough enough to stand alone.
     chairman_prompt += "\nProvide a clear, well-reasoned final answer that represents the council's collective wisdom:"
 
     messages = [{"role": "user", "content": chairman_prompt}]
+
+    return messages
+
+
+async def stage3_synthesize_final(
+    user_query: str,
+    stage1_results: List[Dict[str, Any]],
+    stage2_results: List[Dict[str, Any]],
+    label_to_model: Dict[str, str],
+    negative_context: Optional[Dict[str, Any]] = None,
+    aggregate_gap_scores: Optional[List[Dict[str, Any]]] = None,
+    aggregate_rankings: Optional[List[Dict[str, Any]]] = None,
+    labels: Optional[List[str]] = None,
+    trace: Optional[TraceCollector] = None,
+    prompt_modifier: Optional[str] = None,
+    synthesis_mode: str = "best_of_breed",
+    using_deliberation_revisions: bool = False,
+    progress: ProgressCallback = None,
+    skills_context: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Stage 3: Chairman synthesizes final response.
+
+    Args:
+        user_query: The original user query
+        stage1_results: Individual model responses from Stage 1
+        stage2_results: Rankings from Stage 2
+        label_to_model: Mapping from Response labels to model identifiers
+        negative_context: Optional negative evaluation data
+        aggregate_gap_scores: Optional aggregated gap-finding scores per response
+        aggregate_rankings: Optional aggregated peer-ranking summary
+        labels: Label list aligned with stage1_results
+        prompt_modifier: Optional extra guidance appended to the synthesis prompt
+        synthesis_mode: How to pack and guide synthesis context
+        using_deliberation_revisions: Whether responses are revised answers
+            from the deliberation round
+        skills_context: Optional pre-rendered ``<skills>`` block from the selected
+            Agent Skills. Injected verbatim after the question and before the
+            response labels - deliberately not routed through prompt_modifier,
+            which is contractually a short "Additional guidance" sentence.
+
+    Returns:
+        Dict with 'model' and 'response' keys
+
+    Raises:
+        RuntimeError: If the chairman model fails or returns an empty synthesis
+    """
+    # Rebuild the labels used in Stage 2 so the chairman can align feedback
+    if not stage1_results:
+        raise RuntimeError("No successful responses are available for final synthesis.")
+
+    labels = labels or [f"Response {chr(65 + i)}" for i in range(len(stage1_results))]
+
+    if SYNTHESIS_BACKEND != "openrouter":
+        from .agent_synthesis import synthesize
+
+        model = SYNTHESIS_MODEL
+        if progress:
+            await progress(model, "running", None)
+        try:
+            result = await synthesize(
+                SYNTHESIS_BACKEND,
+                {
+                    "question": user_query,
+                    "skills": skills_context,
+                    "guidance": {
+                        "strategy": _normalize_synthesis_mode(synthesis_mode),
+                        "additional_guidance": prompt_modifier,
+                        "using_deliberation_revisions": using_deliberation_revisions,
+                    },
+                    "evidence": {
+                        "responses": stage1_results,
+                        "peer_reviews": stage2_results,
+                        "labels": labels,
+                        "label_to_model": label_to_model,
+                        "negative_evaluations": negative_context,
+                        "gap_scores": aggregate_gap_scores,
+                        "rankings": aggregate_rankings,
+                    },
+                },
+                trace=trace,
+            )
+        except BaseException:
+            if progress:
+                await progress(model, "failed", None)
+            raise
+        if trace:
+            trace.add_event(
+                "agent_synthesis",
+                stage="stage3",
+                workspace=result["workspace"],
+                model=result["model"],
+            )
+        if progress:
+            await progress(model, "complete", None)
+        return result
+
+    messages = build_stage3_messages(
+        user_query,
+        stage1_results,
+        stage2_results,
+        label_to_model,
+        negative_context,
+        aggregate_gap_scores,
+        aggregate_rankings,
+        labels,
+        prompt_modifier,
+        synthesis_mode,
+        using_deliberation_revisions,
+        skills_context,
+    )
 
     # Query the chairman model
     if progress:

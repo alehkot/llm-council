@@ -1,7 +1,7 @@
-//! Real argument/file/stdin preparation for the future `ask` command.
+//! Real argument/file/stdin preparation for `ask`.
 //! No network, credentials, editor, receipt writes or submission. The caller must
 //! supply configuration obtained from the authenticated, intended backend origin.
-//! Passing a fabricated config is not a capability grant; main remains gated.
+//! The command verifies the advertised basic-run capability before invoking this.
 use std::fs::OpenOptions;
 use std::io::Read;
 
@@ -50,11 +50,13 @@ pub fn prepare_with_stdin(
     non_interactive: bool,
     stdin: &mut impl Read,
 ) -> Result<CreateRunRequest, InputError> {
-    if config.cli_api_version != crate::config::REQUIRED_API_VERSION {
+    if config.cli_api_version != crate::config::REQUIRED_API_VERSION
+        && config.cli_basic_api_version != 1
+    {
         return Err(InputError::UnsupportedBackend);
     }
     config
-        .require_supported()
+        .require_valid_limits()
         .map_err(|_| InputError::InvalidLimits)?;
     // Ensure read_question can represent its byte bound before opening anything.
     config

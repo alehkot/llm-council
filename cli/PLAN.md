@@ -1,5 +1,9 @@
 # Plan
 
+Current implementation: the separate basic-run vertical slice is functional. See
+[README.md](README.md) for commands, supported settings, and recovery limits. The
+full API1 action items below remain open where their broader scope is incomplete.
+
 Build a Rust command-line client named `council` for the local LLM Council backend.
 Version 1 must complete a consultation without the browser: compose and refine a
 question, answer interactive prompts, follow progress, inspect member answers and

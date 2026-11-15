@@ -50,6 +50,10 @@ pub struct BackendConfig {
     #[serde(default)]
     pub cli_api_version: u32,
     #[serde(default)]
+    pub cli_basic_api_version: u32,
+    #[serde(default)]
+    pub cli_basic_requirements: Vec<String>,
+    #[serde(default)]
     pub council_models: Vec<String>,
     #[serde(default)]
     pub chairman_model: String,

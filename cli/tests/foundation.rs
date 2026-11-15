@@ -214,28 +214,6 @@ fn terminal_controls_are_neutralized_only_in_display_copy() {
 }
 
 #[test]
-fn executable_fails_closed_without_reading_input_or_writing_output() {
-    let binary = env!("CARGO_BIN_EXE_council");
-    let result = Process::new(binary)
-        .args(["ask", "--file", "/nonexistent/synthetic-question"])
-        .output()
-        .unwrap();
-    assert_eq!(result.status.code(), Some(2));
-    assert!(result.stdout.is_empty());
-    assert!(String::from_utf8(result.stderr)
-        .unwrap()
-        .contains("No request was sent or file changed"));
-    let result = Process::new(binary)
-        .args(["--json", "cancel", RUN])
-        .output()
-        .unwrap();
-    assert_eq!(result.status.code(), Some(2));
-    assert!(result.stderr.is_empty());
-    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(value["error"]["code"], "not_implemented");
-}
-
-#[test]
 fn executable_does_not_disclose_credential_url_in_errors() {
     let result = Process::new(env!("CARGO_BIN_EXE_council"))
         .args([

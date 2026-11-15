@@ -1,3 +1,34 @@
+# Basic CLI vertical slice — 2026-11-15
+
+Implemented a separate basic-run capability without advertising full CLI API1.
+The Rust commands now submit and recover private idempotent receipts, follow real
+HTTP snapshots, answer persistent prompts, explicitly retry uncertain attempts,
+inspect/export saved results, and cancel a named run. The backend composes the
+existing admission, input, execution, review, cancellation and ranking guards,
+adds guarded saved-request synthesis, and runs council members concurrently.
+The existing synthesis prompt builder is shared with the web flow.
+
+Verification on macOS: 1,341 backend tests passed (one skip); 153 Rust tests
+passed, including real authenticated HTTP against a disposable fake-provider
+backend and a macOS ACL rejection check. Rust formatting/Clippy, repository Ruff,
+frontend formatting/lint/build, and authenticated backend startup/shutdown pass.
+The debug binary is built. Optional native PTY probes stalled during macOS helper
+launch; termination was requested. Keychain interaction and paid providers were
+not exercised. Publication follows successful self-review and verification.
+
+Self-review before publication reproduced and fixed three issues: accepted answers
+could lose their worker handoff, history included all stage bodies, and local
+acknowledgment failures incorrectly claimed that no submission had been sent.
+Four regression tests cover the two handoff cases, compact history, and the
+post-acceptance error message. Native PTY/Keychain and paid-provider limits remain.
+
+Supported settings and limits are documented in README.md. Negative mode,
+deliberation, automatic skill routing, refinement, later continuations/context
+reduction and editor launch remain outside this basic capability. All earlier
+API0/unwired progress entries below describe historical checkpoints.
+
+---
+
 # CLI CI-first checkpoint: rendered smoke stall budgets (2026-11-14)
 
 Woodpecker 17 (2c2bc4b) and 18 (0de1365) failed the rendered auth smoke at two

@@ -1,9 +1,5 @@
-//! Experimental offline storage primitives for future idempotent submission.
-//!
-//! No command, transport or API version is connected. The caller must validate
-//! backend acknowledgment and persist a pending request before any first send.
-//! Not safe for live use: macOS durability, ACL and stable root/reopen semantics
-//! are unresolved, among the limitations documented in README.md.
+//! Private idempotent submission receipts, written before the first network send.
+//! macOS uses F_FULLFSYNC and rejects extended ACLs; see README for recovery limits.
 
 use crate::config::BackendOrigin;
 use crate::wire::{CreateRunRequest, RunReceipt};
@@ -30,7 +26,13 @@ fn sync_file(file: &File) -> io::Result<()> {
     {
         return Err(io::Error::other("injected file sync failure"));
     }
-    file.sync_all()
+    file.sync_all()?;
+    #[cfg(target_os = "macos")]
+    // SAFETY: the file descriptor is live; F_FULLFSYNC has no pointer argument.
+    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 fn sync_directory(file: &File) -> io::Result<()> {
     #[cfg(test)]
@@ -146,6 +148,43 @@ fn rename_relative(dir: &File, from: &str, to: &str) -> Result<(), StoreError> {
         Err(StoreError::Io)
     }
 }
+#[cfg(target_os = "macos")]
+fn reject_acl(file: &File) -> Result<(), StoreError> {
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> *mut libc::c_void;
+        fn acl_get_entry(
+            acl: *mut libc::c_void,
+            id: libc::c_int,
+            entry: *mut *mut libc::c_void,
+        ) -> libc::c_int;
+        fn acl_free(acl: *mut libc::c_void) -> libc::c_int;
+    }
+    // SAFETY: descriptor and out-pointer are valid; the returned ACL is freed once.
+    unsafe {
+        let acl = acl_get_fd_np(file.as_raw_fd(), 0x100);
+        if acl.is_null() {
+            return if io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
+                Ok(())
+            } else {
+                Err(StoreError::UnsafeFile)
+            };
+        }
+        let mut entry = std::ptr::null_mut();
+        let status = acl_get_entry(acl, 0, &mut entry);
+        let error = io::Error::last_os_error();
+        acl_free(acl);
+        if status == -1 && error.raw_os_error() == Some(libc::EINVAL) {
+            Ok(())
+        } else {
+            Err(StoreError::UnsafeFile)
+        }
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn reject_acl(_file: &File) -> Result<(), StoreError> {
+    Ok(())
+}
+
 fn safe_file(file: &File) -> Result<(), StoreError> {
     let meta = file.metadata()?;
     // SAFETY: geteuid has no arguments and does not access Rust memory.
@@ -153,12 +192,11 @@ fn safe_file(file: &File) -> Result<(), StoreError> {
     if !meta.is_file() || meta.uid() != uid || meta.mode() & 0o777 != 0o600 || meta.nlink() != 1 {
         return Err(StoreError::UnsafeFile);
     }
-    Ok(())
+    reject_acl(file)
 }
 impl ReceiptStore {
-    /// Open an existing directory with owner-only POSIX mode bits. ACLs are not
-    /// checked; do not use for live requests. The directory itself must
-    /// not be a symlink. Future operations remain anchored to the opened inode.
+    /// Open an owner-only directory, rejecting symlinks and macOS extended ACLs.
+    /// Future operations remain anchored to the opened inode.
     pub fn open(root: &Path) -> Result<Self, StoreError> {
         if !root.is_absolute() {
             return Err(StoreError::UnsafeDirectory);
@@ -174,8 +212,37 @@ impl ReceiptStore {
         if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o777 != 0o700 {
             return Err(StoreError::UnsafeDirectory);
         }
+        reject_acl(&dir)?;
         Ok(Self { dir })
     }
+    /// Provision a private receipt root below a trusted, non-writable home path.
+    pub fn user_store() -> Result<Self, StoreError> {
+        use std::os::unix::fs::DirBuilderExt;
+        let home = std::env::var_os("HOME").ok_or(StoreError::UnsafeDirectory)?;
+        let home = std::path::PathBuf::from(home);
+        if !home.is_absolute() {
+            return Err(StoreError::UnsafeDirectory);
+        }
+        // Reject symlinks and writable ancestors rather than recovering in another root.
+        for path in home.ancestors() {
+            let meta = std::fs::symlink_metadata(path)?;
+            let uid = unsafe { libc::geteuid() };
+            if !meta.is_dir() || (meta.uid() != uid && meta.uid() != 0) || meta.mode() & 0o022 != 0
+            {
+                return Err(StoreError::UnsafeDirectory);
+            }
+        }
+        let root = home.join(".council-receipts");
+        match std::fs::DirBuilder::new().mode(0o700).create(&root) {
+            Ok(()) => {
+                File::open(&home)?.sync_all()?;
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err(StoreError::Io),
+        }
+        Self::open(&root)
+    }
+
     fn with_lock<T>(&self, f: impl FnOnce() -> Result<T, StoreError>) -> Result<T, StoreError> {
         // The lock is permanent; removing it would permit split lock domains.
         let lock = open_relative(&self.dir, ".lock", libc::O_RDWR | libc::O_CREAT)?;

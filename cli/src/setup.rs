@@ -57,12 +57,13 @@ impl SetupResult {
             output.push_str(&format!("  - {}\n", terminal_text(model)));
         }
         output.push_str(&format!(
-            "Chairman: {}\nBackend CLI API version: {}.\nConsultation commands are not connected in this CLI yet; setup does not start model work.\n",
-            terminal_text(&self.chairman_model), self.backend_cli_api_version
+            "Chairman: {}\nBackend CLI API version: {}.\nSetup does not start model work.\n",
+            terminal_text(&self.chairman_model),
+            self.backend_cli_api_version
         ));
-        if self.backend_cli_api_version == 0 {
+        if !self.consultation_commands_available {
             output.push_str(
-                "The backend also lacks the durable CLI API v1 required for consultations.\n",
+                "Basic consultation capability is unavailable or requires backend configuration.\n",
             );
         }
         output
@@ -159,8 +160,8 @@ pub async fn run_setup(
         council_models: config.council_models,
         chairman_model: config.chairman_model,
         credential_stored: true,
-        // The binary's run dispatch remains unimplemented, even with an API1 server.
-        consultation_commands_available: false,
+        consultation_commands_available: config.cli_basic_api_version == 1
+            && config.cli_basic_requirements.is_empty(),
     })
 }
 
@@ -228,6 +229,8 @@ mod tests {
             }
             let mut config = BackendConfig {
                 cli_api_version: self.api_version,
+                cli_basic_api_version: 0,
+                cli_basic_requirements: vec![],
                 prompt_max_chars: 100,
                 negative_prompt_max_chars: 100,
                 skills_max_selected: 3,
@@ -283,11 +286,7 @@ mod tests {
             let json = serde_json::to_string(&result).unwrap();
             assert!(!json.contains(SYNTHETIC_KEY));
             assert!(!result.terminal_summary().contains(SYNTHETIC_KEY));
-            assert!(result.terminal_summary().contains("not connected"));
-            assert_eq!(
-                result.terminal_summary().contains("also lacks"),
-                version == 0
-            );
+            assert!(result.terminal_summary().contains("unavailable"));
         }
     }
 

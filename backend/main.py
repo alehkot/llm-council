@@ -15,8 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import skill_sources, skills, storage
+from . import basic_runs, skill_sources, skills, storage
 from .acp_client import AgentError
+from .basic_run_routes import router as basic_run_router
 from .config import (
     API_AUTH_KEY,
     API_KEY_BRUTEFORCE_LOCKOUT_SECONDS,
@@ -76,10 +77,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await basic_runs.shutdown()
         consultation_manager.shutdown(wait=False)
 
 
 app = FastAPI(title="LLM Council API", lifespan=lifespan)
+app.include_router(basic_run_router)
 API_KEY_HEADER = "X-API-Key"
 
 
@@ -389,6 +392,8 @@ async def get_config():
     """Expose selected runtime configuration to the frontend."""
     return {
         "cli_api_version": CLI_API_VERSION,
+        "cli_basic_api_version": 1,
+        "cli_basic_requirements": basic_runs.requirements(),
         "negative_mode_enabled": NEGATIVE_MODE_ENABLED,
         "deliberation_enabled": DELIBERATION_ENABLED,
         "interactive_mode_enabled": INTERACTIVE_MODE_ENABLED,
