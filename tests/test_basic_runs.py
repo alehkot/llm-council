@@ -1,11 +1,17 @@
 """Whole basic consultations with real persistence and fake, counted providers."""
 
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
+
+# Set before backend.config loads. CI has no .env, and the CLI integration test's
+# fixture server imports this module first.
+os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
+os.environ.setdefault("API_AUTH_KEY", "test-api-key")
 
 from backend import (
     basic_runs,
