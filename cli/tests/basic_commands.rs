@@ -3,6 +3,7 @@ use clap::Parser;
 use council_cli::{args::Cli, commands, config::BackendOrigin, http::ConfigClient};
 use std::{
     io::{BufRead, BufReader},
+    os::unix::fs::MetadataExt,
     process::{Child, Command, Stdio},
 };
 struct Backend(Child);
@@ -24,6 +25,20 @@ async fn real_backend_commands_complete_and_reopen_without_keychain_or_providers
     ));
     std::fs::create_dir_all(&home).unwrap();
     std::env::set_var("HOME", &home);
+    // If the receipt store refuses this HOME, `ask` says only that; name the cause here.
+    if let Err(error) = council_cli::receipt_store::ReceiptStore::user_store() {
+        let ancestors = home
+            .ancestors()
+            .map(|p| match std::fs::symlink_metadata(p) {
+                Ok(m) => format!("{:o} uid {} {}", m.mode(), m.uid(), p.display()),
+                Err(e) => format!("{e} {}", p.display()),
+            });
+        panic!(
+            "receipt store refused HOME ({error:?}); every ancestor must be a directory owned \
+             by root or this user, not group- or world-writable:\n{}",
+            ancestors.collect::<Vec<_>>().join("\n")
+        );
+    }
     let child = Command::new("uv")
         .args(["run", "python", "tests/fixtures/serve_basic_runs.py"])
         .current_dir(repo)
