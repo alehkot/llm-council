@@ -27,6 +27,9 @@ async fn real_backend_commands_complete_and_reopen_without_keychain_or_providers
     let child = Command::new("uv")
         .args(["run", "python", "tests/fixtures/serve_basic_runs.py"])
         .current_dir(repo)
+        // Backend's wait() closes this pipe, which stops the fixture; killing uv
+        // doesn't reach its Python child.
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
@@ -38,12 +41,9 @@ async fn real_backend_commands_complete_and_reopen_without_keychain_or_providers
         .unwrap();
     let origin = BackendOrigin::parse(&format!("http://127.0.0.1:{}", port.trim())).unwrap();
     let mut client = ConfigClient::new(origin.clone(), "synthetic-cli-integration").unwrap();
-    for attempt in 0..50 {
-        if client.basic_config().await.is_ok() {
-            break;
-        }
-        assert!(attempt < 49);
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // The fixture listens before printing its port, so this waits for startup.
+    if let Err(error) = client.basic_config().await {
+        panic!("fixture backend not ready: {error}");
     }
     let ask = Cli::try_parse_from([
         "council",

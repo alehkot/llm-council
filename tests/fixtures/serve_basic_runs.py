@@ -3,6 +3,7 @@
 import os
 import socket
 import sys
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,10 +30,25 @@ async def lifespan(app):
 
 
 app.router.lifespan_context = lifespan
+server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
+
+
+def stop_at_stdin_eof():
+    # The test's stdin pipe closes when it finishes or dies. Killing `uv run`
+    # alone would leave this process running with the test's stderr open.
+    while os.read(0, 1024):
+        pass
+    server.should_exit = True
+
+
+threading.Thread(target=stop_at_stdin_eof, daemon=True).start()
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
+# Listen before printing the port: connections then wait for uvicorn instead of
+# being refused (Linux) or dropped (macOS) while it starts.
+sock.listen()
 print(sock.getsockname()[1], flush=True)
 try:
-    uvicorn.Server(uvicorn.Config(app, log_level="error")).run(sockets=[sock])
+    server.run(sockets=[sock])
 finally:
     fixture.doCleanups()
