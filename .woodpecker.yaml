@@ -15,6 +15,11 @@ steps:
     environment:
       PATH: /opt/node-v22.23.4-linux-arm64/bin:/usr/local/bin:/usr/bin:/bin
     commands:
+      # On the Pi, the workspace and the checked-out cli directory come out 0777.
+      # The CLI receipt store rightly refuses a HOME below a group- or
+      # world-writable directory, and cli/tests/basic_commands.rs keeps its HOME
+      # in cli/target.
+      - chmod go-w . cli
       - mkdir -p .ci-output
       - git -c core.sshCommand='ssh -i /var/lib/woodpecker-worker/.ssh/build-scripts -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/woodpecker-worker/.ssh/known_hosts' clone --quiet --no-checkout git@github.com:alehkot/build-scripts.git .ci-output/build-scripts
       - git -C .ci-output/build-scripts checkout --quiet --detach f0bf333270639b4e26f8d6442d083dde0e2ca008
