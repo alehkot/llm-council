@@ -23,7 +23,7 @@ import {
 	DialogTitle,
 } from "./ui/dialog";
 import { Label } from "./ui/label";
-import { cn } from "../lib/utils";
+import { cn, parseTimestamp } from "../lib/utils";
 
 function formatChars(chars) {
 	const value = Number(chars);
@@ -43,7 +43,7 @@ function formatBytes(bytes) {
 function formatTimestamp(value) {
 	if (!value) return "";
 	try {
-		return new Date(value).toLocaleString([], {
+		return parseTimestamp(value).toLocaleString([], {
 			month: "short",
 			day: "numeric",
 			hour: "numeric",

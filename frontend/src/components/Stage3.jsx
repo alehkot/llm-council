@@ -1,4 +1,4 @@
-import { formatModelName } from "../lib/utils";
+import { formatModelName, parseTimestamp } from "../lib/utils";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import Markdown from "./Markdown";
 import ExportMarkdownButton from "./ExportMarkdownButton";
@@ -54,7 +54,7 @@ const SYNTHESIS_MODES = [
 function formatTimestamp(timestamp) {
 	if (!timestamp) return "";
 	try {
-		const date = new Date(timestamp);
+		const date = parseTimestamp(timestamp);
 		return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 	} catch {
 		return "";

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { cn } from "../lib/utils";
+import { cn, parseTimestamp } from "../lib/utils";
 
 const STAGE_LABELS = {
 	stage1: "Stage 1",
@@ -52,7 +52,7 @@ const formatDuration = (ms) => {
 
 const formatTime = (value) => {
 	if (!value) return "n/a";
-	const parsed = new Date(value);
+	const parsed = parseTimestamp(value);
 	if (Number.isNaN(parsed.getTime())) return value;
 	return parsed.toLocaleTimeString();
 };
@@ -88,13 +88,15 @@ export default function DebugTrace({ trace }) {
 			.map((event, index) => {
 				const time =
 					event?.timing?.started_at || event?.timestamp || trace.started_at;
-				return { ...event, _order: index, _time: time };
+				return {
+					...event,
+					_order: index,
+					_time: parseTimestamp(time).getTime() || 0,
+				};
 			})
 			.sort((a, b) => {
-				const timeA = Date.parse(a._time || "") || 0;
-				const timeB = Date.parse(b._time || "") || 0;
-				if (timeA === timeB) return a._order - b._order;
-				return timeA - timeB;
+				if (a._time === b._time) return a._order - b._order;
+				return a._time - b._time;
 			});
 	}, [trace]);
 
@@ -115,8 +117,8 @@ export default function DebugTrace({ trace }) {
 
 	const totalDurationMs = useMemo(() => {
 		if (!trace?.started_at || !trace?.ended_at) return null;
-		const start = Date.parse(trace.started_at);
-		const end = Date.parse(trace.ended_at);
+		const start = parseTimestamp(trace.started_at).getTime();
+		const end = parseTimestamp(trace.ended_at).getTime();
 		if (Number.isNaN(start) || Number.isNaN(end)) return null;
 		return Math.max(0, end - start);
 	}, [trace]);

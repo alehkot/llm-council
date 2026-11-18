@@ -1,4 +1,4 @@
-import { formatModelName } from "../lib/utils";
+import { formatModelName, parseTimestamp } from "../lib/utils";
 import { useCallback, useEffect, useState } from "react";
 import { produce } from "immer";
 import { api } from "../api";
@@ -26,7 +26,7 @@ import { Textarea } from "./ui/textarea";
 function formatTimestamp(value) {
 	if (!value) return "";
 	try {
-		return new Date(value).toLocaleString([], {
+		return parseTimestamp(value).toLocaleString([], {
 			month: "short",
 			day: "numeric",
 			hour: "numeric",
