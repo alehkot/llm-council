@@ -1,3 +1,24 @@
+# CLI contract documentation reconciliation — 2026-11-26
+
+Updated the plan and contract introduction to distinguish the implemented basic
+client (`cli_basic_api_version: 1`, `/api/basic-runs`) from the unshipped full
+contract (`cli_api_version: 0`). Use the [CLI README](README.md) for commands
+and supported settings. Dated implementation checkpoints below are historical.
+No runtime behavior or API versions changed.
+
+Starting development: `afe0295c69bc102d46db0488e7071f49e5949bd5`; original
+main: `d90cb29427d17b6ffa7dec9629f89e9e4b357c00`. Both had matching normal
+Woodpecker pass reports (#27/#8) before this docs-only change. Checked the
+documented config flags, route implementations and relative links. Locally,
+27 Python basic-run/contract tests and one Rust real-HTTP fake-provider test
+passed. That test uses command dispatch, not native Keychain or a real
+controlling terminal. No local full build or live provider calls. Workspace
+preflight: 17,489,735,680 free bytes and 1,278,370 free inodes. Next verify the
+actual macOS binary's Keychain and controlling-terminal flows with an
+authorized disposable account and the fake-provider fixture.
+
+---
+
 # Basic CLI vertical slice — 2026-11-15
 
 Implemented a separate basic-run capability without advertising full CLI API1.

@@ -1,8 +1,14 @@
 # Plan
 
-Current implementation: the separate basic-run vertical slice is functional. See
-[README.md](README.md) for commands, supported settings, and recovery limits. The
-full API1 action items below remain open where their broader scope is incomplete.
+**Available now on development:** The basic Rust CLI runs a three-stage
+consultation through `/api/basic-runs` when `GET /api/config` advertises
+`cli_basic_api_version: 1` and the backend meets the documented requirements.
+See [the CLI README](README.md) for supported commands, configuration and
+recovery limits.
+
+**Planned, not available:** The broader API and optional workflows below.
+`cli_api_version` remains `0`. The action items describe the full target, and
+the dated checkpoints are historical, not a list of currently gated commands.
 
 Build a Rust command-line client named `council` for the local LLM Council backend.
 Version 1 must complete a consultation without the browser: compose and refine a
@@ -11,12 +17,9 @@ reviews, and save or reopen results. Extend the existing backend where reliable
 submission, durable human input, and recovery require it.
 
 Date: 2026-11-01. Decision status: **implementation authorized**.
-Implementation started with the backend contract milestone; see
-[contract status](CONTRACT.md). Internal durable admission is implemented without
-worker scheduling. The Rust foundation and authenticated macOS setup command now exist; public
-durable run operations and consultation command integration remain unimplemented. See
-[README.md](README.md). The decisions below were confirmed with the user; command spellings,
-API shapes, and module boundaries are engineering proposals for implementation.
+Implementation started with the [backend contract milestone](CONTRACT.md).
+The decisions below were confirmed with the user; the full API shapes and module
+boundaries are engineering proposals, not current basic-run usage instructions.
 
 ## Scope
 
@@ -38,10 +41,10 @@ API shapes, and module boundaries are engineering proposals for implementation.
   reusing `consultation_manager.py`, `consultation_journal.py`, and `storage.py`.
   Cover lost acknowledgments, concurrent duplicates, restart, completed runs,
   and deletion before connecting the Rust client. Internal admission/receipt
-  persistence is complete; public routes, execution handoff and full run snapshots
-  remain pending (see [contract boundaries](CONTRACT.md)). Read-only internal
-  inspection of prepared/refinement work preserves prompts and cancellation
-  evidence without scheduling or claiming a complete consultation.
+  persistence supports the basic routes. The broader public routes, execution
+  handoff and snapshots remain pending (see [contract boundaries](CONTRACT.md)).
+  Read-only internal inspection of prepared/refinement work preserves prompts
+  and cancellation evidence without claiming a complete consultation.
 - [ ] Implement persistent human-input checkpoints in `langgraph_flow.py` and
   the manager. Persist the exact prompt and resume location, release the worker
   while waiting, and consume each accepted answer once. Recover uncertain model
@@ -85,20 +88,20 @@ API shapes, and module boundaries are engineering proposals for implementation.
   **Partial:** internal prepared/refinement, initial Stage 1 and first-continuation
   runs now retain a durable cancellation
   marker and interrupt only their owned local provider tasks; late results and
-  retries cannot resume cancelled work. Generic council-worker and public HTTP
-  cancellation integration remain pending; this item stays open.
+  retries cannot resume cancelled work. Basic runs expose per-run cancel and
+  explicit retry; the generic council-worker and broader HTTP contract remain
+  pending.
 - [ ] Create one Cargo package under `cli/`, with a `council` binary, HTTP client,
   typed wire data, Keychain setup, and a shared monitor/resume loop. Implement
   `setup`, `ask`, and `resume` against the real backend contract first.
-  **Partial:** Cargo package, parser, typed fixtures, offline validation and
-  a bounded authenticated config transport and macOS Keychain setup dispatch
-  exist. Native macOS verification, consultation commands and the monitor loop
-  remain incomplete; the item stays open.
+  **Partial:** Cargo package, typed transport, macOS Keychain setup, and
+  `ask`/`resume` monitoring are implemented for basic runs. The full contract
+  and native Keychain/controlling-terminal acceptance remain open.
 - [ ] Add `show`, `history`, `export`, `cancel`, and installed-skill listing.
-  **Partial:** read-only `skills` now uses the existing authenticated endpoint
-  and saved origin-bound credential. Consultation/result commands remain gated.
-  Complete editor/file/stdin input, generic prompt rendering, clean stdout/stderr
-  behavior, and JSON output. Reuse backend exports and results.
+  **Partial:** Basic runs support `show`, `history`, `export`, and `cancel`;
+  `skills` uses the existing authenticated endpoint. Basic runs accept question
+  arguments, files and stdin and support JSON output. Editor input and the
+  broader consultation/result contract remain open.
 - [ ] Run the acceptance cases below with fake model responses, Rust formatting,
   Clippy, tests, and the repository's required backend/frontend checks. Exercise
   terminal input and Keychain behavior on macOS; perform an explicitly authorized
@@ -179,8 +182,9 @@ automation workflow or event-stream protocol.
 
 The existing backend already offers authenticated configuration, conversation
 storage, queued submission, snapshot long polling, interactive field schemas,
-skills, and Markdown exports. It does not yet offer the run-level reliability
-contract required by the confirmed decisions.
+skills, and Markdown exports. It also has a separate basic-run API with durable
+run identity and recovery within its supported scope. The following routes
+describe the broader contract, not alternate paths for basic runs.
 
 ### Proposed HTTP additions
 

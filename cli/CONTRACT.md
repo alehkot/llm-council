@@ -1,21 +1,22 @@
 # Backend contract milestone
 
-The target wire types live in `backend/consultation_contract.py`, with synthetic
-JSON examples in `tests/fixtures/cli`. They are **draft v1 contracts**, not newly
-available operations. A Rust foundation and authenticated macOS Keychain setup command exist in this
-directory; durable consultation commands remain unconnected. Native macOS
-verification is still outstanding.
+The [basic CLI](README.md) uses the authenticated `/api/basic-runs` routes for
+durable create, status, history, prompt answers, resume, explicit retry, cancel
+and Markdown export within its documented settings. `GET /api/config` advertises
+`cli_basic_api_version: 1` separately from the full contract. Native macOS
+Keychain and controlling-terminal acceptance are still outstanding.
 
-`GET /api/config` now returns **`cli_api_version: 0`**: the durable CLI contract is
-not available. A future client requiring v1 must stop with an update message,
-not fall back to unsafe legacy submission/retry. Do not change this value to 1
-until durable create, lookup, human input, retry and cancellation are implemented
-and tested together. `TARGET_CLI_API_VERSION` identifies the draft being developed;
-it does not advertise support.
+The full target wire types in `backend/consultation_contract.py` and their
+synthetic fixtures in `tests/fixtures/cli` are **draft v1 contracts**.
+`cli_api_version: 0` means that full contract is not available. A future client
+requiring it must stop with an update message rather than fall back to legacy
+submission or retry. Do not raise this value until the full scope and recovery
+behavior are implemented and tested together. `TARGET_CLI_API_VERSION` identifies
+the draft; it does not advertise support.
 
-## Available versus proposed
+## Legacy endpoints versus proposed full contract
 
-| Available today (unchanged) | Not implemented yet |
+| Available legacy operations | Planned full API operations |
 | --- | --- |
 | Authenticated config, conversations, installed skills, Markdown export | Idempotent `PUT /api/consultations/{run_id}` |
 | Conversation-scoped queue/status polling | Run history and durable run-specific snapshots |
