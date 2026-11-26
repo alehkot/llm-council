@@ -21,6 +21,8 @@ from . import (
     refinement_provider,
     run_admission,
     run_inspection,
+    run_negative_execution,
+    run_negative_provider,
     run_stage1_continuation_provider,
     run_stage1_execution,
     run_stage1_provider,
@@ -160,6 +162,13 @@ class Stage2StepHandle(RefinementStepHandle):
     turn: int = 0
 
 
+@dataclass(frozen=True)
+class NegativeStepHandle(RefinementStepHandle):
+    """Process-local ownership of one explicitly selected negative evaluation."""
+
+    model: str
+
+
 def _snapshot_fingerprint(payload: Dict[str, Any]) -> str:
     """Stable digest of a snapshot used as a long-poll change cursor."""
 
@@ -202,6 +211,7 @@ class ConsultationManager:
         self._cli_refinement_steps: Dict[str, RefinementStepHandle] = {}
         self._cli_stage1_steps: Dict[tuple[str, str], Stage1StepHandle] = {}
         self._cli_stage2_steps: Dict[tuple[str, str], Stage2StepHandle] = {}
+        self._cli_negative_steps: Dict[tuple[str, str], NegativeStepHandle] = {}
         self._restored = False
 
     @staticmethod
@@ -614,6 +624,10 @@ class ConsultationManager:
                 raise refinement_execution.ExecutionConflict(
                     "Run did not request refinement"
                 )
+            if self._has_cli_negative_owner(run_id):
+                raise refinement_execution.ExecutionConflict(
+                    "Conversation is owned by an internal negative evaluator"
+                )
             if snapshot["pre_query"] is not None:
                 raise refinement_execution.ExecutionConflict(
                     "Run has advanced beyond refinement"
@@ -792,6 +806,7 @@ class ConsultationManager:
             if (
                 self._has_legacy_owner(conversation_id)
                 or (refinement is not None and not refinement._future.done())
+                or self._has_cli_negative_owner(run_id)
                 or any(
                     owner_run == run_id and not handle._future.done()
                     for (owner_run, _), handle in self._cli_stage2_steps.items()
@@ -977,6 +992,7 @@ class ConsultationManager:
             if (
                 self._has_legacy_owner(conversation_id)
                 or (refinement is not None and not refinement._future.done())
+                or self._has_cli_negative_owner(run_id)
                 or any(
                     owner_run == run_id and not handle._future.done()
                     for (owner_run, _), handle in self._cli_stage1_steps.items()
@@ -1045,6 +1061,125 @@ class ConsultationManager:
             if owned is not None and owned._future is future:
                 self._cli_stage2_steps.pop(key)
 
+    def _has_cli_negative_owner(self, run_id: str) -> bool:
+        """Check manager-owned work while holding the manager lock."""
+        return any(
+            owner_run == run_id and not handle._future.done()
+            for (owner_run, _), handle in self._cli_negative_steps.items()
+        )
+
+    def schedule_cli_negative_evaluator(
+        self,
+        run_id: str,
+        model: str,
+        *,
+        expected_revision: int,
+        api_key: str,
+        retry_token: str | None = None,
+        _transport: Any = None,
+    ) -> NegativeStepHandle:
+        """Own one pinned critique, with no public route or automatic next step."""
+        run_id = str(uuid.UUID(run_id))
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise ValueError("Expected revision must be a nonnegative integer")
+        if not isinstance(model, str) or not model:
+            raise ValueError("A saved member identity is required")
+        retry_token = str(uuid.UUID(retry_token)) if retry_token is not None else None
+        run_stage1_provider._provider(api_key, _transport)
+        key = (run_id, model)
+        with self._lock:
+            owned = self._cli_negative_steps.get(key)
+            if owned is not None and not owned._future.done():
+                if (owned.revision, owned.retry_token) != (
+                    expected_revision,
+                    retry_token,
+                ):
+                    raise run_negative_execution.ExecutionConflict(
+                        "Another negative evaluator boundary is already scheduled"
+                    )
+                return owned
+            snapshot = run_inspection.inspect(run_id)
+            if snapshot is None or snapshot["internal_phase"] == "initializing":
+                raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+            interaction = snapshot["interaction"]
+            prepared = snapshot["negative_inputs"]
+            review = snapshot["response_review_policy"]
+            if interaction is None or interaction["revision"] != expected_revision:
+                raise run_negative_execution.ExecutionConflict(
+                    "Negative-stage revision changed"
+                )
+            if (
+                prepared is None
+                or prepared["source_revision"] != expected_revision
+                or review is None
+                or model not in review["active_models"]
+            ):
+                raise run_negative_execution.ExecutionConflict(
+                    "Evaluator does not identify saved negative-stage input"
+                )
+            refinement = self._cli_refinement_steps.get(run_id)
+            if (
+                self._has_legacy_owner(snapshot["conversation_id"])
+                or (refinement is not None and not refinement._future.done())
+                or any(
+                    owner_run == run_id and not handle._future.done()
+                    for owners in (self._cli_stage1_steps, self._cli_stage2_steps)
+                    for (owner_run, _), handle in owners.items()
+                )
+            ):
+                raise run_negative_execution.ExecutionConflict(
+                    "Conversation is owned by other consultation work"
+                )
+            future = self._executor.submit(
+                self._run_cli_negative_evaluator,
+                run_id,
+                model,
+                expected_revision,
+                api_key,
+                retry_token,
+                _transport,
+            )
+            handle = NegativeStepHandle(
+                run_id, expected_revision, retry_token, future, model
+            )
+            self._cli_negative_steps[key] = handle
+        future.add_done_callback(
+            lambda finished: self._release_cli_negative_evaluator(key, finished)
+        )
+        return handle
+
+    @staticmethod
+    def _run_cli_negative_evaluator(
+        run_id: str,
+        model: str,
+        revision: int,
+        api_key: str,
+        retry_token: str | None,
+        transport: Any,
+    ) -> run_inspection.RunInspectionSnapshot:
+        asyncio.run(
+            run_negative_provider.execute_openrouter(
+                run_id,
+                model,
+                api_key=api_key,
+                expected_revision=revision,
+                retry_token=retry_token,
+                _transport=transport,
+            )
+        )
+        snapshot = run_inspection.inspect(run_id)
+        if snapshot is None:
+            raise run_admission.AdmissionUnavailable("Prepared run is unavailable")
+        return snapshot
+
+    def _release_cli_negative_evaluator(
+        self, key: tuple[str, str], future: Future
+    ) -> None:
+        with self._lock:
+            owned = self._cli_negative_steps.get(key)
+            if owned is not None and owned._future is future:
+                self._cli_negative_steps.pop(key)
+
     def submit(
         self,
         conversation_id: str,
@@ -1061,6 +1196,13 @@ class ConsultationManager:
         selected_skill_ids = list(skill_ids or [])
 
         with self._lock:
+            if any(
+                conversation_id == f"cli-{run_id}" and not handle._future.done()
+                for (run_id, _), handle in self._cli_negative_steps.items()
+            ):
+                raise run_negative_execution.ExecutionConflict(
+                    "Conversation is owned by an internal negative evaluator"
+                )
             if any(
                 conversation_id == f"cli-{run_id}" and not handle._future.done()
                 for (run_id, _), handle in self._cli_stage2_steps.items()

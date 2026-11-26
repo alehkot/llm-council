@@ -1,6 +1,6 @@
 """Explicit single-request OpenRouter adapter for one saved negative evaluator.
 
-No public route, scheduler or automatic roster loop selects this adapter.
+An explicit internal worker may select it; no public route or automatic loop does.
 It retains raw critique text, not validated scores or an aggregate result.
 """
 
