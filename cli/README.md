@@ -81,8 +81,11 @@ council retry RUN_UUID --revision ATTEMPT_UUID
 
 This can incur another provider charge. Each token authorizes only that uncertain
 operation; completed sibling responses and stages are reused. Repeating a token
-does not authorize another attempt. Cancellation targets one run and cannot
-recall a request already accepted by a provider.
+does not authorize another attempt. If synthesis reaches the model’s output
+limit, the run reports that limit instead of offering a retry. The truncated
+text is not shown as the final answer; earlier answers and reviews remain
+available. Basic runs cannot continue that response. Cancellation targets one
+run and cannot recall a request already accepted by a provider.
 
 `--json` emits one structured result on stdout. Progress and reconnect hints use
 stderr. Exit codes: 0 success/detached submission, 1 operation failure, 2 invalid

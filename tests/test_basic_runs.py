@@ -261,6 +261,71 @@ class BasicRunsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.calls), 5)
         self.assertEqual(basic_runs.snapshot(self.run).lifecycle.value, "complete")
 
+    async def _complete_with_length_limited_synthesis(self) -> None:
+        await self.start()
+        await self.answer()
+        real = run_stage1_provider._provider("synthetic", None)
+
+        async def provider(**kwargs):
+            result = await real(**kwargs)
+            if kwargs["payload"]["model"] == "test/chair":
+                return {
+                    **result,
+                    "content": "Unfinished synthesis sentinel",
+                    "finish_reason": "length",
+                    "usage": {"completion_tokens": 8192},
+                }
+            return result
+
+        with patch.object(run_stage1_provider, "_provider", return_value=provider):
+            await self.answer()
+
+    async def test_synthesis_length_is_saved_without_final_answer_or_retry(
+        self,
+    ) -> None:
+        await self._complete_with_length_limited_synthesis()
+
+        state = basic_runs.snapshot(self.run)
+        self.assertEqual(state.lifecycle.value, "failed", state)
+        self.assertIn("output limit", state.error)
+        self.assertIsNone(state.retry)
+        self.assertIsNone(state.result)
+        self.assertEqual(set(state.stages), {"stage1", "stage2"})
+        self.assertNotIn("Unfinished synthesis sentinel", state.model_dump_json())
+        self.assertNotIn("Unfinished synthesis sentinel", basic_runs.export(self.run))
+        saved = basic_runs._record(self.run)["basic_run"]["synthesis"]
+        self.assertEqual(saved["result"]["finish_reason"], "length")
+        self.assertEqual(saved["result"]["content"], "Unfinished synthesis sentinel")
+        self.assertEqual(saved["result"]["usage"], {"completion_tokens": 8192})
+
+        with self.assertRaisesRegex(ValueError, "Retry revision is stale"):
+            basic_runs.retry(self.run, saved["attempt"])
+        basic_runs.create(self.run, self.request)
+        basic_runs.schedule(self.run)
+        await self.settle()
+        self.assertEqual(len(self.calls), 5)
+        self.assertEqual(basic_runs.snapshot(self.run), state)
+
+    async def test_restart_after_saving_synthesis_length_does_not_call_provider(
+        self,
+    ) -> None:
+        await self._complete_with_length_limited_synthesis()
+        before = basic_runs._record(self.run)["basic_run"]["synthesis"]
+        self.assertIsNotNone(before["result"])
+        # Simulate an interruption after the saved result, before the failure status.
+        basic_runs._update(self.run, lifecycle="running", error=None)
+        await basic_runs.shutdown()
+        basic_runs.schedule(self.run)
+        await self.settle()
+
+        self.assertEqual(len(self.calls), 5)
+        state = basic_runs.snapshot(self.run)
+        self.assertEqual(state.lifecycle.value, "failed", state)
+        self.assertIn("output limit", state.error)
+        self.assertIsNone(state.retry)
+        self.assertNotIn("stage3", state.stages)
+        self.assertEqual(basic_runs._record(self.run)["basic_run"]["synthesis"], before)
+
     async def test_answer_before_owner_release_reschedules_once(self) -> None:
         ready, release = asyncio.Event(), asyncio.Event()
         drive = basic_runs._bounded_drive

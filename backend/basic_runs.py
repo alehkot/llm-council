@@ -355,22 +355,28 @@ async def _synthesize(run: str) -> None:
             run_cancellation._register(run, saved["attempt"], task)
         try:
             result = run_stage1_execution.MemberResponse.model_validate(await task)
-            if result.finish_reason != "stop" or not result.content.strip():
-                raise ValueError("Synthesis did not complete")
+            # A length stop is a known provider reply, not an interrupted call.
+            # Save it before reporting failure so restart cannot offer a replay.
             saved["result"] = result.model_dump(mode="json")
             _update(run, synthesis=saved)
         finally:
             with storage._storage_lock:
                 run_cancellation._release(run, saved["attempt"])
-    result = saved["result"]
+    else:
+        result = run_stage1_execution.MemberResponse.model_validate(saved["result"])
+    if result.finish_reason == "length":
+        raise ValueError(
+            "Synthesis reached the model's output limit. Saved answers and reviews "
+            "are available; basic runs do not continue truncated synthesis."
+        )
     _save_stage(
         run,
         "stage3",
         {
             "model": saved["payload"]["model"],
-            "response": result["content"],
-            "finish_reason": result["finish_reason"],
-            "usage": result.get("usage"),
+            "response": result.content,
+            "finish_reason": result.finish_reason,
+            "usage": result.usage,
         },
     )
     _update(run, lifecycle="complete", stage="complete", error=None)
