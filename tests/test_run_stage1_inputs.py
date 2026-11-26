@@ -48,6 +48,8 @@ LIMITS = {
 
 
 class Stage1InputTests(unittest.TestCase):
+    fixture_models = ("provider/first", "provider/second")
+
     def setUp(self):
         self.fixture = skill_fixtures.DurableSkillPlanTests()
         self.fixture.setUp()
@@ -55,7 +57,7 @@ class Stage1InputTests(unittest.TestCase):
         self.run, self.root = self.fixture.run, self.fixture.root
         for key, value in {
             "MODEL_BACKEND": "openrouter",
-            "COUNCIL_MODELS": ["provider/first", "provider/second"],
+            "COUNCIL_MODELS": list(self.fixture_models),
             "NEGATIVE_MODE_ENABLED": False,
             "DELIBERATION_ENABLED": True,
             "PAIRWISE_RANKING_ENABLED": False,
@@ -86,7 +88,11 @@ class Stage1InputTests(unittest.TestCase):
             patch.object(
                 model_context,
                 "model_limits",
-                AsyncMock(side_effect=[LIMITS, {**LIMITS, "supported_parameters": []}]),
+                AsyncMock(
+                    side_effect=[LIMITS]
+                    + [{**LIMITS, "supported_parameters": []}]
+                    * (len(self.fixture_models) - 1)
+                ),
             ),
         ):
             self.budgets = asyncio.run(

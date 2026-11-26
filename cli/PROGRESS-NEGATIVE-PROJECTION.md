@@ -39,3 +39,6 @@ a public stage or feed raw text into ranking from this evidence alone.
   public API version stayed at 0 and the separate basic-run API version at 1.
   Self-reviewed; no independent reviewer, native macOS/Keychain, Rust, live model
   or full local build in this increment.
+
+The separate [validated critique reader](PROGRESS-NEGATIVE-VALIDATION.md) now
+checks saved labels, scores and summaries. This raw reader remains unchanged.
