@@ -19,5 +19,5 @@ public CLI command is enabled by this step.
 
 Starting development: `786267122993521d868150b4b5d1992bb33c62ad`.
 Upstream main: `d90cb29427d17b6ffa7dec9629f89e9e4b357c00`.
-Next, design the read-only projection with complete critic provenance before
-the negative stage can feed ranking or synthesis.
+The [read-only critique checkpoint](PROGRESS-NEGATIVE-PROJECTION.md) records
+the next step. Raw stop evidence still does not feed ranking or synthesis.
