@@ -69,8 +69,9 @@ council cancel RUN_UUID
 ```
 
 `show` prints the final answer when available. Stage inspection includes saved
-member/reviewer output. History lists summaries of up to 100 recent basic runs,
-without the stage bodies. Export reuses
+member/reviewer output. History lists up to 100 recent basic runs, with each run’s ID, status, date
+and a short question excerpt when supplied by the backend. It does not include
+stage bodies. Export reuses
 the backend Markdown exporter and refuses to overwrite an existing destination.
 
 An uncertain attempt produces an exact consent command:

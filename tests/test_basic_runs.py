@@ -380,3 +380,39 @@ class BasicRunsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len(basic_runs.snapshot(self.run).stages["stage1"][0]["response"]), 400_000
         )
+
+    async def test_history_has_bounded_question_excerpt_without_changing_the_run(
+        self,
+    ) -> None:
+        import json
+
+        content = "  Подберите\n  пример\t" + "я" * 100 + " tail marker"
+        self.request = self.request.model_copy(update={"content": content})
+        await self.start()
+        import httpx
+
+        from backend import main
+
+        before = basic_runs.snapshot(self.run)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=main.app), base_url="http://test"
+        ) as client:
+            unauthorized = await client.get("/api/basic-runs")
+            self.assertEqual(unauthorized.status_code, 401)
+            self.assertNotIn("Подберите", unauthorized.text)
+            response = await client.get(
+                "/api/basic-runs", headers={"X-API-Key": main.API_AUTH_KEY}
+            )
+            response.raise_for_status()
+            history = response.json()
+        self.assertEqual(len(history), 1)
+        metadata = history[0]["provenance"]
+        excerpt = metadata["question_excerpt"]
+        self.assertEqual(excerpt, ("Подберите пример " + "я" * 100)[:79] + "…")
+        self.assertEqual(len(excerpt), 80)
+        self.assertNotIn("tail marker", json.dumps(history))
+        self.assertEqual(history[0]["lifecycle"], "waiting_input")
+        self.assertEqual(basic_runs.snapshot(self.run), before)
+        self.assertNotIn("question_excerpt", before.provenance)
+        self.assertEqual(run_admission.get(self.run)["request"]["content"], content)
+        self.assertFalse(self.calls)

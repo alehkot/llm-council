@@ -250,11 +250,19 @@ def cancel(run: str, revision: str) -> RunSnapshot:
 
 
 def history() -> list[dict[str, Any]]:
-    return [
-        snapshot(r["run_id"], include_stages=False).model_dump(mode="json")
-        for r in run_admission.list_receipts(100)
-        if "basic_run" in r
-    ]
+    rows = []
+    for record in run_admission.list_receipts(100):
+        if "basic_run" not in record:
+            continue
+        row = snapshot(record["run_id"], include_stages=False).model_dump(mode="json")
+        # This preview belongs only to history; it does not change the saved
+        # question, inspection snapshots, or the run's cancellation cursor.
+        question = " ".join(record["request"]["content"].split())
+        row["provenance"]["question_excerpt"] = (
+            question if len(question) <= 80 else question[:79].rstrip() + "…"
+        )
+        rows.append(row)
+    return rows
 
 
 def export(run: str) -> str:

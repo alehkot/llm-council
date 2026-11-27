@@ -120,6 +120,27 @@ async fn submit(
         .map_err(|_| "The backend accepted this run, but its local acknowledgment could not be saved. Use the printed resume command; do not repeat ask.".to_owned())?;
     Ok(state)
 }
+fn history_line(state: &RunSnapshot) -> String {
+    let summary_text = |key: &str| -> String {
+        let text = state
+            .provenance
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        terminal_text(&text.split_whitespace().collect::<Vec<_>>().join(" "))
+    };
+    let date = summary_text("created_at");
+    let question = summary_text("question_excerpt");
+    let mut row = format!("{} {:?}", state.run_id, state.lifecycle);
+    for part in [date, question] {
+        if !part.is_empty() {
+            row.push(' ');
+            row.push_str(&part);
+        }
+    }
+    row
+}
+
 fn display(state: &RunSnapshot, json_output: bool, stage: Option<&Stage>) -> Result<(), String> {
     if json_output {
         println!("{}", json!(state));
@@ -350,18 +371,7 @@ pub async fn execute(
                 println!("{}", json!(states));
             } else {
                 for state in states {
-                    println!(
-                        "{} {:?} {}",
-                        state.run_id,
-                        state.lifecycle,
-                        terminal_text(
-                            state
-                                .provenance
-                                .get("created_at")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                        )
-                    );
+                    println!("{}", history_line(&state));
                 }
             }
             Ok(0)
@@ -400,6 +410,26 @@ mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+
+    #[test]
+    fn history_line_keeps_one_row_and_accepts_an_old_backend() {
+        let id = Uuid::nil();
+        let mut state: RunSnapshot = serde_json::from_value(json!({
+            "run_id": id,
+            "conversation_id": "example",
+            "lifecycle": "queued",
+            "cursor": "saved",
+            "provenance": {"created_at": "2026-11-27"}
+        }))
+        .unwrap();
+        let expected = format!("{id} Queued 2026-11-27");
+        assert_eq!(history_line(&state), expected);
+        let unsafe_excerpt = json!("First\nline\t\u{001b}");
+        state
+            .provenance
+            .insert("question_excerpt".into(), unsafe_excerpt);
+        assert_eq!(history_line(&state), format!("{expected} First line \\u{{1b}}"));
+    }
 
     #[tokio::test]
     async fn acknowledgement_failure_reports_accepted_submission() {
