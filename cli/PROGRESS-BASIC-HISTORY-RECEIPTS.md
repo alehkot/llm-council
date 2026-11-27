@@ -20,3 +20,17 @@ Ruff lint/format and guarded FastAPI startup, authentication and shutdown.
 All 1,366 offline backend tests passed with external HTTP and sockets blocked.
 No local full build, live provider, native macOS or browser check. Consult the
 normal Woodpecker evidence for the exact published commit.
+
+## Normal CI follow-up
+
+[Woodpecker #36](https://github.com/alehkot/llm-council/commit/0516f8fc2773485c4c8d9aad600203e7c608ecd0#commitcomment-212137378)
+reported a 10-second wait timeout in the existing fully mocked legacy web
+Codex synthesis persistence test. The test exercises persisted output, not
+the speed of a particular worker. It now uses the status endpoint's cursor
+long poll, with short per-request waits and a 45-second overall test budget.
+The same completion, stage, output and no-network assertions remain in force;
+no runtime timeout, pipeline or provider behavior changed. The exact CI
+worker delay was not measured. With an artificial 11-second delay in the
+fake synthesis command, the previous fixture timed out and the new one
+passed. All 32 focused tests and Ruff checks passed.
+The guarded full backend suite then passed all 1,366 tests on the corrected source.

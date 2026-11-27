@@ -255,18 +255,31 @@ class CouncilE2ETests(unittest.TestCase):
             },
         )
         self.assertEqual(submitted.status_code, 200, submitted.text)
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            response = self.client.get(
-                f"/api/conversations/{conversation_id}/consultation/status"
+        # Poll like the frontend instead of opening many TestClient requests
+        # while the same machine is running the consultation worker.
+        budget = 45
+        deadline = time.monotonic() + budget
+        cursor = None
+        last_status = None
+        while (remaining := deadline - time.monotonic()) > 0:
+            params = (
+                {} if cursor is None else {"cursor": cursor, "wait": min(2, remaining)}
             )
-            self.assertEqual(response.status_code, 200)
+            response = self.client.get(
+                f"/api/conversations/{conversation_id}/consultation/status",
+                params=params,
+            )
+            self.assertEqual(response.status_code, 200, response.text)
             snapshot = response.json()
-            if snapshot["status"] in {"complete", "failed"}:
+            last_status = snapshot["status"]
+            if last_status in {"complete", "failed"}:
                 break
-            time.sleep(0.01)
+            cursor = snapshot["cursor"]
         else:
-            self.fail("Mocked consultation did not finish in 10 seconds")
+            self.fail(
+                f"Mocked consultation did not finish in {budget} seconds "
+                f"(last status: {last_status!r})"
+            )
         self.manager._executor.shutdown(wait=True)
         saved = self.client.get(f"/api/conversations/{conversation_id}").json()
         self.assertEqual(self.unexpected_network, [])
