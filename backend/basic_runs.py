@@ -245,6 +245,11 @@ def retry(run: str, revision: str) -> RunSnapshot:
         record = _record(run)
         consent = record["basic_run"]["consent"]
         if revision in consent.values():
+            # A durable consent may survive a crash before its worker starts.
+            # Only the same, still-current attempt may recover that handoff.
+            if state.retry is not None and state.retry.revision == revision:
+                _start(run)
+                return snapshot(run)
             return state
         if state.retry is None or state.retry.revision != revision:
             raise ValueError("Retry revision is stale; reload the run")

@@ -161,6 +161,87 @@ class BasicRunsTests(unittest.IsolatedAsyncioTestCase):
         await self.answer()
         self.assertEqual(basic_runs.snapshot(self.run).lifecycle.value, "complete")
 
+    async def test_retry_replay_recovers_interrupted_worker_handoff(self) -> None:
+        await self.start()
+        self.provider_fails = True
+        await self.answer()
+        revision = basic_runs.snapshot(self.run).retry.revision
+
+        # The consent write succeeds, but the request handler never hands off
+        # to a worker. Only the persisted state survives the interruption.
+        with patch.object(
+            basic_runs, "_start", side_effect=RuntimeError("synthetic interruption")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "synthetic interruption"):
+                basic_runs.retry(self.run, revision)
+        await basic_runs.shutdown()
+        self.assertEqual(len(self.calls), 2)
+
+        self.provider_fails = False
+        basic_runs.retry(self.run, revision)
+        basic_runs.retry(self.run, revision)
+        await self.settle()
+        self.assertEqual(
+            [call["payload"]["model"] for call in self.calls].count("test/a"), 2
+        )
+        self.assertEqual(
+            [call["payload"]["model"] for call in self.calls].count("test/b"), 1
+        )
+        self.assertEqual(basic_runs.snapshot(self.run).lifecycle.value, "waiting_input")
+
+    async def test_old_retry_replay_does_not_start_a_different_accepted_attempt(
+        self,
+    ) -> None:
+        await self.start()
+        self.provider_fails = True
+        await self.answer()
+        old_revision = basic_runs.snapshot(self.run).retry.revision
+        self.provider_fails = False
+        basic_runs.retry(self.run, old_revision)
+        await self.settle()
+
+        real = run_stage1_provider._provider("synthetic", None)
+
+        async def fail_reviewer(**kwargs):
+            if kwargs["payload"]["model"] == "test/b":
+                raise RuntimeError("synthetic reviewer interruption")
+            return await real(**kwargs)
+
+        with patch.object(run_stage1_provider, "_provider", return_value=fail_reviewer):
+            await self.answer()
+        retry = basic_runs.snapshot(self.run).retry
+        self.assertEqual(retry.operation, "stage2:test/b")
+        with patch.object(basic_runs, "_start", side_effect=RuntimeError):
+            with self.assertRaises(RuntimeError):
+                basic_runs.retry(self.run, retry.revision)
+        await basic_runs.shutdown()
+
+        calls = len(self.calls)
+        basic_runs.retry(self.run, old_revision)
+        await self.settle()
+        self.assertEqual(len(self.calls), calls)
+        self.assertEqual(basic_runs.snapshot(self.run).retry, retry)
+        basic_runs.retry(self.run, retry.revision)
+        await self.settle()
+        self.assertEqual(len(self.calls), calls + 2)  # Reviewer and chairman.
+        self.assertEqual(basic_runs.snapshot(self.run).lifecycle.value, "complete")
+
+    async def test_accepted_retry_does_not_consent_to_new_attempt(self) -> None:
+        await self.start()
+        self.provider_fails = True
+        await self.answer()
+        old = basic_runs.snapshot(self.run).retry
+        basic_runs.retry(self.run, old.revision)
+        await self.settle()
+        new = basic_runs.snapshot(self.run).retry
+        self.assertEqual(new.operation, old.operation)
+        self.assertNotEqual(new.revision, old.revision)
+
+        basic_runs.retry(self.run, old.revision)
+        await self.settle()
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(basic_runs.snapshot(self.run).retry, new)
+
     async def test_restart_wait_and_cancel_retains_no_new_work(self) -> None:
         await self.start()
         waiting = basic_runs.snapshot(self.run)
