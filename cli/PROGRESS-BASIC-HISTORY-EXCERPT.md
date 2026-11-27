@@ -22,3 +22,10 @@ passed for backend, tests and scripts. The Rust test covers one-line terminal
 escaping and older backends. No local Rust toolchain, full build, rendered
 browser, native macOS Keychain/terminal, live provider, or independent review.
 Check normal Woodpecker on the exact resulting commit for CI and Rust evidence.
+
+The first [published candidate’s Woodpecker #33](https://github.com/alehkot/llm-council/commit/1ded9b9ad08479e91df158d9562863f5e6b6c1da#commitcomment-212081463)
+reached the Rust step after the backend and frontend checks, then stopped on
+Rust formatting for the new assertion. This follow-up applies the exact
+displayed rustfmt correction without changing its conditions or runtime code.
+All 1,363 backend tests passed locally with networking guarded after allowing
+the suite its full runtime.

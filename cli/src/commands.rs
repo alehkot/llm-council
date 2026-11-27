@@ -428,7 +428,10 @@ mod tests {
         state
             .provenance
             .insert("question_excerpt".into(), unsafe_excerpt);
-        assert_eq!(history_line(&state), format!("{expected} First line \\u{{1b}}"));
+        assert_eq!(
+            history_line(&state),
+            format!("{expected} First line \\u{{1b}}")
+        );
     }
 
     #[tokio::test]
