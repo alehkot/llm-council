@@ -261,15 +261,19 @@ def get(run_id: str) -> dict[str, Any] | None:
         return _read(run_id)
 
 
-def list_receipts(limit: int = 50) -> list[dict[str, Any]]:
-    """Return newest internal receipts, excluding deleted IDs, with bounded output."""
+def list_receipts(limit: int = 50, *, basic_only: bool = False) -> list[dict[str, Any]]:
+    """Return the newest eligible internal receipts, excluding deleted IDs."""
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("limit must be an integer from 1 to 100")
     with storage._storage_lock:
         records = []
         for path in _directory().glob("*.json"):
             record = _read(path.stem)
-            if record is not None and record["phase"] != "deleted":
+            if (
+                record is not None
+                and record["phase"] != "deleted"
+                and (not basic_only or "basic_run" in record)
+            ):
                 records.append(record)
         return sorted(
             records,

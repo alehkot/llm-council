@@ -366,6 +366,24 @@ class BasicRunsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(basic_runs.snapshot(self.run).lifecycle.value, "waiting_input")
         self.assertEqual(len(self.calls), 2)
 
+    async def test_history_limits_basic_runs_not_all_admission_receipts(self) -> None:
+        await self.start()
+        # The newest 100 admission receipts need not be basic runs.
+        other_runs = [str(uuid4()) for _ in range(100)]
+        for run in other_runs:
+            run_admission.prepare(run, self.request)
+        newest = str(uuid4())
+        basic_runs.create(newest, self.request)
+        await self.settle()
+
+        self.assertNotIn(
+            self.run, [item["run_id"] for item in run_admission.list_receipts(100)]
+        )
+        self.assertEqual(
+            [item["run_id"] for item in basic_runs.history()], [newest, self.run]
+        )
+        self.assertEqual(self.calls, [])
+
     async def test_history_omits_large_stage_bodies(self) -> None:
         import json
 
