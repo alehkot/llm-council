@@ -118,6 +118,24 @@ def snapshot(run: str, *, include_stages: bool = True) -> RunSnapshot:
                     lifecycle = "queued"
         conversation = storage.get_conversation(record["conversation_id"])
         message = conversation["messages"][record["assistant_index"]]
+        provenance: dict[str, Any] = {
+            "capability": "basic-v1",
+            "created_at": record["created_at"],
+        }
+        if include_stages:
+            try:
+                selection = council_selection.validate_saved(record, interaction)
+            except run_admission.AdmissionUnavailable:
+                # Optional provenance must not hide otherwise inspectable results.
+                selection = None
+            if selection is not None:
+                provenance["council_selection"] = {
+                    "models": list(selection.council_models),
+                    "backend": selection.model_backend,
+                    "negative_enabled": selection.negative_enabled,
+                    "deliberation_enabled": selection.deliberation_enabled,
+                    "pairwise_ranking_enabled": selection.pairwise_ranking_enabled,
+                }
         payload = dict(
             run_id=run,
             conversation_id=record["conversation_id"],
@@ -139,7 +157,7 @@ def snapshot(run: str, *, include_stages: bool = True) -> RunSnapshot:
                 for k in ("stage1", "stage2", "stage3")
                 if include_stages and message.get(k) is not None
             },
-            provenance={"capability": "basic-v1", "created_at": record["created_at"]},
+            provenance=provenance,
             error=state.get("error"),
         )
         result = RunSnapshot(**payload)

@@ -416,3 +416,50 @@ class BasicRunsTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("question_excerpt", before.provenance)
         self.assertEqual(run_admission.get(self.run)["request"]["content"], content)
         self.assertFalse(self.calls)
+
+    async def test_inspection_uses_the_saved_council_selection_not_current_settings(
+        self,
+    ) -> None:
+        await self.start()
+        self.assertNotIn("council_selection", basic_runs.snapshot(self.run).provenance)
+        await self.answer()
+        selected = {
+            "models": ["test/a", "test/b"],
+            "backend": "openrouter",
+            "negative_enabled": False,
+            "deliberation_enabled": False,
+            "pairwise_ranking_enabled": config.PAIRWISE_RANKING_ENABLED,
+        }
+        calls = len(self.calls)
+        with (
+            patch.object(config, "COUNCIL_MODELS", ["other/roster"]),
+            patch.object(config, "NEGATIVE_MODE_ENABLED", True),
+            patch.object(config, "DELIBERATION_ENABLED", True),
+            patch.object(
+                config,
+                "PAIRWISE_RANKING_ENABLED",
+                not selected["pairwise_ranking_enabled"],
+            ),
+        ):
+            state = basic_runs.snapshot(self.run)
+            self.assertEqual(state.provenance["council_selection"], selected)
+            self.assertNotIn("council_selection", basic_runs.history()[0]["provenance"])
+            self.assertEqual(len(self.calls), calls)
+        await self.answer()
+        self.assertEqual(
+            basic_runs.snapshot(self.run).provenance["council_selection"], selected
+        )
+
+    async def test_damaged_optional_selection_does_not_hide_saved_stage_evidence(
+        self,
+    ) -> None:
+        await self.start()
+        await self.answer()
+        self.assertGreater(len(basic_runs.snapshot(self.run).stages["stage1"]), 0)
+        record = run_admission.get(self.run)
+        record["council_selection"]["private"] = "synthetic-private-provenance"
+        run_admission._write(record)
+        state = basic_runs.snapshot(self.run)
+        self.assertGreater(len(state.stages["stage1"]), 0)
+        self.assertNotIn("council_selection", state.provenance)
+        self.assertNotIn("synthetic-private-provenance", state.model_dump_json())

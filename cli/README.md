@@ -74,6 +74,12 @@ and a short question excerpt when supplied by the backend. It does not include
 stage bodies. Export reuses
 the backend Markdown exporter and refuses to overwrite an existing destination.
 
+For a run with a saved council selection, `council show RUN_UUID --json`
+includes the original member roster, backend name and selected stage switches
+in `provenance.council_selection`. It does not substitute the backend's current
+settings, show the final reviewer set or infer a synthesis model. If selection
+has not been saved yet, or could not be read, the field is absent.
+
 An uncertain attempt produces an exact consent command:
 
 ```sh
